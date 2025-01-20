@@ -1,0 +1,19 @@
+<div class="main-app rounded-3xl shadow-2xl">
+    <header class="gradient-to-b-teal text-gray-200 p-4 shadow-md rounded-t-3xl">
+        <h1 class="text-2xl roboto-light">Chat Application</h1>
+    </header>
+    <main class="flex-1 p-4 overflow-auto">
+        <div id="chatBox"
+            class="relative h-full bg-teal-600 p-4 rounded-lg shadow-md space-y-4 overflow-y-auto">
+            <!-- Messages will be dynamically inserted here -->
+        </div>
+    </main>
+    <footer class="bg-gray-800 rounded-b-3xl p-4">
+        <div class="flex">
+            <input disabled autofocus="on" id="messageInput" type="text" placeholder="Type a message..."
+                class="flex-1 p-2 border rounded-lg border-gray-300 bg-gray-500 text-gray-200 focus:outline-none focus:ring-2 focus:ring-teal-300">
+            <button id="sendButton"
+                class="p-2 ml-2 bg-teal-800 text-gray-200 rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-300">Send</button>
+        </div>
+    </footer>
+</div>

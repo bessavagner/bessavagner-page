@@ -1,0 +1,310 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .box-debug-1 {
+    @apply border-2 border-red-700 bg-red-300 opacity-20;
+  }
+  .box-debug-2 {
+    @apply border-2 border-green-700 bg-green-300 opacity-20;
+  }
+  .box-debug-3 {
+    @apply border-2 border-blue-700 bg-blue-300 opacity-20;
+  }
+  body {
+    @apply relative flex flex-col justify-between bg-base-100;
+  }
+
+  .header {
+    @apply navbar justify-end;
+  }
+  .home-container {
+    @apply flex flex-col justify-center items-center;
+  }
+  .home-content {
+    @apply flex flex-col items-center w-screen;
+  }
+  .home-content section {
+    @apply relative flex flex-col items-center lg:justify-center h-screen w-full;
+  }
+  .subsection {
+    @apply relative flex flex-col justify-start items-center w-full;
+  }
+  #section-home {
+    @apply justify-evenly lg:py-20 px-0 lg:px-14;
+  }
+  .font-base {
+    @apply roboto-regular text-base-content;
+  }
+  .font-header {
+    @apply font-base roboto-thin;
+  }
+  .font-header-1 {
+    @apply font-header roboto-condensed-800;
+    @apply text-7xl sm:text-8xl md:text-9xl lg:text-[180px];
+  }
+  .font-header-2 {
+    @apply font-header text-6xl sm:text-7xl md:text-8xl lg:text-9xl;
+  }
+  .font-header-3 {
+    @apply font-header text-5xl sm:text-6xl md:text-7xl lg:text-8xl;
+  }
+  .font-header-4 {
+    @apply font-header text-4xl sm:text-5xl md:text-6xl lg:text-7xl;
+  }
+  .font-header-5 {
+    @apply font-header text-3xl sm:text-4xl md:text-5xl lg:text-6xl;
+  }
+  #bessa {
+    @apply font-header-2 roboto-regular ml-10;
+    @apply mt-[-12px] sm:mt-[-14px] md:mt-[-16px] lg:mt-[-18px];
+  }
+  #developer {
+    @apply font-header-1 align-text-top text-secondary-content;
+    @apply shadow-base-300 text-shadow mt-[-20px] sm:mt-[-25px] md:mt-[-30px];
+  }
+  .landing-mockup-code {
+    @apply mockup-code;
+    @apply absolute top-0 mx-auto;
+    @apply flex flex-col md:flex-row;
+    @apply w-11/12 lg:w-10/12 h-[500px] lg:h-[700px];
+    @apply rounded-3xl shadow-2xl shadow-primary;
+  }
+  .snippet {
+    @apply pt-10;
+  }
+  .mockup-code-container {
+    @apply pt-10 w-full max-w-full overflow-scroll;
+  }
+  .mockup-code-container + .mockup-code-container {
+    @apply mt-5;
+  }
+  .mockup-code-wrapper {
+    @apply w-fit;
+  }
+  .mockup-code-wrapper pre {
+    @apply overflow-x-hidden my-0 py-0;
+  }
+  .mockup-code-wrapper > pre > code {
+    @apply bg-transparent overflow-x-hidden;
+  }
+  .mockup-code-container:not(:first-of-type) {
+    @apply mb-5;
+  }
+  #section-about .subsection {
+    @apply h-full lg:w-11/12 justify-end;
+  }
+  .stacks {
+    @apply flex flex-col justify-around items-center h-full w-full;
+  }
+  .progress, .progress::-webkit-progress-value, .progress::-moz-progress-bar {
+    @apply rounded-none;
+  }
+  #section-cards {
+    @apply justify-start w-full;
+  }
+  #section-cards .subsection {
+    @apply w-full sm:mt-64;
+  }
+  #section-cards .subsection > h2 {
+    @apply mt-20
+  }
+  #section-cards .cards-container {
+    @apply flex flex-col sm:flex-row justify-evenly items-center w-full mt-20;
+  }
+  #section-cards .card {
+    @apply relative shadow-xl h-96 w-3/4 sm:w-1/3 mx-0 sm:mx-10 z-[1];
+  }
+  #section-cards .card-body > h2,
+  #section-cards .card-body p:first-child {
+    @apply text-base-content mt-4;
+  }
+  .card .cover {
+    @apply absolute inset-0 m-auto w-[96%] h-[96%];
+    @apply bg-base-100 rounded-2xl shadow-inner;
+  }
+  #section-sample-chat {
+    @apply relative;
+  }
+  .main-app {
+    @apply absolute top-[-10%] flex flex-col justify-between z-10;
+    @apply h-[calc(100vh_-_64px)] sm:h-[850px] w-screen mx-10 max-w-[400px] sm:w-1/2 mt-5 sm:mt-auto sm:mb-5;
+    @apply bg-gray-900 border-l-gray-950;
+  }
+  .gradient-to-b-teal {
+    @apply bg-gradient-to-b from-teal-700 from-10% via-teal-800 via-90% to-teal-950;
+    @apply hover:from-teal-600 hover:from-10% hover:via-teal-700 hover:via-90% hover:to-teal-800;
+  }
+
+}
+
+@layer utilities {
+
+  #chatBox {
+    background-image: linear-gradient(rgba(255,255,255,0.3), rgba(255,255,255,0.3)), url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cGF0aCBkPSJNOC41NyAxLjU3bC02Ljk5IDYuOTkiIHN0cm9rZT0iI2UyZmNmMyIgc3Ryb2tlLXdpZHRoPSIwLjgiLz4KICA8cGF0aCBkPSJNMS41NyAxLjU3bDYuOTkgNi45OSIgIHN0cm9rZT0iI2NlZGNiNyIgc3Ryb2tlLXdpZHRoPSIwLjgiLz4KICA8cGF0aCBkPSJNOC41NyAxNC41MWwtNi45OS02Ljk5IiBzdHJva2U9IiNlMmZjZjMiIHN0cm9rZS13aWR0aD0iMC44Ii8+Cjwvc3ZnPgo=');;
+    background-size: 16px 16px;
+  }
+  .ubuntu-mono-regular {
+    font-family: "Ubuntu Mono", monospace;
+    font-weight: 400;
+    font-style: normal;
+  }
+  .ubuntu-mono-bold {
+    font-family: "Ubuntu Mono", monospace;
+    font-weight: 700;
+    font-style: normal;
+  }
+
+  .ubuntu-mono-regular-italic {
+    font-family: "Ubuntu Mono", monospace;
+    font-weight: 400;
+    font-style: italic;
+  }
+
+  .ubuntu-mono-bold-italic {
+    font-family: "Ubuntu Mono", monospace;
+    font-weight: 700;
+    font-style: italic;
+  }
+
+  .roboto-condensed-800 {
+    font-family: "Roboto Condensed", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 800;
+    font-style: normal;
+  }
+  .roboto-thin {
+    font-family: "Roboto", sans-serif;
+    font-weight: 100;
+    font-style: normal;
+  }
+
+  .roboto-light {
+    font-family: "Roboto", sans-serif;
+    font-weight: 300;
+    font-style: normal;
+  }
+
+  .roboto-regular {
+    font-family: "Roboto", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+  }
+
+  .roboto-medium {
+    font-family: "Roboto", sans-serif;
+    font-weight: 500;
+    font-style: normal;
+  }
+
+  .roboto-bold {
+    font-family: "Roboto", sans-serif;
+    font-weight: 700;
+    font-style: normal;
+  }
+
+  .roboto-black {
+    font-family: "Roboto", sans-serif;
+    font-weight: 900;
+    font-style: normal;
+  }
+
+  .roboto-thin-italic {
+    font-family: "Roboto", sans-serif;
+    font-weight: 100;
+    font-style: italic;
+  }
+
+  .roboto-light-italic {
+    font-family: "Roboto", sans-serif;
+    font-weight: 300;
+    font-style: italic;
+  }
+
+  .roboto-regular-italic {
+    font-family: "Roboto", sans-serif;
+    font-weight: 400;
+    font-style: italic;
+  }
+
+  .roboto-medium-italic {
+    font-family: "Roboto", sans-serif;
+    font-weight: 500;
+    font-style: italic;
+  }
+
+  .roboto-bold-italic {
+    font-family: "Roboto", sans-serif;
+    font-weight: 700;
+    font-style: italic;
+  }
+
+  .roboto-black-italic {
+    font-family: "Roboto", sans-serif;
+    font-weight: 900;
+    font-style: italic;
+  }
+
+  .token.cdata,
+  .token.comment,
+  .token.doctype,
+  .token.prolog {
+    color: #708090;
+  }
+  .token.punctuation {
+    color: #999;
+  }
+  .token.namespace {
+    opacity: 0.7;
+  }
+  .token.boolean,
+  .token.constant,
+  .token.deleted,
+  .token.number,
+  .token.property,
+  .token.symbol,
+  .token.tag {
+    color: #905;
+  }
+  .token.attr-name,
+  .token.builtin,
+  .token.char,
+  .token.inserted,
+  .token.selector,
+  .token.string {
+    color: #690;
+  }
+  .language-css .token.string,
+  .style .token.string,
+  .token.entity,
+  .token.operator,
+  .token.url {
+    color: #9a6e3a;
+    /* background: hsla(0, 0%, 100%, 0.5); */
+  }
+  .token.atrule,
+  .token.attr-value,
+  .token.keyword {
+    color: #07a;
+  }
+  .token.class-name,
+  .token.function {
+    color: #dd4a68;
+  }
+  .token.important,
+  .token.regex,
+  .token.variable {
+    color: #e90;
+  }
+  .token.bold,
+  .token.important {
+    font-weight: 700;
+  }
+  .token.italic {
+    font-style: italic;
+  }
+  .token.entity {
+    cursor: help;
+  }
+}

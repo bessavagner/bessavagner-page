@@ -1,0 +1,49 @@
+# Docker
+docker-compose.yml
+
+# Credentials
+.env
+secrets*
+.pgpass
+
+# Development
+.*env*/
+.py*/
+.git/
+__pycache__/
+.pytest_cache
+.vscode
+.ipynb_checkpoints
+desktop/
+*copy.*
+
+# Build
+dist/
+build/
+node_modules/
+*.pyc
+servers.json
+styles.css
+output.css
+
+# Scripting
+*.ipynb
+
+# LOGS
+*.log
+logs/
+error_logs/
+
+# testing
+media/user*
+*.parquet
+.benchmarks
+
+# data
+data/*
+users*
+target/
+video/
+
+# Others
+z_*
