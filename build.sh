@@ -30,7 +30,7 @@ if [[ "$BUILD" -eq 1 ]]; then
     fi
     if [[ "$PRODUCTION" = "1" ]]; then
         echo "🐋 Building Docker image..."
-        docker build -t "$DOCKER_USERNAME"/"$DOCKER_IMAGENAME" .
+        docker build -t  "$DOCKER_USERNAME"/"$DOCKER_IMAGENAME" .
         echo "🐋 Building Docker image: finished!"
     fi
 else
