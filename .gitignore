@@ -23,7 +23,6 @@ build/
 node_modules/
 *.pyc
 servers.json
-styles.css
 output.css
 
 # Scripting
