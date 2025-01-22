@@ -7,7 +7,7 @@ LABEL stage=tailwindcss_builder
 RUN mkdir -p /usr/src/tailwindcss
 RUN mkdir -p /usr/src/static/css
 WORKDIR /usr/src
-COPY src/tailwindcss/* ./tailwindcss
+COPY src/tailwindcss/* ./tailwindcss/
 COPY src/static/css/input.css ./static/css/input.css
 WORKDIR /usr/src/tailwindcss
 RUN npm install && \
