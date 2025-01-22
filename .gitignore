@@ -24,7 +24,6 @@ node_modules/
 *.pyc
 servers.json
 output.css
-styles.css
 
 # Scripting
 *.ipynb

@@ -1,19 +1,4 @@
 ###
-# TAILWINDCSS BUILD STAGE
-###
-FROM node:18-alpine as tailwindcss_builder
-LABEL stage=tailwindcss_builder
-
-RUN mkdir -p /usr/src/tailwindcss
-RUN mkdir -p /usr/src/static/css
-WORKDIR /usr/src
-COPY src/tailwindcss/* ./tailwindcss/
-COPY src/static/css/input.css ./static/css/input.css
-WORKDIR /usr/src/tailwindcss
-RUN npm install && \
-    npm run build
-
-###
 # PYTHON BUILD STAGE
 ###
 FROM python:3.12.3-slim-bookworm as python_builder
@@ -53,7 +38,6 @@ RUN addgroup --gid ${ID_GROUP} ${GROUP} \
 
 COPY ./ $SRC_DIR
 COPY --from=python_builder /usr/local/.venv /usr/local/.venv
-COPY --from=tailwindcss_builder /usr/src/static/css/styles.css "$SRC_DIR/static/css/"
 
 RUN chown -R ${ID_USER}:${ID_GROUP} "$SRC_DIR" \
     && chown -R ${ID_USER}:${ID_GROUP} "$USER_DIR/home/" \

@@ -64,7 +64,7 @@ To run in container:
 
 1. Set in the `.env` file `PRODUCTION="1"`.
 2. Build the project: `./build.sh`
-3. Run a container: `docker run -p 8080:8080 -v src:/usr/src my-image`
+3. Run a container: `docker run -p 8080:8080`
 4. Open the website in your browser: `http://0.0.0.0:8081`
 
 
