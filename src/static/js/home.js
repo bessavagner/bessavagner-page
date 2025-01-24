@@ -203,4 +203,6 @@ window.addEventListener('load', () => {
   });
 });
 
+
+
 // await typeCode(animations[currentAnimation]);

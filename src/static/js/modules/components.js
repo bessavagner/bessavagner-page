@@ -90,7 +90,7 @@ export class MockupCode extends Component {
 
 export class SlideDownButton extends Component {
     constructor({targetId, tagOrElement = "div", behavior="smooth"}) {
-        super(tagOrElement, "absolute bottom-0 flex justify-center w-full lg:hidden");
+        super(tagOrElement, "slideDownButton absolute bottom-0 flex justify-center w-full lg:hidden");
         this.button = new Component("button", "animate-bounce text-base-300 rounded-full p-4 shadow-lg");
         this.button.element.onclick = () => {
             document.getElementById(targetId).scrollIntoView({ behavior: behavior });

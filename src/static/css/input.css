@@ -64,17 +64,8 @@
   .progress, .progress::-webkit-progress-value, .progress::-moz-progress-bar {
     @apply rounded-none;
   }
-  #section-cards {
-    @apply justify-start w-full;
-  }
-  #section-cards .subsection {
-    @apply w-full sm:mt-64;
-  }
-  #section-cards .subsection > h2 {
-    @apply mt-20
-  }
   .portfolio-card {
-    @apply relative flex flex-col h-52 w-96 my-5 hover:scale-110;
+    @apply relative flex flex-col h-52 lg:h-80 lg:py-2 w-96 my-5 hover:scale-110;
     @apply rounded-xl shadow-lg shadow-neutral bg-neutral text-neutral-content;
   }
   .portfolio-card-body {
