@@ -8,6 +8,7 @@ module.exports = {
     "../app/**/*.py",
     "../static/css/*.css",
     "../static/js/*.js",
+    "../static/js/**/*.js",
     "../templates/*.html",
     "../templates/**/*.html",
   ],

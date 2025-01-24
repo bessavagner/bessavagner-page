@@ -1,4 +1,4 @@
-import { MockupCode } from './modules/components.js'
+import { MockupCode, SlideDownButton } from './modules/components.js'
 
 const animations = [
   {
@@ -149,5 +149,20 @@ function nextAnimation() {
   typeCode(animations[currentAnimation]);
 }
 
-// Start the first animation
-await typeCode(animations[currentAnimation]);
+window.addEventListener('load', () => {
+  typeCode(animations[currentAnimation]);
+  new SlideDownButton({
+    tagOrElement: document.getElementById('arrow-section-about'),
+    targetId: 'section-about'
+  })
+  new SlideDownButton({
+    tagOrElement: document.getElementById('arrow-section-cards'),
+    targetId: 'section-cards'
+  });
+  new SlideDownButton({
+    tagOrElement: document.getElementById('arrow-section-sample-chat'),
+    targetId: 'section-sample-chat'
+  });
+});
+
+// await typeCode(animations[currentAnimation]);

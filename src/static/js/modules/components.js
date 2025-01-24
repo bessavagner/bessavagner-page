@@ -43,6 +43,18 @@ class PreCode extends Component {
     }
 }
 
+class ArrowDown extends Component {
+    constructor() {
+        super("svg", "w-6 h-6");
+        this.element.setAttribute("fill", "none");
+        this.element.setAttribute("stroke", "currentColor");
+        this.element.setAttribute("stroke-width", "2");
+        this.element.setAttribute("viewBox", "0 0 24 24");
+        this.element.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+        this.element.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path>`;
+    }
+}
+
 
 export class MockupCode extends Component {
     constructor(language = null) {
@@ -73,5 +85,21 @@ export class MockupCode extends Component {
             await this.addCode(code, typeCode, delay);
         }
         return this.element;
+    }
+}
+
+export class SlideDownButton extends Component {
+    constructor({targetId, tagOrElement = "div", behavior="smooth"}) {
+        super(tagOrElement, "absolute bottom-0 flex justify-center w-full lg:hidden");
+        this.button = new Component("button", "animate-bounce text-base-300 rounded-full p-4 shadow-lg");
+        this.button.element.onclick = () => {
+            document.getElementById(targetId).scrollIntoView({ behavior: behavior });
+        }
+        this.button.setContent(
+            `<svg class="animate-bounce w-6 h-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+            </svg>`
+        )
+        this.button.render({target: this.element});
     }
 }

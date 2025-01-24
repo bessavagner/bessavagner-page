@@ -15,9 +15,6 @@
   body {
     @apply relative flex flex-col justify-between bg-base-100;
   }
-  .header {
-    @apply navbar justify-end;
-  }
   #home-content section {
     @apply relative flex flex-col items-center lg:justify-center h-screen w-full;
   }
@@ -95,7 +92,7 @@
   }
   .main-app {
     @apply absolute top-[-10%] flex flex-col justify-between z-10;
-    @apply h-[calc(100vh_-_64px)] sm:h-[850px] w-screen mx-10 max-w-[400px] sm:w-1/2 mt-5 sm:mt-auto sm:mb-5;
+    @apply h-[calc(100vh_-_64px)] sm:h-[850px] w-screen max-w-[400px] sm:w-1/2 mt-5 sm:mt-auto sm:mb-5;
     @apply bg-gray-900 border-l-gray-950;
   }
   .gradient-to-b-teal {
