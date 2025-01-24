@@ -10,7 +10,7 @@ class HomeView(web.View):
     @aiohttp_jinja2.template("home.html")
     async def get(self):
         """Serve the home.html file."""
-        logger.debug(dir(self.request))
+        # logger.debug(dir(self.request))
         context = {
             "title": "Vagner Bessa",
         }
