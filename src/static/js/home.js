@@ -177,6 +177,7 @@ const aigentsSectionObserver = new IntersectionObserver(
 });
 
 window.addEventListener('load', () => {
+
   typeCode({animation: animations[currentAnimation], id: 'codeContainer'});
   aigentsSectionObserver.observe(document.getElementById(mockAigentsCodeId));
 

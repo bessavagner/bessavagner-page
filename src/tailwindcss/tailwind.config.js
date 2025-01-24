@@ -28,6 +28,20 @@ module.exports = {
         "3xl": "0 10px 15px 10px rgba(0, 0, 0, 0.3)",
         "inner-xl": "inset 0px -5px 10px 5px rgba(0, 0, 0, 0.3)",
       },
+      animation: {
+        'fade-in': 'fadeIn 2s ease-in-out',
+        'slide-in': 'slideIn 1s ease-in-out',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: 0 },
+          '100%': { opacity: 1 },
+        },
+        slideIn: {
+          '0%': { transform: 'translateY(100%)', opacity: 0 },
+          '100%': { transform: 'translateY(0)', opacity: 1 },
+        },
+      },
     },
   },
   daisyui: {
