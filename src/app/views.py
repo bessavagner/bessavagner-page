@@ -15,3 +15,13 @@ class HomeView(web.View):
             "title": "Vagner Bessa",
         }
         return context
+
+class ColorsView(web.View):
+    @aiohttp_jinja2.template("colors.html")
+    async def get(self):
+        """Serve the colors.html file."""
+        logger.debug(dir(self.request))
+        context = {
+            "title": "Vagner Bessa",
+        }
+        return context

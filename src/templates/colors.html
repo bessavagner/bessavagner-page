@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+
+{% block title %}Início{% endblock %}
+
+{% block content %}
+<style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    .color-block {
+      width: 150px;
+      height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 10px;
+      border-radius: 8px;
+      font-weight: bold;
+    }
+    .color-grid {
+      display: flex;
+      flex-direction: row;
+      justify-items: center;
+      flex-wrap: wrap;
+      margin-top: 100px;
+    }
+  </style>
+<h1 class="text-3xl my-10">Custom Theme Colors</h1>
+
+<div class="color-grid">
+  <!-- Primary -->
+  <div class="color-block shadow-lg shadow-primary bg-primary text-primary-content">Primary</div>
+  <div class="color-block shadow-lg shadow-primary bg-primary-content text-primary">Primary Content</div>
+
+  <!-- Secondary -->
+  <div class="color-block shadow-lg shadow-primary bg-secondary text-secondary-content">Secondary</div>
+  <div class="color-block shadow-lg shadow-primary bg-secondary-content text-secondary">Secondary Content</div>
+
+  <!-- Accent -->
+  <div class="color-block shadow-lg shadow-primary bg-accent text-accent-content">Accent</div>
+  <div class="color-block shadow-lg shadow-primary bg-accent-content text-accent">Accent Content</div>
+
+  <!-- Neutral -->
+  <div class="color-block shadow-lg shadow-primary bg-neutral text-neutral-content">Neutral</div>
+  <div class="color-block shadow-lg shadow-primary bg-neutral-content text-neutral">Neutral Content</div>
+
+  <!-- Base -->
+  <div class="color-block shadow-lg shadow-primary bg-base-100 text-base-content">Base 100</div>
+  <div class="color-block shadow-lg shadow-primary bg-base-200 text-base-content">Base 200</div>
+  <div class="color-block shadow-lg shadow-primary bg-base-300 text-base-content">Base 300</div>
+
+  <!-- Info -->
+  <div class="color-block shadow-lg shadow-primary bg-info text-info-content">Info</div>
+  <div class="color-block shadow-lg shadow-primary bg-info-content text-info">Info Content</div>
+
+  <!-- Success -->
+  <div class="color-block shadow-lg shadow-primary bg-success text-success-content">Success</div>
+  <div class="color-block shadow-lg shadow-primary bg-success-content text-success">Success Content</div>
+
+  <!-- Warning -->
+  <div class="color-block shadow-lg shadow-primary bg-warning text-warning-content">Warning</div>
+  <div class="color-block shadow-lg shadow-primary bg-warning-content text-warning">Warning Content</div>
+
+  <!-- Error -->
+  <div class="color-block shadow-lg shadow-primary bg-error text-error-content">Error</div>
+  <div class="color-block shadow-lg shadow-primary bg-error-content text-error">Error Content</div>
+</div>
+{% endblock %}
