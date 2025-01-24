@@ -58,12 +58,27 @@
             </div>
             <div id="arrow-section-cards"></div>
         </section>
+        <h2 class="sticky top-16 z-20 font-header-3 mx-auto w-full text-center bg-base-100">Portfolio</h2>
         <section id="section-cards">
             {% include './portfolio/cards.html' %}
             <div id="arrow-section-sample-chat"></div>
         </section>
         <section id="section-sample-chat">
             {% include './portfolio/sample-chat.html' %}
+            <div id="arrow-section-aigents"></div>
+        </section>
+        <section id="section-aigents" class="h-full lg:w-11/12">
+            <h2 class="font-header-5 text-4xl font-bold mt-0">Aigents</h2>
+            <div class="flex flex-col justify-center items-center w-full">
+            {% include './portfolio/aigents.html' %}
+            </div>
+            <div id="arrow-section-datasets"></div>
+        </section>
+        <section id="section-datasets" class="h-full lg:w-11/12">
+            <h2 class="font-header-5 text-4xl font-bold mt-0">Datasets</h2>
+            <div class="flex flex-col justify-center items-center w-full">
+            {% include './portfolio/datasets.html' %}
+            </div>
         </section>
     </div>
 </div>

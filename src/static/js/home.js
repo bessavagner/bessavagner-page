@@ -114,10 +114,27 @@ const animations = [
   }  
 ];
 
-let currentAnimation = 0;
+const aigentsAnimation = {
+  language: 'python',
+  code: [
+    'from aigents import AsyncOpenAIChatter',
+    '',
+    'setup = "You are a very experienced and successful fantasy novel writer. "',
+    '## generate your API key: https://platform.openai.com/api-keys',
+    'api_key = "YOUR_OPEN_AI_API_KEY"',
+    'temperature = 0.5  # for creativity',
+    'chatter = AsyncOpenAIChatter(setup=setup, api_key=api_key)',
+    '',
+    'response = await chatter.answer(',
+    '    "What are the difference between soft magic system "',
+    '    "and hard magic system?"',
+    ')',
+  ]
+}
 
-async function typeCode(animation) {
-  const codeContainerElement = document.getElementById('codeContainer');
+let currentAnimation = 0;
+async function typeCode({animation, id='codeContainer'}) {
+  const codeContainerElement = document.getElementById(id);
   codeContainerElement.innerHTML = '';
 
   const mockupCode = new MockupCode(animation.language);
@@ -146,11 +163,23 @@ async function typeCode(animation) {
 
 function nextAnimation() {
   currentAnimation = (currentAnimation + 1) % animations.length;
-  typeCode(animations[currentAnimation]);
+  typeCode({animation: animations[currentAnimation], id: 'codeContainer'});
 }
 
+const mockAigentsCodeId = "mock-aigents-code";
+
+const aigentsSectionObserver = new IntersectionObserver(
+  (entries) => {
+    if (entries[0].isIntersecting) {
+      console.debug('aigents section is visible');
+      typeCode({animation: aigentsAnimation, id: mockAigentsCodeId});
+    }
+});
+
 window.addEventListener('load', () => {
-  typeCode(animations[currentAnimation]);
+  typeCode({animation: animations[currentAnimation], id: 'codeContainer'});
+  aigentsSectionObserver.observe(document.getElementById(mockAigentsCodeId));
+
   new SlideDownButton({
     tagOrElement: document.getElementById('arrow-section-about'),
     targetId: 'section-about'
@@ -162,6 +191,14 @@ window.addEventListener('load', () => {
   new SlideDownButton({
     tagOrElement: document.getElementById('arrow-section-sample-chat'),
     targetId: 'section-sample-chat'
+  });
+  new SlideDownButton({
+    tagOrElement: document.getElementById('arrow-section-aigents'),
+    targetId: 'section-aigents'
+  });
+  new SlideDownButton({
+    tagOrElement: document.getElementById('arrow-section-datasets'),
+    targetId: 'section-datasets'
   });
 });
 

@@ -1,19 +1,19 @@
-<div class="main-app rounded-3xl shadow-2xl">
-    <header class="gradient-to-b-teal text-gray-200 p-4 shadow-md rounded-t-3xl">
-        <h1 class="text-2xl roboto-light">Chat Application</h1>
+<div class="flex flex-col justify-between rounded-3xl shadow-2xl h-[460px] w-[256px] mx-auto">
+    <header class="gradient-to-b-teal text-gray-200 p-2 shadow-md rounded-t-3xl">
+        <h1 class="text-xl roboto-light">Chat Application</h1>
     </header>
     <main class="flex-1 p-4 overflow-auto">
         <div id="chatBox"
-            class="relative h-full bg-teal-600 p-4 rounded-lg shadow-md space-y-4 overflow-y-auto">
+            class="relative h-full bg-teal-600 p-2 rounded-lg shadow-md space-y-4 overflow-y-auto">
             <!-- Messages will be dynamically inserted here -->
         </div>
     </main>
-    <footer class="bg-gray-800 rounded-b-3xl p-4">
+    <footer class="bg-gray-800 rounded-b-3xl p-2">
         <div class="flex">
             <input disabled autofocus="on" id="messageInput" type="text" placeholder="Type a message..."
                 class="flex-1 p-2 border rounded-lg border-gray-300 bg-gray-500 text-gray-200 focus:outline-none focus:ring-2 focus:ring-teal-300">
             <button id="sendButton"
-                class="p-2 ml-2 bg-teal-800 text-gray-200 rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-300">Send</button>
+                class="p-1 ml-1 text-sm bg-teal-800 text-gray-200 rounded-lg hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-300">Send</button>
         </div>
     </footer>
 </div>
