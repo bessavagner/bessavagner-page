@@ -201,6 +201,10 @@ window.addEventListener('load', () => {
     tagOrElement: document.getElementById('arrow-section-datasets'),
     targetId: 'section-datasets'
   });
+  new SlideDownButton({
+    tagOrElement: document.getElementById('arrow-section-contact'),
+    targetId: 'section-contact'
+  });
 });
 
 
