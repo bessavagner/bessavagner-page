@@ -132,6 +132,24 @@ const aigentsAnimation = {
   ]
 }
 
+const paymentsApiAnimation = {
+  language: 'python',
+  code: [
+    'import httpx',
+    '',
+    'async with httpx.AsyncClient() as client: "',
+    '  response = await client.post(',
+    '    f"{BASE_URL}/auth/token",',
+    '    data={"username": USERNAME, "password": PASSWORD},',
+    ')',
+    'if response.status_code == 200:',
+    '    return response.json()["access_token"]',
+    'else:',
+    '    print("Login failed:", response.json())',
+    '    return None',
+    ]
+}
+
 let currentAnimation = 0;
 async function typeCode({animation, id='codeContainer'}) {
   const codeContainerElement = document.getElementById(id);
@@ -167,6 +185,7 @@ function nextAnimation() {
 }
 
 const mockAigentsCodeId = "mock-aigents-code";
+const mockpaymentsApiCodeId = "mock-payments-api-code";
 
 const aigentsSectionObserver = new IntersectionObserver(
   (entries) => {
@@ -176,10 +195,19 @@ const aigentsSectionObserver = new IntersectionObserver(
     }
 });
 
+const paymentsApiSectionObserver = new IntersectionObserver(
+  (entries) => {
+    if (entries[0].isIntersecting) {
+      console.debug('aigents section is visible');
+      typeCode({animation: paymentsApiAnimation, id: mockpaymentsApiCodeId});
+    }
+});
+
 window.addEventListener('load', () => {
 
   typeCode({animation: animations[currentAnimation], id: 'codeContainer'});
   aigentsSectionObserver.observe(document.getElementById(mockAigentsCodeId));
+  paymentsApiSectionObserver.observe(document.getElementById(mockpaymentsApiCodeId));
 
   new SlideDownButton({
     tagOrElement: document.getElementById('arrow-section-about'),
@@ -204,6 +232,10 @@ window.addEventListener('load', () => {
   new SlideDownButton({
     tagOrElement: document.getElementById('arrow-section-contact'),
     targetId: 'section-contact'
+  });
+  new SlideDownButton({
+    tagOrElement: document.getElementById('arrow-payments-api'),
+    targetId: 'payments-api'
   });
 });
 

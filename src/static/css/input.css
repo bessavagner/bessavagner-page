@@ -65,7 +65,7 @@
     @apply rounded-none;
   }
   .portfolio-card {
-    @apply relative flex flex-col h-52 lg:h-80 lg:py-2 w-96 my-5 hover:scale-110;
+    @apply relative flex flex-col h-52 lg:h-80 lg:py-2 w-96 my-5 lg:mx-auto hover:scale-110;
     @apply rounded-xl shadow-lg shadow-neutral bg-neutral text-neutral-content;
   }
   .portfolio-card-body {

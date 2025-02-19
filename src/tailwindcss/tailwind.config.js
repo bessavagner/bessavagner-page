@@ -9,6 +9,8 @@ module.exports = {
     "../static/css/*.css",
     "../static/js/*.js",
     "../static/js/**/*.js",
+    "../static/js/modules/*.js",
+    "../static/js/components/*.js",
     "../templates/*.html",
     "../templates/**/*.html",
   ],
