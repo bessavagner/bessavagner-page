@@ -1,0 +1,32 @@
+---
+import Base from '../../layouts/Base.astro';
+import PostCard from '../../components/blog/PostCard.astro';
+import { getPublishedPosts } from '../../lib/blog';
+
+const posts = await getPublishedPosts();
+const siteHref = (Astro.site?.href ?? 'https://bessavagner.com/').replace(/\/$/, '');
+const blogSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Blog',
+  '@id': `${siteHref}/blog/#blog`,
+  name: 'Vagner Bessa — Blog',
+  description: 'Articles on AI engineering, LLM agents, and building production software.',
+  url: `${siteHref}/blog/`,
+  author: { '@id': `${siteHref}/#vagner-bessa` },
+  inLanguage: 'en',
+};
+---
+<Base title="Blog — Vagner Bessa" description="Articles on AI engineering, LLM agents, and building production software in Python and TypeScript.">
+  <script is:inline type="application/ld+json" set:html={JSON.stringify(blogSchema)} />
+  <section class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
+    <h1 class="font-header-4 font-bold">Blog</h1>
+    <p class="font-base text-lg text-base-content/70 mt-3">Notes on AI engineering, LLM agents, and shipping production software.</p>
+    {posts.length === 0 ? (
+      <p class="font-base text-base-content/60 mt-10">No posts yet — check back soon.</p>
+    ) : (
+      <div class="grid grid-cols-1 gap-5 mt-10">
+        {posts.map((post) => <PostCard post={post} />)}
+      </div>
+    )}
+  </section>
+</Base>
