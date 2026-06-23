@@ -2,6 +2,7 @@
 import '../styles/global.css';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
+import WhatsAppButton from '../components/WhatsAppButton.astro';
 
 export interface Props {
   title?: string;
@@ -11,8 +12,8 @@ export interface Props {
 }
 
 const {
-  title = 'Vagner Bessa — Full-stack & AI Engineer',
-  description = 'Full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for international freelance projects and roles.',
+  title = 'Vagner Bessa — Senior Developer & AI Engineer',
+  description = 'Senior full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for international freelance projects and roles.',
   ogImage = '/images/og-default.png',
   ogType = 'website',
 } = Astro.props;
@@ -106,8 +107,8 @@ const fontHref =
           name: 'Vagner Bessa',
           url: `${siteUrl}/`,
           image: `${siteUrl}/images/avatar.png`,
-          jobTitle: 'Full-stack & AI Engineer',
-          description: 'Full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for international freelance projects and roles.',
+          jobTitle: 'Senior Developer & AI Engineer',
+          description: 'Senior full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for international freelance projects and roles.',
           email: 'bessavagner.dev@gmail.com',
           address: { '@type': 'PostalAddress', addressLocality: 'Crateús', addressRegion: 'CE', addressCountry: 'BR' },
           alumniOf: { '@type': 'CollegeOrUniversity', name: 'Instituto Federal de Educação, Ciência e Tecnologia do Ceará', alternateName: 'IFCE', url: 'https://ifce.edu.br' },
@@ -138,5 +139,6 @@ const fontHref =
       <slot />
     </main>
     <Footer />
+    <WhatsAppButton />
   </body>
 </html>

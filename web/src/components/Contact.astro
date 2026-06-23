@@ -37,7 +37,7 @@ const accessKey = import.meta.env.PUBLIC_WEB3FORMS_KEY ?? '';
 
   <div class="text-center mt-8">
     <p class="font-base text-sm text-base-content/70">
-      Prefer email? <a href={`mailto:${profile.links.email}`} class="text-primary hover:underline">{profile.links.email}</a>
+      Prefer email? <a href={`mailto:${profile.links.email}`} data-umami-event="email-click" class="text-primary hover:underline">{profile.links.email}</a>
     </p>
   </div>
 </div>
@@ -50,6 +50,8 @@ const accessKey = import.meta.env.PUBLIC_WEB3FORMS_KEY ?? '';
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = Object.fromEntries(new FormData(form).entries());
+      // Route Web3Forms replies straight back to the sender's address.
+      if (data.email) data.replyto = data.email;
       if (!data.access_key) {
         status.textContent = 'Contact form is not configured yet.';
         status.className = 'text-sm text-center mt-3 text-error';
@@ -68,6 +70,7 @@ const accessKey = import.meta.env.PUBLIC_WEB3FORMS_KEY ?? '';
           form.reset();
           status.textContent = "Thanks! I'll get back to you soon.";
           status.className = 'text-sm text-center mt-3 text-success';
+          if (window.umami) window.umami.track('contact-form-submit');
         } else {
           status.textContent = json.message || 'Something went wrong. Please email me directly.';
           status.className = 'text-sm text-center mt-3 text-error';

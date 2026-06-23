@@ -37,7 +37,7 @@ export interface Profile {
   location?: string;
   availability?: string;
   languages?: string[];
-  links: { github?: string; linkedin?: string; email?: string; cv?: string };
+  links: { github?: string; linkedin?: string; email?: string; cv?: string; whatsapp?: string };
   stacks: Record<string, string[]>;
 }
 

@@ -3,7 +3,7 @@
   "_note": "Single source of truth for the portfolio. Carries over to the Astro content collection in Phase 2. Copy is in English (international audience). Keep `order` ascending; `featured` projects render as full sections, others as cards.",
   "profile": {
     "name": "Vagner Bessa",
-    "headline": "Full-stack & AI Engineer",
+    "headline": "Senior Developer & AI Engineer",
     "tagline": "I design and ship production-grade AI products and web platforms — Python & TypeScript.",
     "location": "Crateús, CE, Brazil · Remote (UTC−3)",
     "availability": "Open to international freelance projects and roles",
@@ -16,7 +16,8 @@
       "github": "https://github.com/bessavagner",
       "linkedin": "https://www.linkedin.com/in/bessavagner/",
       "email": "bessavagner.dev@gmail.com",
-      "cv": "/static/vagner-bessa-cv.pdf"
+      "cv": "/static/vagner-bessa-cv.pdf",
+      "whatsapp": "https://wa.me/5585999142220"
     },
     "stacks": {
       "Languages": [
