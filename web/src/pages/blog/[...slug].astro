@@ -4,12 +4,10 @@ import { Image } from 'astro:assets';
 import Base from '../../layouts/Base.astro';
 import PostMeta from '../../components/blog/PostMeta.astro';
 import TableOfContents from '../../components/blog/TableOfContents.astro';
-import { readingTime } from '../../lib/blog';
+import { readingTime, isPublic } from '../../lib/blog';
 
 export async function getStaticPaths() {
-  const posts = await getCollection('blog', (p) =>
-    import.meta.env.PROD ? p.data.draft !== true : true,
-  );
+  const posts = await getCollection('blog', isPublic);
   return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
 }
 

@@ -2,11 +2,24 @@ import { getCollection, type CollectionEntry } from 'astro:content';
 
 export type Post = CollectionEntry<'blog'>;
 
-/** Published posts (drafts excluded in production), newest first. */
+/**
+ * Whether a post is publicly visible.
+ *
+ * In dev everything shows (so drafts and future posts stay previewable). In a
+ * production build a post is visible only when it is not a draft *and* its
+ * `pubDate` has arrived — so a scheduled rebuild on the post's date surfaces it
+ * automatically, with no flag flip or commit. This is the single source of
+ * truth for visibility; the blog index, post pages, and OG routes all use it.
+ */
+export function isPublic(p: Post): boolean {
+  if (!import.meta.env.PROD) return true;
+  if (p.data.draft === true) return false;
+  return p.data.pubDate.getTime() <= Date.now();
+}
+
+/** Published posts (drafts/future excluded in production), newest first. */
 export async function getPublishedPosts(): Promise<Post[]> {
-  const posts = await getCollection('blog', (p) =>
-    import.meta.env.PROD ? p.data.draft !== true : true,
-  );
+  const posts = await getCollection('blog', isPublic);
   return posts.sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
 }
 
