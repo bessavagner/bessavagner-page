@@ -28,6 +28,11 @@ const analyticsDomain = import.meta.env.PUBLIC_ANALYTICS_DOMAIN;
 const analyticsWebsiteId = import.meta.env.PUBLIC_ANALYTICS_WEBSITE_ID;
 const analyticsSrc = import.meta.env.PUBLIC_ANALYTICS_SRC ?? 'https://plausible.io/js/script.js';
 
+// Google Search Console — URL-prefix verification meta tag (optional).
+// Set PUBLIC_GSC_VERIFICATION to the token Google gives you. (DNS-TXT domain
+// verification is an alternative that needs no code.)
+const gscVerification = import.meta.env.PUBLIC_GSC_VERIFICATION;
+
 const fontHref =
   'https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400;700&family=Roboto+Condensed:wght@800&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,400&display=swap';
 ---
@@ -49,6 +54,7 @@ const fontHref =
 
     <title>{title}</title>
     <meta name="description" content={description} />
+    {gscVerification && <meta name="google-site-verification" content={gscVerification} />}
     <meta name="author" content="Vagner Bessa" />
     <meta name="theme-color" content="#3a3d98" />
     <link rel="canonical" href={canonical} />

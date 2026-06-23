@@ -33,6 +33,25 @@ const repos = [
   { href: p.links.repo_app, label: 'App repository' },
   { href: p.links.repo_frontend, label: 'Frontend repository' },
 ].filter((r) => r.href);
+
+const siteHref = Astro.site?.href ?? 'https://bessavagner.com/';
+const sameAs = [p.links.repo, p.links.repo_app, p.links.repo_frontend, p.links.live]
+  .filter((u): u is string => Boolean(u));
+const creativeWork = {
+  '@context': 'https://schema.org',
+  '@type': 'CreativeWork',
+  name: p.name,
+  headline: p.tagline,
+  description: p.summary || p.tagline,
+  url: Astro.url.href,
+  inLanguage: 'en',
+  author: { '@type': 'Person', name: 'Vagner Bessa', url: siteHref },
+  creator: { '@type': 'Person', name: 'Vagner Bessa', url: siteHref },
+  keywords: p.stack.join(', '),
+  ...(ogImage ? { image: new URL(ogImage, siteHref).href } : {}),
+  ...(p.year ? { dateCreated: String(p.year) } : {}),
+  ...(sameAs.length ? { sameAs } : {}),
+};
 ---
 <Base title={title} description={description} ogImage={ogImage}>
   <script
@@ -47,6 +66,7 @@ const repos = [
       ],
     })}
   />
+  <script is:inline type="application/ld+json" set:html={JSON.stringify(creativeWork)} />
 
   <article class="w-11/12 max-w-4xl mx-auto pt-28 pb-20">
     <a href="/#section-featured" class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">
