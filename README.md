@@ -49,4 +49,8 @@ Identity Federation). See [`docs/.ai/plans/003-cloud-run-deploy.md`](docs/.ai/pl
 
 ## License
 
-ISC.
+Source code is licensed under the [MIT License](LICENSE).
+
+Editorial content — blog posts, images, and branding (`web/src/content/**`,
+`web/src/assets/**`, `web/public/images/**`) — is **All Rights Reserved** and
+not covered by the MIT grant. See [`LICENSE`](LICENSE) for details.
