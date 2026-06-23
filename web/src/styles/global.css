@@ -11,7 +11,8 @@
   --color-primary-content: #d3d7ec;
   --color-secondary: #727d95;
   --color-secondary-content: #040508;
-  --color-accent: #9a7400;
+  /* Darkened from #9a7400 to meet WCAG AA (4.5:1) for small text on the light base. */
+  --color-accent: #7d5e00;
   --color-accent-content: #110a00;
   --color-neutral: #2f2f2f;
   --color-neutral-content: #d1d1d1;
@@ -35,7 +36,8 @@
   default: false;
   prefersdark: true;
   color-scheme: dark;
-  --color-primary: #6f74d6;
+  /* Lightened from #6f74d6 to meet WCAG AA (4.5:1) for text-primary links on the dark base. */
+  --color-primary: #787de0;
   --color-primary-content: #0a0d1a;
   --color-secondary: #444c63;
   --color-secondary-content: #d6d9de;
@@ -101,7 +103,7 @@ body { font-family: "Roboto", sans-serif; }
 .code-mockup .token.comment,
 .code-mockup .token.prolog,
 .code-mockup .token.doctype,
-.code-mockup .token.cdata { color: #7c8499; }
+.code-mockup .token.cdata { color: #9aa1b2; }
 .code-mockup .token.punctuation { color: #9aa1b2; }
 .code-mockup .token.keyword,
 .code-mockup .token.atrule { color: #6f9cf0; }

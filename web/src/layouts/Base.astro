@@ -18,6 +18,16 @@ const {
 const siteUrl = Astro.site?.href.replace(/\/$/, '') ?? 'https://bessavagner.com';
 const canonical = new URL(Astro.url.pathname, Astro.site ?? siteUrl).href;
 const ogImageUrl = new URL(ogImage, Astro.site ?? siteUrl).href;
+
+// Privacy-friendly, cookieless analytics (Plausible / Umami compatible).
+// Inert unless PUBLIC_ANALYTICS_DOMAIN is set at build time. No cookies, no PII.
+// Plausible Cloud: PUBLIC_ANALYTICS_DOMAIN=bessavagner.com (default src below).
+// Self-hosted / Umami: also set PUBLIC_ANALYTICS_SRC to your script URL.
+const analyticsDomain = import.meta.env.PUBLIC_ANALYTICS_DOMAIN;
+const analyticsSrc = import.meta.env.PUBLIC_ANALYTICS_SRC ?? 'https://plausible.io/js/script.js';
+
+const fontHref =
+  'https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400;700&family=Roboto+Condensed:wght@800&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,400&display=swap';
 ---
 <!DOCTYPE html>
 <html lang="en" data-theme="custom">
@@ -57,12 +67,19 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? siteUrl).href;
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400;700&family=Roboto+Condensed:wght@800&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,400&display=swap"
-      rel="stylesheet"
-    />
+    {/* Load fonts without blocking render (display=swap shows fallback first). */}
+    <link rel="preload" as="style" href={fontHref} />
+    <noscript><link rel="stylesheet" href={fontHref} /></noscript>
+    <script is:inline define:vars={{ fontHref }}>
+      (function () {
+        var l = document.createElement('link');
+        l.rel = 'stylesheet';
+        l.href = fontHref;
+        document.head.appendChild(l);
+      })();
+    </script>
 
-    <script type="application/ld+json" set:html={JSON.stringify({
+    <script is:inline type="application/ld+json" set:html={JSON.stringify({
       '@context': 'https://schema.org',
       '@type': 'Person',
       name: 'Vagner Bessa',
@@ -72,6 +89,10 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? siteUrl).href;
       sameAs: ['https://github.com/bessavagner', 'https://www.linkedin.com/in/bessavagner/'],
       knowsAbout: ['Python', 'TypeScript', 'Artificial Intelligence', 'LLM agents', 'Web development', 'Machine learning'],
     })} />
+
+    {analyticsDomain && (
+      <script is:inline defer data-domain={analyticsDomain} src={analyticsSrc}></script>
+    )}
   </head>
   <body class="relative flex flex-col min-h-screen bg-base-100">
     <Header />
