@@ -10,7 +10,7 @@ const minutes = readingTime(post.body ?? '');
 const href = `/blog/${post.id}/`;
 const cover = post.data.heroImage;
 ---
-<article class="group relative grid grid-cols-[5rem_1fr] sm:grid-cols-[7rem_1fr] gap-4 sm:gap-5 py-6 transition-colors">
+<article class="blog-reveal group relative grid grid-cols-[5rem_1fr] sm:grid-cols-[7rem_1fr] gap-4 sm:gap-5 py-6 transition-colors">
   <div class="overflow-hidden rounded-lg border border-base-content/10 bg-base-200/40 aspect-[16/10]">
     {cover
       ? <Image src={cover} alt="" width={224} height={140} loading="lazy" class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />

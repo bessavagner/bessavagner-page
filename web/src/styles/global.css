@@ -185,3 +185,21 @@ html { scroll-behavior: smooth; }
     radial-gradient(60% 55% at 18% 22%, color-mix(in oklab, var(--color-primary) 22%, transparent) 0%, transparent 60%),
     radial-gradient(45% 50% at 88% 12%, color-mix(in oklab, var(--color-accent) 16%, transparent) 0%, transparent 55%);
 }
+
+/* ---- Blog index scroll-reveal: rows fade and rise as they enter the
+   viewport, communicating list order. Pure CSS scroll-driven animation (no JS
+   scroll listeners); collapses to fully static under reduced motion or when
+   the browser lacks view-timeline support. ---- */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .blog-reveal {
+      animation: blog-reveal-in linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 35%;
+    }
+    @keyframes blog-reveal-in {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  }
+}
