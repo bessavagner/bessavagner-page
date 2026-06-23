@@ -1,4 +1,4 @@
-# bessavagner.dev — Astro site
+# bessavagner.com — Astro site
 
 Static personal site (Astro + Tailwind 4 + DaisyUI 5). Replaces the legacy aiohttp app
 at the repo root (kept until deploy cutover).

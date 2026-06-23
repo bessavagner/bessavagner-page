@@ -15,7 +15,7 @@ const {
   ogImage = '/images/og-default.png',
 } = Astro.props;
 
-const siteUrl = Astro.site?.href.replace(/\/$/, '') ?? 'https://bessavagner.dev';
+const siteUrl = Astro.site?.href.replace(/\/$/, '') ?? 'https://bessavagner.com';
 const canonical = new URL(Astro.url.pathname, Astro.site ?? siteUrl).href;
 const ogImageUrl = new URL(ogImage, Astro.site ?? siteUrl).href;
 ---

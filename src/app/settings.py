@@ -11,7 +11,7 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 CONTENT_DIR = PROJECT_ROOT / "content"
 CSS_FILE = STATIC_DIR / "css" / "output.css"
 
-SITE_URL = os.getenv("SITE_URL", "https://bessavagner.dev").rstrip("/")
+SITE_URL = os.getenv("SITE_URL", "https://bessavagner.com").rstrip("/")
 ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv("ALLOWED_ORIGINS", "http://0.0.0.0:8080").split(",")
