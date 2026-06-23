@@ -1,0 +1,47 @@
+---
+title: "Letting an AI Write and Run Its Own Code, Safely"
+description: "How a Django LLM agent safely runs model-written Python in disposable Docker sandboxes to turn public-spending data into charts and analysis."
+pubDate: 2026-06-23
+tags: ["llm-agents", "sandboxing", "code-execution", "docker", "data-analysis"]
+draft: false
+---
+
+Most "chat with your data" tools hit the same wall. A language model is great at understanding a question like *"plot supplier rating against manager evaluations"* and great at writing the pandas and matplotlib code to answer it. What it cannot do on its own is *run* that code, see the chart, and hand the result back to the user. Bridging that gap is deceptively dangerous: you are taking text a model invented and executing it on a server that sits next to a production database full of sensitive government-contract data.
+
+FinAI BitGov is an internal Django application that analyzes Brazilian public-spending data — linking payments to contracts, scoring suppliers across four rating dimensions, and answering analyst questions through a conversational agent. One of its most interesting pieces is the subsystem that lets that agent write Python, execute it in a locked-down sandbox, and stream the resulting charts straight into the chat. This article walks through the problem it solves and how it is built.
+
+## The Problem: Open-Ended Analysis Needs Real Computation
+
+The agent already exposes a couple dozen structured tools — search a supplier, list contracts above a threshold, fetch rating distributions. Those cover known questions. But analysts ask open-ended ones: correlations, custom aggregations, ad-hoc visualizations. You cannot pre-build a tool for every possible chart.
+
+The natural answer is to give the model a general-purpose "run this Python" tool. The natural objection is everything that implies: arbitrary code could read files, open network sockets, or exhaust memory. So the design problem is narrow and sharp: **allow general computation while denying general capability.** The execution environment must be isolated from the host, disposable, resource-bounded, and limited to a known set of data-science libraries.
+
+## The Approach: Disposable Docker Sandboxes With a Warm Pool
+
+The self-hosted backend uses llm-sandbox to run each snippet inside an ephemeral Docker container. The model's code never touches the application process. It runs in a throwaway container that is created for the task and discarded afterward.
+
+Two design decisions make this practical rather than just safe.
+
+**A pre-warmed container pool.** Spinning up a fresh container with pandas, numpy, matplotlib, seaborn, scipy, and statsmodels for every request would add seconds of latency. Instead the pool is created once, at Django startup, inside the app's `AppConfig.ready()` hook. A `PoolConfig` controls minimum and maximum pool size and an idle timeout, so warm containers are ready when an analyst asks a question, and excess ones are reclaimed when traffic drops.
+
+**Initialization that fails gracefully.** The pool is only built when code execution is explicitly enabled *and* the backend is set to self-hosted *and* a Docker socket is actually reachable. During an image build, in CI, or when the feature is off, initialization is skipped silently — no noisy warnings, and the agent keeps working without the code tool. If a user then asks for code execution that isn't available, the tool returns a friendly error instead of crashing.
+
+The tool contract itself is deliberately small. `execute_python(code, libraries)` runs the snippet and returns a dictionary with `stdout`, `stderr`, an `exit_code`, and a list of captured images. Plots are the interesting part: because the sandbox session runs with plotting enabled, matplotlib and seaborn figures are captured automatically and returned as base64-encoded PNGs. The model just writes normal plotting code and calls `plt.show()`; the infrastructure handles turning that into an image the chat can display.
+
+### Defense in Depth, Not Just a Wall
+
+The container is the hard boundary, but it isn't the only one. The agent's system prompt also constrains behavior: use only the allowlisted libraries, never import `os`, `subprocess`, `socket`, or `requests`, stay under a maximum code length, and never touch the network or the filesystem outside the sandbox. This belt-and-suspenders approach matters because the allowlist of libraries is configurable, and the prompt keeps the model inside those lines even before the container would stop it.
+
+## The Interesting Twist: A Pluggable Backend and a Runtime Patch
+
+What makes the subsystem genuinely elegant is that self-hosting is only one of two backends. The same agent can instead delegate execution to a model provider's own sandbox — Anthropic's or OpenAI's hosted code-execution tool — by flipping `AI_CODE_EXECUTION_BACKEND` from `self_hosted` to `provider`. The agent code barely changes: in self-hosted mode it registers the `execute_python` tool; in provider mode it attaches the provider's built-in `CodeExecutionTool`. A downstream artifact extractor knows how to pull code, stdout, images, and file IDs out of *either* path and normalize them into one shape for streaming and audit.
+
+Supporting the provider path surfaced a sharp, real-world integration bug, and the fix is a small case study in living at the edge of fast-moving APIs. The agent framework, pydantic-ai, still hard-codes Anthropic's *legacy* code-execution tool version (`code_execution_20250522`). In early 2026 Anthropic tightened server-side validation on that legacy version, and requests began failing with a 400 error. Rather than fork the library or wait for an upstream release, the project ships a **runtime monkey-patch** applied at startup.
+
+The patch does two things. On the **request side**, it swaps the legacy tool parameter for the current `code_execution_20250825` version and updates the corresponding beta header. On the **response side**, the new API returns different result blocks — Anthropic split execution into `bash_code_execution` and `text_editor_code_execution` sub-tools — so the patch maps those new block types back into the shape the rest of the codebase already understands. The result: code execution keeps working against Anthropic with zero changes to agent logic. The patch is carefully documented as temporary, with explicit instructions on how to verify when pydantic-ai gains native support and the whole thing can be deleted.
+
+## Why It's Interesting
+
+This component is a clean example of a recurring modern engineering challenge: giving an AI real computational power without giving it dangerous reach. The answers it lands on are the durable ones — isolation through disposable containers, a warm pool to keep latency low, graceful degradation when a dependency is absent, defense in depth combining a hard boundary with prompt-level guardrails, and a backend abstraction that lets the same agent run code locally or in a provider's cloud.
+
+The Anthropic patch adds a second, more human lesson. Building on LLM provider APIs means living with churn, and a well-scoped, well-documented runtime patch can be the difference between a feature that quietly breaks and one that keeps shipping. Taken together, the sandbox subsystem shows how to make an AI data analyst that is both genuinely capable and genuinely contained.
