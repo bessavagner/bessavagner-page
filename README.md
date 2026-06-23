@@ -1,87 +1,52 @@
-# Vagner Bessa's Personal Website Project
+# Vagner Bessa — Personal Site & Portfolio
 
-This project is a personal website built using a combination of Python, HTML/CSS, and JavaScript. The website showcases my skills and experience as a full-stack web developer.
+Personal website and portfolio for Vagner Bessa, full-stack & AI engineer.
+Live at **[bessavagner.com](https://bessavagner.com)**.
 
-## Requirements
+The site is a **static Astro app** (Astro + Tailwind CSS 4 + DaisyUI 5), built into an
+nginx image and deployed to **Google Cloud Run** (`us-central1`). It is data-driven from a
+single content source.
 
-* Linux
-* Poetry package manager
-* Node.js (for building the static site frontend)
-* Docker (optional, for easy deployment)
+> The previous aiohttp/Python app was retired after the cutover to the Astro static site.
+> Its history remains in git.
 
-## Features
+## Repository layout
 
-* Responsive design using Tailwind CSS
-* Asynchronous server using aiohttp for high efficiency
-* Easy deployment using Docker
-* Code highlighting using Prism.js
+| Path | What it is |
+|------|------------|
+| `web/` | The Astro site (pnpm). All site code, components, styles, and assets live here. |
+| `content/projects.json` | Canonical portfolio content (source of truth). |
+| `content/projects.schema.json` | JSON Schema for the content model. |
+| `tools/cv/` | Résumé/CV (HTML + generated PDF). |
+| `tools/og/` | Open Graph image generator (`generate.py`). |
+| `docs/.ai/` | Planning docs, reports, and audit evidence. |
+| `.github/workflows/deploy-web-cloudrun.yml` | CI: build + deploy `web/` to Cloud Run. |
 
-## Project Structure
+> **Content sync:** `content/projects.json` is the source of truth; `web/src/data/portfolio.json`
+> is its working copy consumed by the build. Keep the two identical.
 
-The project is structured into the following directories:
+## Develop
 
-* `src`: Contains the source code for the website
-* `src/templates`: Contains HTML templates for the website
-* `src/static`: Contains static assets such as CSS, JavaScript, and images
-* `src/tailwindcss`: Contains configuration files for Tailwind CSS
-
-## How to Use
-
-1. Clone the repository: `git clone https://github.com/bessavagner/bessavagner-page.git`
-2. Install dependencies: `pip install -r requirements.txt` or `poetry install`
-3. Rename `.sample.env` to `.env` and make the necessary modifications.
-4. Add execute permission to builder script: `chmod +x build.sh`
-5. Build the project: `./build.sh`
-6. Run the project: `python src/main.py`
-7. Open the website in your browser: `http://0.0.0.0:8080`
-
-## Customization
-
-To customize the project for your own purpose, follow these steps:
-
-1. Update the content on `src/templates` directory with your own.
-4. Update the `app.py` file with your own Python code
-
-## Development
-
-### Build
-
-1. Set `DEBUG="1"`, `INSTALL="1"` and `BUILD_TAILWINDCSS="1"` in the `.env` file.
-2. Build the project: `./build.sh`
-
-### Styles
-
-Go to `scr/tailwindcss` and run `npm run dev` for continuous reloading of the `src/static/css/styles.css` file.
-
-### Run server
-
-To run locally
+The site lives in `web/` and uses **pnpm** (via corepack).
 
 ```bash
-python src/main.py
+cd web
+corepack pnpm@10.15.1 install
+pnpm dev        # local dev server
+pnpm build      # static build into web/dist
+pnpm preview    # serve the build (port 4322)
+pnpm astro check  # type/diagnostics check
 ```
-To run in container:
 
-1. Set in the `.env` file `PRODUCTION="1"`.
-2. Build the project: `./build.sh`
-3. Run a container: `docker run -p 8080:8080`
-4. Open the website in your browser: `http://0.0.0.0:8081`
+See [`web/README.md`](web/README.md) for more.
 
+## Deploy
 
-## Deployment
-
-To deploy the project, follow these steps:
-
-1. Set `DEBUG="0"`, `INSTALL="1"` and `BUILD_TAILWINDCSS="1"` in the `.env` file. For deployment with docker, also set `PRODUCTION="1"`
-2. Build the project: `./build.sh`
+Pushes to `main` that touch `web/**` trigger
+[`deploy-web-cloudrun.yml`](.github/workflows/deploy-web-cloudrun.yml), which builds the
+nginx image and deploys it to the Cloud Run service `bessavagner-page` (auth via Workload
+Identity Federation). See [`docs/.ai/plans/003-cloud-run-deploy.md`](docs/.ai/plans/003-cloud-run-deploy.md).
 
 ## License
 
-This project is licensed under the ISC License.
-
-## Acknowledgments
-
-* Tailwind CSS: [https://tailwindcss.com/](https://tailwindcss.com/)
-* aiohttp: [https://aiohttp.readthedocs.io/en/stable/](https://aiohttp.readthedocs.io/en/stable/)
-* Prism.js: [https://prismjs.com/](https://prismjs.com/)
-* Docker: [https://www.docker.com/](https://www.docker.com/)
+ISC.
