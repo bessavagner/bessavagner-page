@@ -51,7 +51,7 @@ const breadcrumb = {
     <a href="/blog/" class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← All posts</a>
     <header class="mt-6">
       <h1 class="font-header-4 font-bold leading-tight">{post.data.title}</h1>
-      <PostMeta pubDate={post.data.pubDate} minutes={minutes} tags={post.data.tags} class="mt-4" />
+      <PostMeta pubDate={post.data.pubDate} minutes={minutes} tags={post.data.tags} maxTags={post.data.tags.length} class="mt-4" />
     </header>
     {post.data.heroImage && (
       <Image src={post.data.heroImage} alt={post.data.title} class="rounded-2xl border border-primary/20 mt-8 w-full h-auto" />
