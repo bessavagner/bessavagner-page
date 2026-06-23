@@ -1,0 +1,8 @@
+---
+interface Props { title: string; }
+const { title } = Astro.props;
+const initials = title.replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+---
+<div class="grid h-full w-full place-items-center bg-gradient-to-br from-primary/15 to-base-300/40">
+  <span class="font-header text-lg font-bold text-primary/70 select-none">{initials}</span>
+</div>
