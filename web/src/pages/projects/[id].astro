@@ -1,0 +1,140 @@
+---
+import { Image } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+import Base from '../../layouts/Base.astro';
+import { asset, portfolio, type Project } from '../../lib/portfolio';
+
+export function getStaticPaths() {
+  const all = [...portfolio.featured, ...portfolio.cards];
+  return all.map((project) => ({ params: { id: project.id }, props: { project } }));
+}
+
+const { project: p } = Astro.props as { project: Project };
+
+// Optimized screenshots (same source set as the home page).
+const screenshots = import.meta.glob<{ default: ImageMetadata }>(
+  '../../assets/projects/*.{png,jpg,jpeg,webp}',
+  { eager: true },
+);
+function resolveScreenshot(path?: string): ImageMetadata | undefined {
+  if (!path) return undefined;
+  const name = path.split('/').pop();
+  const key = Object.keys(screenshots).find((k) => k.endsWith('/' + name));
+  return key ? screenshots[key].default : undefined;
+}
+const img = resolveScreenshot(p.image);
+
+const title = `${p.name} — Vagner Bessa`;
+const description = p.summary || p.tagline;
+const ogImage = p.ogImage ? asset(p.ogImage) : undefined;
+
+const repos = [
+  { href: p.links.repo, label: 'Repository' },
+  { href: p.links.repo_app, label: 'App repository' },
+  { href: p.links.repo_frontend, label: 'Frontend repository' },
+].filter((r) => r.href);
+---
+<Base title={title} description={description} ogImage={ogImage}>
+  <script
+    is:inline
+    type="application/ld+json"
+    set:html={JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: 'Home', item: Astro.site?.href },
+        { '@type': 'ListItem', position: 2, name: p.name, item: Astro.url.href },
+      ],
+    })}
+  />
+
+  <article class="w-11/12 max-w-4xl mx-auto pt-28 pb-20">
+    <a href="/#section-featured" class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">
+      ← All projects
+    </a>
+
+    <header class="mt-6">
+      {p.role && <p class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent mb-2">{p.role}</p>}
+      <h1 class="font-header-4 font-bold leading-tight">{p.name}</h1>
+      <p class="font-base text-lg lg:text-xl text-base-content/80 mt-3">{p.tagline}</p>
+      <div class="flex flex-wrap items-center gap-2 mt-4">
+        {p.year && <span class="ubuntu-mono-regular text-xs text-base-content/60">{p.year}</span>}
+        {p.status && <span class="badge badge-primary badge-sm font-base capitalize">{p.status}</span>}
+        {p.kind && <span class="badge badge-ghost badge-sm font-base">{p.kind.replace(/-/g, ' ')}</span>}
+        {p.private && <span class="badge badge-neutral badge-sm font-base">Private / under NDA</span>}
+      </div>
+    </header>
+
+    {img && (
+      <div class="relative w-full rounded-2xl overflow-hidden border border-primary/20 shadow-2xl shadow-primary/20 bg-base-300 mt-8">
+        <div class="flex items-center gap-1.5 px-4 py-2.5 bg-base-200 border-b border-base-content/10">
+          <span class="w-2.5 h-2.5 rounded-full bg-error/70"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-warning/70"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-success/70"></span>
+        </div>
+        <Image
+          src={img}
+          alt={`${p.name} screenshot`}
+          widths={[480, 960, 1280]}
+          sizes="(min-width: 896px) 768px, 92vw"
+          loading="eager"
+          class="block w-full h-auto"
+        />
+      </div>
+    )}
+
+    <section class="mt-8">
+      <p class="font-base text-base lg:text-lg text-base-content/80 leading-relaxed">{p.summary}</p>
+    </section>
+
+    {p.highlights && p.highlights.length > 0 && (
+      <section class="mt-8">
+        <h2 class="font-header-5 font-bold mb-4">Highlights</h2>
+        <ul class="space-y-2">
+          {p.highlights.map((h) => (
+            <li class="flex gap-2 font-base text-sm lg:text-base text-base-content/80">
+              <span class="text-accent mt-1" aria-hidden="true">▹</span><span>{h}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {p.metrics && p.metrics.length > 0 && (
+      <section class="mt-8">
+        <h2 class="font-header-5 font-bold mb-4">Metrics</h2>
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {p.metrics.map((m) => (
+            <div class="rounded-xl border border-base-content/10 bg-base-200/60 p-4">
+              <dt class="font-base text-xs uppercase tracking-wide text-base-content/60">{m.label}</dt>
+              <dd class="ubuntu-mono-regular text-base text-base-content/90 mt-1">{m.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+    )}
+
+    <section class="mt-8">
+      <h2 class="font-header-5 font-bold mb-4">Stack</h2>
+      <ul class="flex flex-wrap gap-2">
+        {p.stack.map((t) => (
+          <li class="badge badge-outline border-primary/40 text-base-content/80 font-base text-xs py-3">{t}</li>
+        ))}
+      </ul>
+    </section>
+
+    {(p.links.live || repos.length > 0 || p.links.case_study) && (
+      <section class="mt-10 flex flex-wrap gap-3">
+        {p.links.live && <a href={p.links.live} target="_blank" rel="noopener" class="btn btn-primary btn-sm font-base">Live demo</a>}
+        {repos.map((r) => (
+          <a href={r.href} target="_blank" rel="noopener" class="btn btn-outline btn-sm font-base">{r.label}</a>
+        ))}
+        {p.links.case_study && <a href={p.links.case_study} target="_blank" rel="noopener" class="btn btn-ghost btn-sm font-base">Case study</a>}
+      </section>
+    )}
+
+    <div class="mt-12 pt-8 border-t border-base-content/10">
+      <a href="/#section-contact" class="btn btn-primary btn-sm font-base">Work with me →</a>
+    </div>
+  </article>
+</Base>

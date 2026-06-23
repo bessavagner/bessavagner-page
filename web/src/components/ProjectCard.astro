@@ -1,16 +1,15 @@
 ---
 import { type Project } from '../lib/portfolio';
 const { project: p } = Astro.props as { project: Project };
-const href = p.links.live || p.links.repo || '#';
-const external = Boolean(p.links.live || p.links.repo);
-const cta = p.links.live ? 'Visit →' : (p.links.repo ? 'View code →' : '');
+const href = `/projects/${p.id}`;
+const cta = 'View project →';
 const tags = p.stack.slice(0, 4);
 const extra = p.stack.length - tags.length;
 ---
 <a
   class="group relative flex flex-col h-full p-6 rounded-xl border border-base-content/10 bg-base-200/60 hover:border-primary/50 hover:-translate-y-1 transition shadow-lg shadow-neutral/10"
   href={href}
-  {...external ? { target: '_blank', rel: 'noopener' } : {}}
+  aria-label={`View ${p.name} project details`}
 >
   <div class="flex items-center justify-between">
     <h4 class="font-header-5 text-2xl font-bold text-base-content">{p.name}</h4>

@@ -84,7 +84,8 @@ const initials = p.name.slice(0, 2).toUpperCase();
         ))}
       </ul>
       <div class="flex flex-wrap gap-3 mt-6">
-        {p.links.live && <a href={p.links.live} target="_blank" rel="noopener" class="btn btn-primary btn-sm font-base">Live demo</a>}
+        <a href={`/projects/${p.id}`} class="btn btn-primary btn-sm font-base">Project details →</a>
+        {p.links.live && <a href={p.links.live} target="_blank" rel="noopener" class="btn btn-outline btn-sm font-base">Live demo</a>}
         {p.links.repo && <a href={p.links.repo} target="_blank" rel="noopener" class="btn btn-outline btn-sm font-base">View code</a>}
         {p.links.case_study && <a href={p.links.case_study} target="_blank" rel="noopener" class="btn btn-ghost btn-sm font-base">Case study</a>}
         {p.private && !p.links.repo && !p.links.live && <span class="badge badge-neutral font-base text-xs py-3">Private / under NDA</span>}
