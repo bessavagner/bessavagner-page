@@ -1,0 +1,148 @@
+---
+title: "Keeping a long chat in the window: pruning by summarization, not deletion"
+description: "When a conversation overflows the context window, dropping the oldest turns throws away meaning. A better default is to summarize the middle with a small dedicated model and fall back to deletion only when summarizing isn't worth it."
+pubDate: 2026-07-13
+tags: ["llm", "context-window", "summarization", "tokens", "python"]
+draft: false
+---
+
+import { Image } from 'astro:assets';
+import retained from '../../assets/blog/pruning-chat-context-by-summarization/retained.svg';
+import cost from '../../assets/blog/pruning-chat-context-by-summarization/cost.svg';
+
+Every chat assistant has a hard ceiling: the context window. It's the maximum number of tokens the model can read at once — the system prompt, the whole back-and-forth so far, and the new question, all added together. As a conversation grows, that running total grows with it, and sooner or later it bumps against the ceiling. When it does, something has to give.
+
+The reflexive answer is to drop the oldest messages. It's simple, it always works, and it's almost always the wrong default. This post is about a better one: when the window fills up, *summarize* the part you'd otherwise throw away, splice the summary back in, and only delete when summarizing genuinely can't help. The examples come from [aigents](https://github.com/bessavagner/aigents), a small multi-provider chat library I wrote, where this two-tier reduction loop lives.
+
+## When the window fills up
+
+To know whether you're about to overflow, you have to count tokens — and tokens are provider-specific. A word is not a token; punctuation, whitespace, and rare words all split differently depending on the tokenizer.
+
+For OpenAI models, the canonical tool is [`tiktoken`](https://github.com/openai/tiktoken), OpenAI's own fast byte-pair-encoding tokenizer. You pick the encoding for your model and count locally, no API call required:
+
+```python
+import tiktoken
+
+def get_encoding(model: str = None):
+    try:
+        if model:
+            return tiktoken.encoding_for_model(model)
+        return tiktoken.get_encoding("cl100k_base")
+    except KeyError:
+        return tiktoken.get_encoding("cl100k_base")
+```
+
+Google's Gemini API does it differently — there's no local tokenizer, so you ask the service with [`count_tokens`](https://ai.google.dev/gemini-api/docs/tokens) before you send. That difference shows up directly in the code: the OpenAI path counts with a local function, the Gemini path calls `client.count_tokens(self.messages)`. Either way, the question is the same — *are we over the limit?* — and the answer drives the same reduction loop.
+
+## Deletion loses meaning
+
+The standard fix is first-in-first-out: while you're over budget, pop the oldest message and recount. Here's that fallback, straight from the reduction loop:
+
+```python
+else:
+    # Remove the oldest message if summarization is not possible
+    # or did not help
+    if self.setup:
+        removed_message = self.messages.pop(1)
+    else:
+        removed_message = self.messages.pop(0)
+```
+
+(The `self.setup` branch keeps the system prompt pinned at index 0 and drops the oldest *real* message instead.)
+
+This is cheap and it always terminates, but look at what it costs you. The thing a user established forty turns ago — their name, the file they're debugging, the constraint they stated once and never repeated — is exactly the oldest content, and it's the first to go. The model doesn't *forget* it; you *deleted* it. From the model's side the early conversation simply never happened, and you get the maddening experience of an assistant that re-asks something you already answered.
+
+## Summarize the middle
+
+The better move treats the window problem as one of *semantic preservation*, not storage. Instead of deleting the old turns, condense them. Keep the system prompt and the most recent turn verbatim, and replace everything in between with a single summary message:
+
+```python
+n_tokens = number_of_tokens(self.messages, self.model)
+while n_tokens > self.max_tokens:
+    if use_agent and len(self.messages) > 2:
+        # Attempt to summarize the conversation
+        summary_prompt = (
+            "Please summarize the following conversation: "
+            "(IMPORTANT: keep the user's language):\n"
+        )
+        summary_prompt += "\n".join(
+            message['content'] for message in self.messages[1:-1]
+        )
+        summary_content = agent.answer(
+            prompt=summary_prompt, use_agent=False, conversation=False
+        )
+        # Replace the conversation with the summary and the last message
+        self.messages = [
+            self.messages[0],
+            {'role': ROLES[1], 'content': summary_content},
+            self.messages[-1],
+        ]
+```
+
+The `agent` here is a *second* model — a dedicated summarizer, separate from the one holding the conversation. It's instantiated with a setup prompt that tells it to compress text while preserving meaning, and crucially its output is capped:
+
+```python
+agent = OpenAIChatter(
+    setup="You are a very skilled writer that can summarize any text "
+          "while preserving the whole meaning of its content.",
+    model=MODELS[0],
+    api_key=self.api_key,
+    organization=self.organization,
+)
+agent.max_tokens = self.max_tokens // 4  # Limit summary length
+```
+
+That `max_tokens // 4` is the load-bearing line. It guarantees the summary can never be more than a quarter of the window, so folding twenty turns into it actually buys you room. The summarizer also runs at `temperature=0.0` — you want a faithful condensation, not a creative reinterpretation.
+
+Is the summary as good as the original? No. Summarization is lossy by definition, which is why the field has metrics for *how* lossy: [ROUGE](https://aclanthology.org/W04-1013/) measures n-gram overlap against a reference summary, and [BERTScore](https://arxiv.org/abs/1904.09675) measures semantic similarity using contextual embeddings, correlating better with human judgement. A good summarizer keeps most of the meaning; a great one keeps more. But "most of the meaning, compressed" beats "none of it, deleted" in almost every conversation that matters.
+
+This is the same idea LangChain ships as [`ConversationSummaryBufferMemory`](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.summary.ConversationSummaryMemory.html) — keep recent turns as a buffer, summarize what spills past the limit. It's a well-trodden pattern; the contrast worth noting is with architectural approaches like [Longformer](https://arxiv.org/abs/2004.05150), which attack the window itself by making attention scale linearly with sequence length. That's a model-design fix; summarization-pruning is an application-layer fix you can apply to any model behind an API, no retraining required.
+
+## Falling back gracefully
+
+Summarization isn't free and isn't always possible. It costs an extra model call, and there are cases where it can't help — a conversation already down to two messages has no middle to fold, and a single message larger than the whole window can't be summarized into one either. So the loop is two-tier: *try to summarize; if that doesn't apply or doesn't get you under budget, delete.* The guards make the conditions explicit:
+
+```python
+if n_tokens <= self.max_tokens:
+    break  # we're within the limit
+
+if len(self.messages) <= 2:
+    # If we cannot reduce further, raise an error
+    if self.setup or len(self.messages) == 1:
+        raise MessageError(
+            'Conversation exceeds maximum number of '
+            'tokens and cannot be reduced further.'
+        )
+```
+
+The whole thing also degrades to plain FIFO when you pass `use_agent=False` or don't supply a summarizer — useful when you'd rather not pay for the extra call, or when no second model is available. Summarization is the default, not a hard dependency.
+
+## How much context you keep
+
+The payoff is easiest to see by tracking *effective turns retained* — how much of the original conversation still has its meaning represented in the window — as the raw chat grows. Below, three strategies on a synthetic chat against a fixed window: FIFO truncation (drop whole oldest turns), per-message pruning (drop the oldest single message), and summarization-pruning.
+
+<Image src={retained} alt="As the conversation grows past the context window, FIFO and per-message deletion both plateau at a fixed number of recent turns, while summarization-pruning keeps climbing because old turns are folded into a summary rather than dropped." />
+
+Both deletion strategies do the same thing once the window fills: they plateau. The window can only hold so many recent turns, so everything earlier is gone, and the line goes flat no matter how long the chat runs. Summarization-pruning keeps climbing — each old turn is folded into the summary at some retention factor rather than dropped to zero. There's a brief dip right at the crossover, where one big summarization pass is lossier than just keeping the most recent turns verbatim; that's real, and it's exactly why the loop keeps deletion as a fallback rather than summarizing unconditionally.
+
+The catch is cost. Each time the window overflows and a summary is regenerated, that's an extra call to the summarizer model:
+
+<Image src={cost} alt="Summarization-pruning retains far more turns than FIFO as the chat grows, but the cumulative number of extra summarizer model calls rises roughly linearly with conversation length." />
+
+The retained-meaning gap widens steadily in summarization's favour, but the count of extra summarizer calls climbs roughly linearly with the conversation. That's the trade you're making: a small, capped model call now and then, in exchange for an assistant that remembers the start of the conversation. For most chat applications that's a bargain — the summarizer is small and cheap, and the alternative is a user repeating themselves.
+
+## Where I used this
+
+I built this two-tier loop into [aigents](https://github.com/bessavagner/aigents) so that the same chat code could sit behind OpenAI and Gemini and survive arbitrarily long conversations without falling over at the window boundary. The provider-specific part is narrow — how you count tokens — and everything above it is shared: try to summarize the middle with a capped, low-temperature summarizer, splice the result back between the system prompt and the latest turn, and fall back to FIFO only when summarizing can't earn its keep.
+
+The principle travels well beyond this one library. The context window is a budget, not a wall, and overflowing it is a *reduction* problem. Deletion is the lazy reduction; summarization is the one that respects the fact that old turns still carry meaning. Reach for deletion only when the summary wouldn't be worth the call.
+
+## References and further reading
+
+- [tiktoken](https://github.com/openai/tiktoken) — OpenAI's fast BPE tokenizer for local, model-specific token counting. *(Link verified.)*
+- [Counting tokens — Gemini API](https://ai.google.dev/gemini-api/docs/tokens) — the `count_tokens` method for Google's models, where counting is a service call. *(Link verified.)*
+- [Chin-Yew Lin, "ROUGE: A Package for Automatic Evaluation of Summaries"](https://aclanthology.org/W04-1013/) — *Text Summarization Branches Out* (2004); n-gram-overlap metrics for summary quality. *(Link verified.)*
+- [Zhang et al., "BERTScore: Evaluating Text Generation with BERT"](https://arxiv.org/abs/1904.09675) — embedding-based similarity that correlates better with human judgement than surface overlap. *(Link verified.)*
+- [Beltagy, Peters, and Cohan, "Longformer: The Long-Document Transformer"](https://arxiv.org/abs/2004.05150) — attention that scales linearly with sequence length, the architectural contrast to application-layer pruning. *(Link verified.)*
+- [LangChain ConversationSummaryMemory / SummaryBufferMemory](https://python.langchain.com/api_reference/langchain/memory/langchain.memory.summary.ConversationSummaryMemory.html) — the same summarize-the-overflow pattern as a reusable memory class. *(Link verified.)*
+- [aigents](https://github.com/bessavagner/aigents) — the multi-provider chat library the code in this post is drawn from.

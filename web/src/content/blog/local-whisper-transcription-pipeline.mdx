@@ -1,0 +1,121 @@
+---
+title: "A local Whisper transcription pipeline: picking the right model size"
+description: "You don't need a paid API to transcribe audio. With faster-whisper, int8 quantization, and a little ffmpeg preprocessing you get offline, free transcription — and the real skill is choosing the model size that fits your latency and accuracy budget."
+pubDate: 2026-07-07
+tags: ["whisper", "speech-to-text", "audio", "ml-ops", "python"]
+draft: false
+---
+
+import { Image } from 'astro:assets';
+import latency from '../../assets/blog/local-whisper-transcription-pipeline/latency.svg';
+import wer from '../../assets/blog/local-whisper-transcription-pipeline/wer.svg';
+
+There's a reflex, when you need to turn audio into text, to reach for a hosted API. It's understandable — speech recognition used to be hard, and paying someone else to do it felt like the safe choice. But that reflex is out of date. OpenAI's [Whisper](https://arxiv.org/abs/2212.04356) is open, the weights are free, and a small reimplementation called [faster-whisper](https://github.com/SYSTRAN/faster-whisper) makes it quick enough to run on a plain CPU. You can transcribe an hour of audio on your laptop, offline, for nothing.
+
+The catch isn't cost or access — it's choosing. Whisper ships in [several sizes](https://github.com/openai/whisper#available-models-and-languages), from a 39-million-parameter `tiny` model up to a 1.5-billion-parameter `large`, and the gap between them in both speed and accuracy is enormous. This post walks through a small end-to-end pipeline — ffmpeg to prepare the audio, faster-whisper to transcribe it — and then spends most of its time on the decision that actually matters: which tier to pick.
+
+## Free, offline, and good enough
+
+Whisper came out of a 2022 paper, [*Robust Speech Recognition via Large-Scale Weak Supervision*](https://arxiv.org/abs/2212.04356), whose central result is that "when scaled to 680,000 hours of multilingual and multitask supervision, the resulting models generalize well to standard benchmarks." That scale is why Whisper handles accents, background noise, and code-switching far better than the open models that came before it — and why a `base`-sized Whisper is genuinely useful rather than a toy.
+
+Running it locally used to mean the reference PyTorch implementation, which is accurate but heavy. faster-whisper reimplements the same models on top of [CTranslate2](https://github.com/OpenNMT/CTranslate2), an inference engine for transformer models, and the result "is up to 4 times faster than openai/whisper for the same accuracy while using less memory." For a free, offline tool that runs on whatever hardware you happen to have, that speedup is the difference between practical and not.
+
+## Preprocessing audio with ffmpeg
+
+Whisper has firm expectations about its input: mono audio at 16 kHz. The reference code hard-codes it — `SAMPLE_RATE = 16000` — and feeds everything through a mel-spectrogram front end built around that rate. faster-whisper will resample for you internally, but doing it up front keeps the input small, predictable, and decoupled from whatever container your source happened to arrive in.
+
+[ffmpeg](https://ffmpeg.org/ffmpeg-resampler.html) does the whole job in one line. Here's the extraction step from the pipeline — take any video or audio file, down-mix to a single channel, resample to 16 kHz, and drop the video stream:
+
+```bash
+ffmpeg -y -i "$VIDEO" -ac 1 -ar "$SRATE" -vn "$OUTPUT"
+```
+
+The three flags are the entire transformation: `-ac 1` collapses stereo (or 5.1) to mono, `-ar 16000` resamples to the rate Whisper wants, and `-vn` strips the video so you're not carrying around frames you'll never use. The full script just wraps that with directory handling and a default sample rate:
+
+```bash
+VIDEO="$1"
+SRATE="${2:-16000}"
+AUDIO_DIR="$(dirname "$(realpath "$0")")/../audio"
+mkdir -p "$AUDIO_DIR"
+
+BASENAME="$(basename "$VIDEO")"
+NAME="${BASENAME%.*}"
+OUTPUT="$AUDIO_DIR/${NAME}.wav"
+
+ffmpeg -y -i "$VIDEO" -ac 1 -ar "$SRATE" -vn "$OUTPUT"
+```
+
+Mono is not a compromise here — Whisper is a mono model, so there is nothing to lose by collapsing channels, and a 16 kHz mono WAV is a fraction of the size of the original.
+
+## Quantization and model tiers
+
+Once the audio is ready, transcription is a few lines. The one decision baked into this snippet is `compute_type="int8"`:
+
+```python
+from faster_whisper import WhisperModel
+
+# base: good quality/speed tradeoff; use "small"/"medium" for better quality
+model = WhisperModel("base", device="cpu", compute_type="int8")
+segments, info = model.transcribe(str(audio_path), beam_size=1)
+```
+
+CTranslate2 supports [8-bit integer (INT8) quantization](https://github.com/OpenNMT/CTranslate2), which stores the model's weights as 8-bit integers instead of 32-bit floats. The model gets roughly four times smaller in memory and runs faster, because integer arithmetic is cheaper than floating-point and far more of the model fits in cache. faster-whisper's own benchmarks show the `small` model on CPU dropping from 2257 MB at full precision to 1477 MB with int8 — a real saving on a laptop. The accuracy cost is small enough that int8 is the sensible default for CPU transcription.
+
+`beam_size=1` is the other speed lever: greedy decoding instead of a beam search. It's faster and, for clean audio, usually indistinguishable in quality. The segments come back as a stream you iterate over — each one a chunk of text with a start and end timestamp:
+
+```python
+segment_list = []
+full_parts = []
+for s in segments:
+    segment_list.append({"start": s.start, "end": s.end, "text": s.text.strip()})
+    full_parts.append(s.text)
+
+result = {
+    "text": " ".join(full_parts).strip(),
+    "language": getattr(info, "language", "en"),
+    "segments": segment_list,
+}
+```
+
+You get both a flat transcript (`text`) and the timestamped segments, which is what you'd use to build subtitles or to jump to a moment in the source.
+
+## Measuring latency vs. accuracy
+
+So which model do you load? `WhisperModel("tiny")` or `WhisperModel("large-v3")`? This is the whole game, and it's a tradeoff between two curves that pull in opposite directions.
+
+The first is latency. Transcription time scales with the parameter count, and the [model card](https://github.com/openai/whisper#available-models-and-languages) makes the spread vivid: `tiny` is 39 M parameters, `base` 74 M, `small` 244 M, `medium` 769 M, and `large` 1550 M. On a CPU, each step up costs you real wall-clock time:
+
+<Image src={latency} alt="Latency to transcribe a fixed 60-second clip rises steeply from tiny to large — the largest model takes roughly twenty times as long as the smallest on CPU." />
+
+The numbers above are illustrative and will differ on your hardware, but the *shape* is universal: the jump from `small` to `medium` to `large` is brutal on a CPU, because you're more than tripling, then doubling, the work each time.
+
+The second curve is accuracy, and the standard yardstick is [word error rate (WER)](https://en.wikipedia.org/wiki/Word_error_rate) — the count of substitutions, deletions, and insertions needed to turn the transcript into the reference, divided by the number of words in the reference: `WER = (S + D + I) / N`. Lower is better; a WER of 0.05 means roughly one word in twenty is wrong. Bigger models have lower WER, but with diminishing returns:
+
+<Image src={wer} alt="Word error rate falls sharply from tiny to small, then flattens — the accuracy gain from medium to large is small compared to the latency cost." />
+
+The WER axis here is illustrative, not a measured benchmark — but the qualitative story is what every WER-vs-size comparison shows. The big accuracy wins come early, climbing out of `tiny`; by the time you're choosing between `medium` and `large`, you're paying a large latency premium for a small accuracy gain.
+
+## Picking a tier
+
+Put the two curves side by side and the decision almost makes itself. The accuracy curve flattens exactly where the latency curve steepens, so the best value lives in the middle:
+
+- **`tiny` / `base`** — for live or near-real-time work, quick drafts, or batch jobs over thousands of files where throughput dominates. `base` is the default in this pipeline for a reason: it's fast, light, and good enough for searchable transcripts and rough subtitles.
+- **`small`** — the sweet spot for most offline work. A large accuracy jump over `base` for a latency cost you can absorb on a single file.
+- **`medium` / `large`** — when accuracy is the product: difficult audio, heavy accents, technical vocabulary, or transcripts a human will read closely. Reach for them deliberately, knowing each step roughly doubles your processing time.
+
+A useful rule of thumb: start one tier *smaller* than you think you need, look at the output, and only move up if the errors actually hurt. People routinely reach for `large` and wait ten times as long for a transcript that `small` would have produced acceptably.
+
+## Where I used this
+
+I built this pipeline as [yt-transcribe](https://github.com/bessavagner), a small download-extract-transcribe tool for pulling text out of copyright-cleared talks and lectures — entirely offline, no API key, with `base` as the default and a one-line edit to move up a tier when a particular recording needed it. The shell-and-Python shape kept it easy to drive by hand or from a script.
+
+The lesson that travels beyond this one tool: capable speech recognition is now free and local, and the engineering isn't in calling an API — it's in the preprocessing (mono, 16 kHz) and in matching the model tier to your latency and accuracy budget. Get those two right and you rarely need to pay anyone for transcription again.
+
+## References and further reading
+
+- [A. Radford et al., "Robust Speech Recognition via Large-Scale Weak Supervision"](https://arxiv.org/abs/2212.04356) — the Whisper paper; arXiv:2212.04356, the 680,000-hour weak-supervision result. *(Link verified.)*
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — Whisper reimplemented on CTranslate2; "up to 4 times faster than openai/whisper … while using less memory," with int8 CPU benchmarks. *(Link verified.)*
+- [CTranslate2](https://github.com/OpenNMT/CTranslate2) — the inference engine behind faster-whisper; supports INT16/INT8/INT4 quantization on CPU and GPU. *(Link verified.)*
+- [OpenAI Whisper — available models and languages](https://github.com/openai/whisper#available-models-and-languages) — the model card table with parameter counts (tiny 39 M → large 1550 M). *(Link verified.)*
+- [Word error rate](https://en.wikipedia.org/wiki/Word_error_rate) — the `(S + D + I) / N` metric used to compare transcription accuracy. *(Link verified.)*
+- [FFmpeg resampler documentation](https://ffmpeg.org/ffmpeg-resampler.html) — the official docs for sample-rate and channel-layout conversion (`-ar`, `-ac`). *(Link verified.)*

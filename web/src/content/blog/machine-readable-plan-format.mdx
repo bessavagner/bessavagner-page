@@ -1,0 +1,137 @@
+---
+title: "Plans an Agent Can Actually Execute"
+description: "If you want a language model to carry out a plan, write the plan for a machine: XML-tagged structure, atomic find/replace edits, patterns defined once, and a verification checklist baked in."
+pubDate: 2026-07-25
+tags: ["llm-agents", "prompt-engineering", "automation", "methodology"]
+draft: false
+---
+
+import { Image } from 'astro:assets';
+import tokens from '../../assets/blog/machine-readable-plan-format/tokens.svg';
+
+There's a particular flavor of disappointment that comes from handing a language model a beautifully written plan and watching it do something else. The plan was clear — to you. It read like a good design doc: motivation up front, prose describing the change, a few illustrative snippets. The model nodded along and then edited the wrong function, skipped a step, or "improved" something you never mentioned.
+
+The problem usually isn't the model. It's that the plan was written for a human reader, and you handed it to a machine executor. Those are different audiences with different needs. If you want a model to *execute* a plan rather than admire it, you write the plan the way you'd write a config file: structured, explicit, and unambiguous. This post is about what that looks like in practice.
+
+## Plans written for humans don't execute
+
+A human reading a plan fills in gaps automatically. "Update the order handler to dedupe by key" is enough — a human knows which file, infers the shape of the change, and notices if a step was already done. A model reading the same line has to guess at every one of those, and each guess is a chance to drift.
+
+The official guidance backs this up. Anthropic's prompt-engineering docs describe the model as "a brilliant but new employee who lacks context on your norms and workflows," and the single most repeated instruction is to **be clear and direct**: "Be specific about the desired output format and constraints" and "provide instructions as sequential steps" when order matters ([Anthropic prompt engineering](https://platform.claude.com/docs/en/docs/build-with-claude/prompt-engineering/use-xml-tags)). Vagueness that a colleague would paper over becomes a fork in the road for a model.
+
+So the shift is from *describing* the change to *specifying* it. A plan-as-memo says what you want and trusts the reader. A plan-as-artifact leaves nothing to infer. The rest of this post is four concrete moves that get you from the first to the second.
+
+## Structure over prose
+
+The first move is to stop writing paragraphs and start writing labeled sections. Models parse a prompt more reliably when each kind of content lives in its own tagged container. Anthropic is explicit about this: "XML tags help Claude parse complex prompts unambiguously, especially when your prompt mixes instructions, context, examples, and variable inputs. Wrapping each type of content in its own tag... reduces misinterpretation" ([Anthropic prompt engineering](https://platform.claude.com/docs/en/docs/build-with-claude/prompt-engineering/use-xml-tags)).
+
+That's not Anthropic-specific folklore. The whole industry has converged on file-based conventions that give an agent persistent, structured context: `AGENTS.md`, a standard-Markdown file now used by more than 60,000 open-source projects to hand agents "the extra... context coding agents need: build steps, tests, and conventions" ([AGENTS.md](https://agents.md/)); `CLAUDE.md`, loaded at the start of every session to carry "persistent context it can't infer from code alone" ([Claude Code best practices](https://code.claude.com/docs/en/best-practices)); and Cursor's `.mdc` rules, which exist because "large language models don't retain memory between completions" so "rules provide persistent, reusable context at the prompt level" ([Cursor rules](https://cursor.com/docs/context/rules)).
+
+For a plan, the practical version is to give every section a boundary the model can't miss:
+
+```text
+<goal>One sentence: what is true when this plan is done.</goal>
+
+<context>
+Stack, entry points, constraints. What the executor needs and
+nothing it can already read from the code.
+</context>
+
+<tasks>
+  <task id="1">...</task>
+  <task id="2">...</task>
+</tasks>
+
+<verification>
+The checklist that proves the goal was reached.
+</verification>
+```
+
+A model can locate "the goal" or "task 2" by tag in one hop. Buried in three paragraphs of prose, the same facts are something it has to *reconstruct* — and reconstruction is where it drifts.
+
+## Atomic edits
+
+The second move is in how each task describes a change. "Refactor the auth flow to use the new token service" is a sentence; it is not an instruction a machine can follow without inventing the details. The machine-readable equivalent is an atomic edit: the exact file, the exact text to find, and the exact text to put in its place.
+
+```text
+<task id="1" file="orders/handler.py">
+  <find>
+order = db.insert(Order(**payload))
+return order
+  </find>
+  <replace>
+existing = db.find_by_idempotency_key(payload["key"])
+if existing:
+    return existing
+return db.insert(Order(**payload))
+  </replace>
+</task>
+```
+
+Two things make this reliable. The `find` block is *unique* — a substring that matches exactly one place in the file, so there's no ambiguity about where the edit lands. (Vague find targets are the classic failure: search for `export const` and you'll hit it in ten files.) And the `replace` block is literal code, not a description of code. The instant you write "add appropriate error handling here," you've handed the decision back to the model. This is the same constraint that production edit tools enforce — a find/replace only applies when its target appears exactly once — and writing your plan in that shape means each step either applies cleanly or fails loudly, with no silent guessing in between.
+
+The bonus is that atomic edits are dependency-ordered by construction. If task 2's `find` block is text that task 1 creates, then task 2 *cannot* run first — the order is encoded in the edits themselves, not left to a note that says "do this after that."
+
+## Define once, reference many
+
+The third move is about repetition. Real plans apply the same shape of change in several places — the same guard clause, the same wrapper, the same migration pattern across a handful of files. Spelling it out in full each time is how a plan balloons, and a bloated plan is a worse plan: Anthropic's own best-practices guide warns that an overlong `CLAUDE.md` causes the model to "ignore half of it because important rules get lost in the noise" ([Claude Code best practices](https://code.claude.com/docs/en/best-practices)). Length isn't free; it competes for the model's attention.
+
+So define the recurring shape once and reference it:
+
+```text
+<pattern name="dedupe_by_key">
+existing = store.find_by_idempotency_key(key)
+if existing:
+    return existing
+return store.create(...)
+</pattern>
+
+<task id="1" file="orders/handler.py">
+  <edit>apply @dedupe_by_key to the create-order path</edit>
+</task>
+
+<task id="2" file="payments/handler.py">
+  <edit>apply @dedupe_by_key to the charge path</edit>
+</task>
+```
+
+This isn't only tidier; it's measurably cheaper. I wrote one small two-step plan two ways — as a natural-language memo that explains the same find/replace/verify shape twice, and as the structured-and-referenced version above — and counted the tokens with tiktoken's `cl100k_base` encoding:
+
+<Image src={tokens} alt="Bar chart comparing token counts for the same two-step plan: the prose memo costs 285 tokens, the structured plan 202 tokens, a 29 percent reduction." />
+
+The structured plan came in at 202 tokens against the prose memo's 285 — a 29% reduction for *identical* instructions. It's one small example, not a benchmark, but it points the same way the structure-over-prose advice does: the tokens you save on ceremony are tokens left for the actual work, and the model has less text to get lost in.
+
+## Verification as part of the plan
+
+The fourth move is the one most plans skip: the executor needs a way to know whether each step actually worked. Without it, "looks done" is the only signal, and the model stops the moment the diff *looks* plausible — which is precisely when it's wrong.
+
+The Claude Code best-practices guide makes this the headline advice: "Give Claude a way to verify its work." The reasoning is sharp: "Claude stops when the work looks done. Without a check it can run, 'looks done' is the only signal available, and you become the verification loop: every mistake waits for you to notice it. Give Claude something that produces a pass or fail, and the loop closes on its own" ([Claude Code best practices](https://code.claude.com/docs/en/best-practices)). A check is anything that returns a signal the model can read: a test suite, a build exit code, a linter, a script that diffs output against a fixture.
+
+In a plan, that means every task ends with a checklist of concrete, runnable checks — not "make sure it works":
+
+```text
+<verification>
+- [ ] run: pytest tests/orders -k idempotency
+- [ ] output contains: "1 passed"
+- [ ] run: git diff --stat   # only orders/handler.py changed
+- [ ] commit: fix(orders): dedupe create path by idempotency key
+</verification>
+```
+
+Each line is a command and an expected result. "Run this, expect that string" beats "verify the feature works" the same way a unique `find` block beats a vague one — it removes the judgment call. And folding the commit message into the checklist turns the plan into a record of intent: when the step passes, the model knows exactly what to write down and why.
+
+This even has a structured-state angle. The same docs recommend tracking progress in machine-readable form — a `tests.json` of pass/fail states, git as a checkpoint log — so an agent working across a long task can see what's done without re-deriving it. A verification checklist is the per-step version of that idea. The richer cousin of this is a constrained output schema, like OpenAI's Structured Outputs, which guarantees a response "adhere[s] to a JSON schema you define" so there's "no need to validate or retry incorrectly formatted responses" ([OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)). Same instinct, different layer: pin down the shape of "correct" so the machine can check itself.
+
+## The plan becomes the artifact
+
+Put the four moves together and the plan stops being a memo you hope the model honors and becomes something closer to a script it runs. XML-tagged sections so it can find any part in one hop. Atomic find/replace edits so there's nothing to invent and the dependency order is baked in. Patterns defined once and referenced, so the plan stays lean and the model stays focused. A verification checklist per step, so the model grades itself instead of waiting for you to.
+
+None of this makes the writing harder — it makes it *different*. You spend the effort up front, being explicit about what you'd normally leave implicit, and you get it back in fewer wrong turns. The test of a human plan is whether a colleague understands it. The test of a machine plan is whether an agent can execute it end to end without stopping to ask what you meant. Write for that reader, and the plan starts doing what you wrote it to do.
+
+## References and further reading
+
+- [AGENTS.md](https://agents.md/) — standard-Markdown convention for agent instructions, used by 60,000+ projects
+- [Anthropic — prompt engineering with XML tags](https://platform.claude.com/docs/en/docs/build-with-claude/prompt-engineering/use-xml-tags) — clarity, structure, and verification guidance
+- [Claude Code best practices](https://code.claude.com/docs/en/best-practices) — `CLAUDE.md`, "give Claude a way to verify its work," and managing context length
+- [Cursor rules](https://cursor.com/docs/context/rules) — `.mdc` rules as persistent, prompt-level context for agents
+- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) — constraining model responses to a schema for machine-checkable output

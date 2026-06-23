@@ -1,0 +1,207 @@
+---
+title: "One flexible API for many shapes: polymorphic vaults in Django REST Framework"
+description: "Storing recipes, bookmarks, journals and groceries behind a single REST surface — a polymorphic Item base, dynamically composed nested serializers, atomic multi-table writes, and the eager-loading that kills the N+1 queries."
+pubDate: 2026-07-09
+tags: ["django", "drf", "api-design", "data-modeling", "python"]
+draft: false
+---
+
+import { Image } from 'astro:assets';
+import byKind from '../../assets/blog/polymorphic-vaults-in-drf/items_by_kind.svg';
+import queryCounts from '../../assets/blog/polymorphic-vaults-in-drf/query_counts.svg';
+
+I keep a personal "vault" — a single app where I dump anything worth keeping: recipes, bookmarks, GitHub repos I want to remember, grocery lists, half-formed project ideas, journal entries, trips, expenses. The interesting thing about that list is that the items have almost nothing in common. A recipe has servings and ordered steps and a bag of ingredients; a bookmark is basically a URL and a title; a grocery list is a checklist. They're different *shapes*.
+
+The naive way to build the backend for that is one model and one endpoint per shape: `/recipes/`, `/bookmarks/`, `/journals/`, `/groceries/`, and so on. It works, and then it doesn't — every shared feature (tags, search, favorites, attachments, "show me everything from last week") has to be reimplemented on every endpoint, and a unified timeline becomes a fan-out across a dozen URLs. This post is about the alternative I actually used: a single polymorphic `Item` base with typed extensions, one REST surface, and the two things you *must* get right to make it production-grade — atomic nested writes and killing the N+1 queries.
+
+## The "endpoint per type" trap
+
+When you have heterogeneous things to store, there are three classic moves, and two of them are traps.
+
+The first trap is **a table per type with no shared base**. Every cross-cutting concern — tagging, full-text search, "favorite", soft-delete, an activity feed — gets copied into every table and every serializer. Adding a new shape means touching all of that shared plumbing again. The shapes diverge, but so does everything they were supposed to share.
+
+The second trap is the opposite overcorrection: **one wide table with a pile of nullable columns**, or its cousin, the **Entity-Attribute-Value (EAV)** model — a generic `(entity, attribute, value)` table where every property is a row. EAV looks infinitely flexible, which is exactly why it's a well-documented anti-pattern: Bill Karwin catalogues it in [*SQL Antipatterns*](https://pragprog.com/titles/bksqla/sql-antipatterns/) under logical-design mistakes. You lose the things a relational database is *for* — you can't put a `NOT NULL` or a foreign-key constraint on a value that's stored as a string in a shared column, the database can't type-check anything, and even simple queries turn into self-joins. Flexibility bought by throwing away integrity is a bad trade.
+
+The move that works is the middle path: a **shared base model** carrying everything the shapes have in common, plus a small **typed extension** per shape that holds only what's special. One endpoint, real columns, real constraints.
+
+## A polymorphic base
+
+Here's the base. `Item` owns every cross-cutting field, and a `kind` enum records which shape a given row is. I'm using Django's [`TextChoices`](https://docs.djangoproject.com/en/5.1/ref/models/fields/#enumeration-types) so the allowed kinds live in one place, in code:
+
+```python
+class Item(models.Model):
+    class Kind(models.TextChoices):
+        RECIPE = "RECIPE", "Recipe"
+        GROCERY = "GROCERY", "Grocery"
+        BOOKMARK = "BOOKMARK", "Bookmark"
+        GITHUB_REPO = "GITHUB_REPO", "GitHub Repo"
+        WEBSITE = "WEBSITE", "Website"
+        JOURNAL = "JOURNAL", "Journal"
+        # ... trips, expenses, project ideas, other
+        OTHER = "OTHER", "Other"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                              related_name="vault_items")
+    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.OTHER)
+    title = models.CharField(max_length=255)
+    summary = models.TextField(blank=True)
+    content = models.TextField(blank=True)
+    url = models.URLField(blank=True)
+    tags = models.ManyToManyField(Tag, related_name="items", blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    is_favorite = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["owner", "kind", "created_at"]),
+            models.Index(fields=["owner", "title"]),
+        ]
+        ordering = ["-created_at"]
+```
+
+Tags, search fields (`title`, `summary`, `content`, `url`), favoriting, ownership, timestamps, and a loose `metadata` JSON field for genuinely shape-specific scalars all live here once. The composite index on `(owner, kind, created_at)` is the one the timeline and the per-kind filters will lean on. Notice there's no nullable `servings` or `prep_time` here — those don't belong on a bookmark.
+
+The shape-specific data lives in an **extension model** joined back to `Item` with a `OneToOneField`. A recipe is the richest example, because it isn't flat — it has ordered steps and a list of ingredients, each its own table:
+
+```python
+class Recipe(models.Model):
+    item = models.OneToOneField(Item, on_delete=models.CASCADE, related_name="recipe")
+    servings = models.PositiveSmallIntegerField(null=True, blank=True)
+    prep_time_min = models.PositiveSmallIntegerField(null=True, blank=True)
+    cook_time_min = models.PositiveSmallIntegerField(null=True, blank=True)
+    source_url = models.URLField(blank=True)
+
+
+class RecipeStep(models.Model):
+    recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name="steps")
+    order = models.PositiveSmallIntegerField()
+    instruction = models.TextField()
+
+    class Meta:
+        ordering = ("order",)
+        unique_together = ("recipe", "order")
+
+
+class RecipeIngredient(models.Model):
+    recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE,
+                               related_name="recipe_ingredients")
+    ingredient = models.ForeignKey(Ingredient, on_delete=models.PROTECT,
+                                   related_name="recipe_usages")
+    quantity = models.CharField(max_length=64, blank=True)
+    notes = models.CharField(max_length=255, blank=True)
+```
+
+This is sometimes called **multi-table inheritance done by hand**: the base is shared and indexed, the extensions hold only what's special, and the `kind` enum tells you which extension (if any) a row has. Every column is real, every relationship is a real foreign key with a real `on_delete` rule — `CASCADE` for steps that die with their recipe, `PROTECT` for ingredients you don't want silently deleted out from under other recipes.
+
+A quick aside on the road *not* taken. Django ships [generic relations](https://docs.djangoproject.com/en/5.1/ref/contrib/contenttypes/) (`GenericForeignKey` via the contenttypes framework) which let one field point at *any* model. It's the right tool when the relationship truly is open-ended — a `Comment` or `Tag` that can attach to anything. But the docs are upfront about the costs: a `GenericForeignKey` "cannot be used directly with filters" through the ORM, and "a database index is *not* automatically created," so you manage your own. For a closed, known set of shapes, an explicit `kind` enum plus one-to-one extensions keeps the database doing the type-checking and indexing for you. Generic relations trade some of that away for openness you may not need.
+
+Because the kinds are an enum, a single table can answer "what's in here?" without a dozen `COUNT`s across a dozen tables. Here's the composition of one vault, by kind:
+
+<Image src={byKind} alt="A bar chart of one vault's items grouped by kind — bookmarks dominate, followed by recipes and groceries, trailing off into a long tail of journals, ideas, expenses and trips — all stored in a single Item table. Synthetic data." />
+
+That whole distribution is one `Item` table. A timeline query is `Item.objects.filter(owner=me).order_by("-created_at")`; a filtered view is the same query with `.filter(kind="RECIPE")`. One endpoint, one index, every shape.
+
+## Composing nested serializers
+
+On the API side, the base `Item` gets a straightforward `ModelSerializer`. The interesting work is in the extension serializers, because a recipe write isn't one object — it's a recipe *plus* its steps *plus* its ingredients, arriving in one nested payload. DRF lets you declare that nesting by embedding child serializers:
+
+```python
+class RecipeSerializer(serializers.ModelSerializer):
+    steps = RecipeStepSerializer(many=True, required=False)
+    recipe_ingredients = RecipeIngredientSerializer(many=True, required=False)
+
+    class Meta:
+        model = Recipe
+        fields = ("id", "item", "servings", "prep_time_min", "cook_time_min",
+                  "source_url", "steps", "recipe_ingredients")
+        read_only_fields = ("id",)
+```
+
+That declaration gives you nested *reads* for free — a `GET` returns the recipe with its steps and ingredients inlined. Nested *writes* are the catch, and it's a deliberate one. DRF's [serializer docs](https://www.django-rest-framework.org/api-guide/serializers/) are explicit: "the default `ModelSerializer` `.create()` and `.update()` methods do not include support for writable nested representations," because "the behavior of nested creates and updates can be ambiguous, and may require complex dependencies between related models." So DRF makes you "write these methods explicitly." That's not a limitation to route around — it's the framework refusing to guess how a `PUT` to a recipe should reconcile the steps you sent against the steps already in the database. You're the one who knows.
+
+## Writing across tables atomically
+
+So we write `create()` and `update()` by hand. A single recipe write touches three tables — `Recipe`, `RecipeStep`, `RecipeIngredient` — and the cardinal rule is that it must be **all or nothing**. If the recipe and four steps insert fine but the fifth step violates the `unique_together("recipe", "order")` constraint, you must not be left with a half-written recipe. That's what [`transaction.atomic`](https://docs.djangoproject.com/en/5.1/topics/db/transactions/) is for: as the Django docs put it, it "allows us to create a block of code within which the atomicity on the database is guaranteed. If the block of code is successfully completed, the changes are committed to the database. If there is an exception, the changes are rolled back."
+
+```python
+@transaction.atomic
+def create(self, validated_data):
+    steps_data = validated_data.pop("steps", [])
+    ingredients_data = validated_data.pop("recipe_ingredients", [])
+    recipe = Recipe.objects.create(**validated_data)
+    for step in steps_data:
+        RecipeStep.objects.create(recipe=recipe, **step)
+    for ri in ingredients_data:
+        RecipeIngredient.objects.create(recipe=recipe, **ri)
+    return recipe
+```
+
+Pop the nested lists off the validated data first (they're not columns on `Recipe`), create the parent, then create the children pointing at it. The `@transaction.atomic` decorator wraps the whole method in one transaction: any exception anywhere inside — a constraint violation, a bad foreign key — rolls back every insert, including the parent. You either get a complete recipe or none of it.
+
+Updates need one more decision, because a `PUT` that includes `steps` is *replacing* the step list, not appending to it. The simplest correct approach is replace-in-place, still inside one transaction:
+
+```python
+@transaction.atomic
+def update(self, instance, validated_data):
+    steps_data = validated_data.pop("steps", None)
+    ingredients_data = validated_data.pop("recipe_ingredients", None)
+    instance = super().update(instance, validated_data)
+    if steps_data is not None:
+        instance.steps.all().delete()
+        for step in steps_data:
+            RecipeStep.objects.create(recipe=instance, **step)
+    if ingredients_data is not None:
+        instance.recipe_ingredients.all().delete()
+        for ri in ingredients_data:
+            RecipeIngredient.objects.create(recipe=instance, **ri)
+    return instance
+```
+
+The `is not None` check matters: a payload that *omits* `steps` leaves the existing steps untouched, while a payload that sends `steps: []` clears them. Delete-then-recreate is blunt but honest, and because it's atomic, a failure mid-rewrite rolls the old steps back into existence rather than leaving you with nothing. (If step identity or churn ever matters — say you're diffing to preserve row IDs — you'd reconcile by key instead of nuking the set, but for a recipe's handful of steps, replace-in-place is the right amount of code.)
+
+The same pattern generalizes to every nested shape: a grocery list and its entries use the identical atomic create/update. Write it once per extension, and the polymorphic surface stays uniform.
+
+## Killing the N+1 (plot)
+
+Now the part that separates a demo from production. The timeline endpoint returns a page of items, and each item has tags and attachments. The obvious queryset — `Item.objects.filter(owner=me)` — triggers the **N+1 problem**: one query to fetch the page of items, then, as the serializer renders each row, *another* query for that row's tags and *another* for its attachments. A page of 50 items can fire over a hundred queries. The endpoint feels fine with ten rows in development and falls over under a real vault.
+
+Django's fix is eager loading, and it comes in two flavors documented in the [QuerySet API reference](https://docs.djangoproject.com/en/5.1/ref/models/querysets/). `select_related` "follows" single-valued relationships — `ForeignKey` and `OneToOneField` — by building a SQL `JOIN` and pulling the related fields in the same query. `prefetch_related` handles the many-valued ones — many-to-many and reverse foreign keys — by doing "a separate lookup for each relationship, and [doing] the 'joining' in Python." So you reach for `select_related` on the `owner` foreign key, and `prefetch_related` on the `tags` (many-to-many) and `attachments` (reverse FK):
+
+```python
+class ItemViewSet(ModelViewSet):
+    serializer_class = ItemSerializer
+    permission_classes = (IsAuthenticated,)
+
+    def get_queryset(self):
+        return (
+            Item.objects.filter(owner=self.request.user)
+            .select_related("owner")
+            .prefetch_related("tags", "attachments")
+        )
+```
+
+That single change turns "one query per row per relationship" into a small, *constant* number of queries — one for the page (owner folded into the join), one to prefetch all the tags, one for all the attachments — no matter how many rows come back. The recipe viewset does the same one level deeper: `select_related("item")` for the one-to-one base, `prefetch_related("steps", "recipe_ingredients__ingredient")` to pull steps, ingredients, *and* each ingredient's name in batches rather than per row.
+
+Here's the shape of it — naive versus eager-loaded, as the page grows:
+
+<Image src={queryCounts} alt="Grouped bar chart of database queries per list request. The naive queryset grows linearly with page size — 21 queries at 10 items, climbing to 201 at 100 items — while the select_related plus prefetch_related queryset stays flat at 3 queries regardless of page size. Synthetic, representative data." />
+
+The naive bars climb with the page size; the eager-loaded bars are a flat line. That flatness is the whole point — query count decoupled from result-set size is the difference between an endpoint that scales and one that quietly melts as the vault fills up.
+
+## Where I used this
+
+I built exactly this in a personal-registry app: a polymorphic `Item` base, one-to-one extensions for the shapes that need them (`Recipe` with its steps and ingredients, grocery lists with entries), nested serializers with hand-written atomic create/update, and eager-loaded querysets on every list endpoint. The payoff is that the entire vault lives behind one coherent REST surface — one place for tags, search, favorites, and a unified timeline — while each shape still gets real columns and real constraints.
+
+The lesson that travels past this particular app: heterogeneous data doesn't force you into either a sprawl of endpoints or a structureless EAV blob. A shared base plus typed extensions gives you one surface *and* integrity. The two things you cannot skip are wrapping multi-table writes in `transaction.atomic` so a half-written object is impossible, and eager-loading your relationships so the read path doesn't degrade into an N+1 storm. Get those two right and the polymorphic model is just... pleasant.
+
+## References and further reading
+
+- [DRF — Serializers (Writable nested representations)](https://www.django-rest-framework.org/api-guide/serializers/) — why `ModelSerializer` won't auto-handle nested writes, and that you must write `create()`/`update()` yourself. *(Link verified.)*
+- [Django — Database transactions](https://docs.djangoproject.com/en/5.1/topics/db/transactions/) — `transaction.atomic` and its all-or-nothing commit/rollback guarantee. *(Link verified.)*
+- [Django — QuerySet API reference](https://docs.djangoproject.com/en/5.1/ref/models/querysets/) — `select_related` (SQL join, single-valued relations) vs `prefetch_related` (separate batched lookups, many-valued relations). *(Link verified.)*
+- [Django — The contenttypes framework](https://docs.djangoproject.com/en/5.1/ref/contrib/contenttypes/) — `GenericForeignKey` and generic relations, and their query/indexing caveats. *(Link verified.)*
+- [Django — Enumeration types (`TextChoices`)](https://docs.djangoproject.com/en/5.1/ref/models/fields/#enumeration-types) — declaring the `kind` enum in code. *(Link verified.)*
+- B. Karwin, [*SQL Antipatterns: Avoiding the Pitfalls of Database Programming*](https://pragprog.com/titles/bksqla/sql-antipatterns/) — Pragmatic Bookshelf (2010); the Entity-Attribute-Value pattern as a logical-design anti-pattern. *(Link verified.)*
