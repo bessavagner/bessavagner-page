@@ -1,0 +1,25 @@
+---
+import Base from '../../../layouts/Base.astro';
+import PostCard from '../../../components/blog/PostCard.astro';
+import { getPublishedPosts, getAllTags } from '../../../lib/blog';
+
+export async function getStaticPaths() {
+  const tags = await getAllTags();
+  const posts = await getPublishedPosts();
+  return tags.map((tag) => ({
+    params: { tag },
+    props: { tag, posts: posts.filter((p) => p.data.tags.includes(tag)) },
+  }));
+}
+
+const { tag, posts } = Astro.props;
+---
+<Base title={`Posts tagged “${tag}” — Vagner Bessa`} description={`Articles tagged ${tag} by Vagner Bessa.`}>
+  <section class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
+    <a href="/blog/" class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← All posts</a>
+    <h1 class="font-header-4 font-bold mt-6">Posts tagged <span class="text-primary">#{tag}</span></h1>
+    <div class="grid grid-cols-1 gap-5 mt-10">
+      {posts.map((post) => <PostCard post={post} />)}
+    </div>
+  </section>
+</Base>
