@@ -1,0 +1,16 @@
+---
+import type { Post } from '../../lib/blog';
+import { readingTime } from '../../lib/blog';
+import PostMeta from './PostMeta.astro';
+interface Props { post: Post; }
+const { post } = Astro.props;
+const minutes = readingTime(post.body ?? '');
+---
+<article class="rounded-2xl border border-base-content/10 bg-base-200/40 p-6 hover:border-primary/40 transition-colors">
+  <h2 class="font-header-5 font-bold leading-tight">
+    <a href={`/blog/${post.id}/`} class="hover:text-primary">{post.data.title}</a>
+  </h2>
+  <PostMeta pubDate={post.data.pubDate} minutes={minutes} tags={post.data.tags} class="mt-3" />
+  <p class="font-base text-base text-base-content/75 mt-3 leading-relaxed">{post.data.description}</p>
+  <a href={`/blog/${post.id}/`} class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline mt-4">Read →</a>
+</article>
