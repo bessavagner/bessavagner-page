@@ -1,0 +1,156 @@
+---
+title: "A fast molecular-dynamics simulator in pure NumPy"
+description: "A naive molecular-dynamics loop is O(N²) and dies past a few hundred particles. With cell lists, a cutoff Lennard-Jones potential, velocity-Verlet integration, and reduced units, you can simulate thousands of particles in pure NumPy and watch a gas equilibrate."
+pubDate: 2026-06-25
+tags: ["simulation", "physics", "numpy", "performance", "scientific-computing"]
+draft: false
+---
+
+import { Image } from 'astro:assets';
+import energy from '../../assets/blog/fast-molecular-dynamics-in-numpy/energy.svg';
+import temperature from '../../assets/blog/fast-molecular-dynamics-in-numpy/temperature.svg';
+import rdf from '../../assets/blog/fast-molecular-dynamics-in-numpy/rdf.svg';
+
+Molecular dynamics is a deceptively simple idea. You put a few particles in a box, give them a rule for how they push and pull on each other, and then step time forward: compute the force on every particle, nudge their velocities and positions a little, repeat. Do that a few million times and you get a movie of matter behaving like matter — a gas filling its container, a liquid showing short-range order, a crystal melting.
+
+The simplicity is a trap, though. The obvious way to write the loop is also the way that stops working the moment you care about more than a handful of particles. This post is about what it takes to go from a toy that handles a few hundred particles to something that handles thousands, in pure Python and NumPy, with no compiled extensions — and how to convince yourself the physics is actually right.
+
+## The O(N²) wall
+
+The expensive part of every step is the force calculation. The force on particle *i* is the sum of the forces from every other particle *j*, so the naive loop is a double loop:
+
+```python
+for i in range(N):
+    for j in range(N):
+        if i != j:
+            forces[i] += pair_force(positions[i] - positions[j])
+```
+
+That's `N * (N - 1)` force evaluations per step. The cost grows with the *square* of the particle count: double *N* and the step takes four times as long. At a few hundred particles it's fine. At a few thousand it's painful, and at ten thousand a single step is doing a hundred million pair evaluations — and you need millions of steps. You hit a wall.
+
+The wall is artificial, though. Almost all of that work is wasted. The interactions that matter in a simple fluid are short-ranged: two particles on opposite sides of the box exert a negligible force on each other. If we only ever computed forces between particles that are actually close, the cost would scale with *N* instead of *N²*. Two ideas get us there: a **cutoff** on the potential (so distant pairs contribute exactly zero), and a **cell list** (so we never even look at distant pairs).
+
+## Cell lists
+
+A cell list is a spatial hash. You chop the simulation box into a grid of cells whose side length is at least the interaction cutoff, then drop each particle into the cell that contains it. Now the rule is simple: a particle can only interact with particles in its own cell or in the immediately neighbouring cells. Everything further away is, by construction, beyond the cutoff and contributes nothing.
+
+Because each cell holds only a roughly constant number of particles (it depends on density, not on the total count), the work per particle is constant and the whole force calculation becomes [O(N) instead of O(N²)](https://en.wikipedia.org/wiki/Cell_lists). That single change is the difference between hundreds and tens of thousands of particles.
+
+Here's the heart of it from [dynamol](https://github.com/bessavagner/dynamol), a pure-NumPy MD package I wrote — binning the particles into cells is just integer division of each coordinate by the cell size:
+
+```python
+def make_list(self, points: np.ndarray):
+    self.cells.clean()
+    mask = np.floor_divide(points, self.L).astype(int)
+    # Clamp anything sitting exactly on the far boundary into the last cell.
+    if np.array(points).max() / self.L >= self.nc.max():
+        mask[mask == mask.max()] = self.nc.max() - 1
+    for i, m in enumerate(mask):
+        self.cells.add(i, tuple(m))
+    return self
+```
+
+`np.floor_divide(points, self.L)` turns every position into a cell index in one vectorized shot. After that, computing forces means visiting each cell, gathering its own particles plus those of its neighbours, and only evaluating pairs within that local candidate set. The neighbour gather is the other half:
+
+```python
+def neighbors(self, loc: tuple):
+    idx = np.empty(2 * len(self.cells.shape), dtype=int)
+    for n, i in enumerate(loc):
+        idx[2 * n] = max(i - 1, 0)
+        idx[2 * n + 1] = i + 2 if i < self.cells.shape[n] else self.cells.shape[n]
+    idx_arr = np.resize(idx, (len(loc), 2))
+    slices = tuple(slice(a, b) for a, b in idx_arr)
+    return np.sum(self.cells[slices].flatten())
+```
+
+The slices pick out the 3×3 (in 2D) or 3×3×3 (in 3D) block of cells around `loc`, and we only ever test pairs inside that block. The number of cells you have to examine no longer depends on how big the box is — only on the cutoff and the density.
+
+## Lennard-Jones with a cutoff
+
+The force law for a simple atomic fluid is the [Lennard-Jones potential](https://en.wikipedia.org/wiki/Lennard-Jones_potential): a steep repulsion at short range (atoms can't overlap) and a gentle attraction at medium range (the van der Waals pull). In reduced units, where energy and length are measured in the potential's own natural scales, it's just `V(r) = 4 * (r**-12 - r**-6)` — the `r**-12` term is the repulsive core, the `r**-6` term the attractive tail.
+
+Working in **reduced units** is the second quality-of-life decision. Set the particle mass, the well depth, and the atomic diameter all to 1, and the equations lose their clutter of physical constants. Temperature, density, time and pressure all become dimensionless numbers of order one, the arithmetic stays well-conditioned, and you convert back to SI units only at the very end. Allen and Tildesley and Frenkel and Smit (both cited below) treat this as the default way to do the math, and for good reason.
+
+The cutoff needs a little care. If you simply ignore the potential beyond a radius `r_c`, the force jumps discontinuously to zero at the boundary, and every time a pair crosses it the system gains or loses a sliver of energy. Over millions of steps that bleeds away your energy conservation. The fix is a **shifted-force** potential: subtract the value and slope at the cutoff so both the potential and the force go smoothly to zero there. Here's the displaced force from dynamol:
+
+```python
+class LennardJones:
+    def __init__(self, cutoff=3.0):
+        self.cutoff = cutoff
+        self.F_cutoff = self.__force(self.cutoff)        # force at the cutoff
+        self.V_cutoff = self.__potential(self.cutoff)    # potential at the cutoff
+
+    def force(self, rij):
+        r = np.linalg.norm(rij)
+        if r < self.cutoff:
+            rm1 = 1.0 / r
+            rm6 = rm1 ** 6
+            rm7 = rm1 * rm6
+            # Shifted so the force is continuous at r = cutoff.
+            return (48.0 * rm7 * (rm6 - 0.5) - self.F_cutoff) * rij / r
+        return np.zeros(rij.shape[0])
+```
+
+Notice there's no `pow` and no square root beyond the one norm: everything is built from `rm1`, `rm6`, `rm7`. That matters, because this function runs in the innermost loop, millions of times. A cutoff of around 2.5σ to 3σ captures essentially all of the interaction energy while letting the cell list throw away the rest.
+
+## Integrating without drift
+
+Once you have forces, you need to move time forward. The temptation is plain Euler integration — update velocity from the force, update position from the velocity — and it's a mistake. Euler is not energy-conserving; in a system that's supposed to keep its total energy fixed, it drifts, steadily injecting or draining energy until the simulation is physically meaningless.
+
+The standard answer is [velocity-Verlet](https://en.wikipedia.org/wiki/Verlet_integration), the workhorse of molecular dynamics since Loup Verlet's [1967 paper](https://link.aps.org/doi/10.1103/PhysRev.159.98). It's barely more code than Euler but it's *time-reversible* and *symplectic* — it conserves a quantity very close to the true energy, so the total energy stays flat over long runs instead of wandering off. The update is a half-kick to the velocity, a full drift of the position, a force recompute, and a second half-kick:
+
+```python
+class VelocityVerlet(Integrator):
+    def single_step(self, r, v, a_old, f, *args, **kwargs):
+        r = r + v * self.dt + a_old * self.halfdt2   # drift position
+        a = f(r, *args, **kwargs)                     # new accelerations
+        v = v + (a + a_old) * self.halfdt             # kick velocity
+        return r, v, a
+```
+
+The whole array of particles moves in one vectorized expression — no Python-level loop over particles in the integrator at all. That's the other reason NumPy can carry this: the per-step bookkeeping is all array arithmetic, and only the force calculation needs any structure (which the cell list provides).
+
+So does it actually conserve energy? Here's a run of a small 2D Lennard-Jones gas, looking only at the window *after* the thermostat is switched off so we're seeing genuine constant-energy (NVE) dynamics:
+
+<Image src={energy} alt="Total energy stays essentially flat across the run while kinetic and potential energy trade off against each other — velocity-Verlet conserves energy." />
+
+The total energy is a flat line; kinetic and potential energy slosh back and forth as particles speed up and slow down, but their sum holds steady. On this run the total energy's spread across the production window is under a tenth of a percent. That flat line is the whole point — it's how you know the integrator and the shifted-force cutoff are doing their jobs.
+
+## Watching it equilibrate
+
+A constant-energy simulation conserves whatever energy it starts with, but usually you want to *prepare* the system at a target temperature first. Temperature in MD is just a measure of the average kinetic energy, via equipartition. To steer it, the simplest tool is a **velocity-rescaling thermostat**: nudge every velocity by a factor that pulls the instantaneous temperature toward the target. Here's the Berendsen-style version from dynamol:
+
+```python
+def thermic_bath(self):
+    self.kinetic_energy()                 # updates self.T from current velocities
+    T_factor = np.sqrt(
+        1 + (self.time_step / self.tau) * (self.T_bath / self.T - 1.0)
+    )
+    self.velocities = T_factor * np.array([v for v in self.velocities])
+    self.kinetic_energy()
+```
+
+The `tau` parameter sets how aggressively it pulls: small `tau` slams the temperature to target, large `tau` lets it relax gently. You run with the thermostat on while the system equilibrates, then switch it off and let it evolve at constant energy. Here's the temperature settling onto its target and then holding once the thermostat is removed:
+
+<Image src={temperature} alt="The instantaneous temperature converges to the target value while the thermostat is on, then holds steady around it after the thermostat is switched off." />
+
+The real test that the system has become a physical fluid — not just a cloud of points at the right temperature — is its structure. The [radial distribution function](https://en.wikipedia.org/wiki/Radial_distribution_function) g(r) measures how likely you are to find another particle at distance *r*, normalised so that a structureless ideal gas gives a flat line at 1. A real fluid is not structureless:
+
+<Image src={rdf} alt="The radial distribution function rises to a sharp first-neighbour peak, then oscillates and decays toward 1 — the structural signature of a liquid, not an ideal gas." />
+
+That sharp first peak is the shell of nearest neighbours each particle pulls in around itself; the dip after it is the gap before the next shell; the oscillations damp out toward 1 at long range as order is lost. This curve is the fingerprint of a liquid, and reproducing it is how you check that the forces, the integrator, and the thermostat have together produced real physics rather than plausible-looking noise.
+
+If you want to push further, the same machinery gives you thermodynamics for free. The pressure, for instance, follows from the [virial expression](https://en.wikipedia.org/wiki/Virial_theorem) — the ideal-gas term plus a correction built from the same pairwise forces you're already computing. And for long runs, streaming the trajectory to disk with [HDF5 via h5py](https://docs.h5py.org/en/stable/) keeps memory flat: you append each frame to a resizable dataset rather than holding the whole history in RAM.
+
+I used this approach in [dynamol](https://github.com/bessavagner/dynamol) to simulate Lennard-Jones gases in 2D and 3D entirely in NumPy, watching argon-like systems equilibrate and reading off their thermodynamic properties. The lesson that travels is the one this post is built around: the naive O(N²) loop isn't a law of nature, it's a choice — and cell lists, a cutoff, and a symplectic integrator turn "a few hundred particles, briefly" into "thousands of particles, for as long as you like," without ever leaving Python.
+
+## References and further reading
+
+- [L. Verlet, "Computer 'Experiments' on Classical Fluids. I."](https://link.aps.org/doi/10.1103/PhysRev.159.98) — *Phys. Rev.* **159**, 98 (1967); the original molecular-dynamics paper and the source of the Verlet algorithm. *(Link verified; DOI 10.1103/PhysRev.159.98.)*
+- [Lennard-Jones potential](https://en.wikipedia.org/wiki/Lennard-Jones_potential) — the 12–6 form used here, with its reduced-unit conventions. *(Link verified.)*
+- [Verlet integration](https://en.wikipedia.org/wiki/Verlet_integration) — velocity-Verlet, time-reversibility, and the symplectic property that keeps energy flat. *(Link verified.)*
+- [Cell lists](https://en.wikipedia.org/wiki/Cell_lists) — the spatial-hashing trick that takes force computation from O(N²) to O(N). *(Link verified.)*
+- M. P. Allen and D. J. Tildesley, [*Computer Simulation of Liquids*](https://academic.oup.com/book/27866) — Oxford University Press, 2nd ed. (2017); the standard practical reference for MD and Monte Carlo. *(Link verified.)*
+- D. Frenkel and B. Smit, [*Understanding Molecular Simulation*](https://shop.elsevier.com/books/understanding-molecular-simulation/frenkel/978-0-323-90292-2) — Elsevier, 3rd ed. (2023); cell lists, the NVE ensemble, and reduced units from first principles. *(Link verified.)*
+- [Virial theorem](https://en.wikipedia.org/wiki/Virial_theorem) — relates the virial of the interparticle forces to pressure and the equation of state. *(Link verified.)*
+- [h5py documentation](https://docs.h5py.org/en/stable/) — the Pythonic interface to HDF5, for streaming long trajectories to disk. *(Link verified.)*

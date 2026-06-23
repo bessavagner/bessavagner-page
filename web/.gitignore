@@ -3,6 +3,10 @@ dist/
 # generated types
 .astro/
 
+# plot-generation virtualenv (scripts are committed, the venv is not)
+scripts/plots/.venv/
+scripts/plots/**/__pycache__/
+
 # dependencies
 node_modules/
 

@@ -1,0 +1,214 @@
+---
+title: "How browser fingerprinting catches your scraper — and how to pass the tests"
+description: "Modern sites fingerprint the device and timing, not just navigator.webdriver. Here's how a stealth Selenium setup injects CDP commands, masks automation markers, and persists realistic state to pass real detection suites."
+pubDate: 2026-06-29
+tags: ["web-scraping", "automation", "selenium", "anti-bot", "python"]
+draft: false
+---
+
+import { Image } from 'astro:assets';
+import passrate from '../../assets/blog/beating-browser-fingerprinting/pass-rate.svg';
+
+If you've ever pointed a fresh Selenium script at a modern website and watched it hit a CAPTCHA wall on the first request, you've met browser fingerprinting. The frustrating part is that you did everything "right" — a real Chrome binary, a real chromedriver, a real page load — and the site still knew, instantly, that nobody was holding the mouse.
+
+That's because detection moved on. A few years ago, the giveaway was a single JavaScript property. Today, sites build a profile of your *device* — its graphics stack, its fonts, its timing quirks, the way its automation plumbing leaks through the cracks — and compare it against what a real browser on real hardware looks like. This post is about what those suites actually measure, and how a carefully built stealth Selenium setup gets past them. It's also, importantly, about *when you're allowed to do that* — so let's set the boundary up front and come back to it at the end.
+
+## What sites fingerprint
+
+A fingerprint is just a bundle of signals that, together, identify a browser closely enough to tell "real person" from "script." Roughly, they fall into three layers:
+
+- **Automation tells.** Flags that only ever appear when a browser is being driven by software — `navigator.webdriver`, the `$cdc_` variables chromedriver injects into the page, `--enable-automation` switches, missing `chrome.runtime`.
+- **Environment fingerprints.** What your device looks like: the WebGL vendor and renderer string from your GPU, installed fonts, audio-stack quirks, `navigator.languages`, screen and window dimensions, the user-agent. None of these is suspicious alone, but a headless container with a software GPU and no fonts stands out from a laptop.
+- **Behaviour and timing.** How the page is used: mouse paths, the cadence of key presses, how fast forms get filled, whether anything moves at all. Pure timing is hard to fake convincingly, which is why it's increasingly the last line of defence.
+
+Open-source detection libraries make this concrete. [BotD](https://github.com/fingerprintjs/BotD) from FingerprintJS runs entirely in the browser and looks for exactly these automation markers. [CreepJS](https://github.com/abrahamjuliot/creepjs) goes much deeper, cross-checking dozens of signals for the tiny inconsistencies that betray a spoofed environment — its stated purpose is "to shed light on weaknesses and privacy leaks among modern anti-fingerprinting extensions and browsers." Demo sites like pixelscan.net and deviceandbrowserinfo.com let you see your own fingerprint the way a server would. They're the test suite. If you want to pass detection, you start by failing their checks and fixing them one at a time.
+
+## The cheap tells
+
+The first wave is easy to understand and, fortunately, easy to address. The single most famous signal is `navigator.webdriver`. Per [MDN](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/webdriver), this read-only property "indicates whether the user agent is controlled by automation"; the [W3C WebDriver spec](https://www.w3.org/TR/webdriver/#dfn-webdriver-active-flag) defines it as returning `true` "when the user agent is under remote control." A vanilla automated Chrome returns `true`. That's a one-line confession.
+
+You can quiet the obvious ones at launch. Chrome exposes switches that turn off the automation banner and the `enable-automation` flag, and you can stop it loading the automation extension:
+
+```python
+from selenium.webdriver import ChromeOptions
+
+options = ChromeOptions()
+options.add_argument("--disable-blink-features=AutomationControlled")
+options.add_experimental_option("excludeSwitches", ["enable-automation"])
+options.add_experimental_option("useAutomationExtension", False)
+```
+
+That handles the launch flags. But chromedriver also leaves its own calling card inside the browser binary: variables and strings prefixed with `$cdc_` that detection scripts probe for directly. The brute-force fix is to patch them out of the chromedriver executable — find the byte sequences and overwrite them so the magic strings simply aren't there:
+
+```python
+import binascii
+from pathlib import Path
+
+def remove_cdc(chromedriver_path: str):
+    path = Path(chromedriver_path)
+    binary = path.read_bytes()
+    hex_dump = binascii.hexlify(binary).decode("ascii")
+
+    # '$cdc_' -> 'xydmu', 'webdriver' -> 'xyzabc' (same length, so offsets hold)
+    hex_dump = hex_dump.replace("246364635f", "7879646d75")
+    hex_dump = hex_dump.replace("777562647276657265", "78797a616263")
+
+    path.write_bytes(binascii.unhexlify("".join(hex_dump.split())))
+    path.chmod(0o755)
+```
+
+The key constraint is that the replacement must be the *same length* as the original, so every other offset in the binary stays valid. (Keep a backup of the original driver before you do this.) Patch the launch flags and the binary together and you sail past the shallowest checks — BotD's headless-Chrome detection, for instance, mostly keys off these. But environment fingerprints are still wide open.
+
+## Faking a browser's memory
+
+Here's where it gets interesting. A real browser carries a lot of *state* a fresh automation session doesn't: a consistent user-agent, a believable language list, a plausible GPU, a window that matches a real screen, and — crucially — cookies and `localStorage` from past visits. A brand-new headless profile looks like someone who has never used the internet, which is itself a tell.
+
+The mechanism for injecting most of this is the [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) (CDP), the same protocol DevTools and Puppeteer ride on. The method that does the heavy lifting is `Page.addScriptToEvaluateOnNewDocument`, which the protocol describes as evaluating a script "in every frame upon creation (before loading frame's scripts)." That timing is everything: your patch runs *before* the page's own detection code, so by the time the site checks `navigator.webdriver`, it's already been redefined.
+
+Selenium's local Chrome driver has `execute_cdp_cmd` built in, but the remote `WebDriver` doesn't — so if you run against a remote Selenium grid you have to wire the command through yourself. It's a thin shim over the same endpoint:
+
+```python
+def execute_cdp_cmd(self, cmd: str, cmd_args: dict):
+    """CDP for a remote WebDriver, which lacks the local driver's helper.
+
+    See the Chrome DevTools Protocol domains/commands reference:
+    https://chromedevtools.github.io/devtools-protocol/
+    """
+    return self.execute(
+        "executeCdpCommand", {"cmd": cmd, "params": cmd_args}
+    )["value"]
+```
+
+With CDP available, you can override each fingerprint surface. Rather than hand-roll every patch, [selenium-stealth](https://github.com/diprajpatra/selenium-stealth) — a Python port of the well-known puppeteer-extra stealth plugin — bundles a battery of them: it spoofs `navigator.webdriver`, the language list, the plugin array, the WebGL vendor/renderer, the permissions API, and more. Each one is a small script injected on every new document. The `navigator.languages` patch is representative of the whole genre — redefine the property with a getter so it returns a believable value instead of the automation default:
+
+```javascript
+// Redefine navigator.languages with a custom getter, injected on every
+// new document via Page.addScriptToEvaluateOnNewDocument.
+(languages) => {
+  Object.defineProperty(Object.getPrototypeOf(navigator), 'languages', {
+    get: () => languages || ['en-US', 'en']
+  })
+}
+```
+
+The other half of "memory" is persistence. Cookies and `localStorage` are what make a returning visitor look returning. A simple JSON-backed profile store lets you snapshot a profile's state and reload it on the next run, so the browser shows up with history instead of as a blank slate:
+
+```python
+import json
+from pathlib import Path
+
+class ProfileStorageBackend:
+    """Persists per-profile cookies / localStorage as JSON on disk."""
+
+    def __init__(self, base_path: Path = None):
+        self.json_path = (base_path or Path(".")) / "profiles.json"
+        self.json_data = (
+            json.loads(self.json_path.read_text())
+            if self.json_path.is_file() else {}
+        )
+
+    def get_profile(self, name: str, default=None):
+        return self.json_data.get(name, default)
+
+    def set_profile(self, name: str, data: dict) -> None:
+        self.json_data[name] = {"profile_id": name, **data}
+        self.json_path.write_text(json.dumps(self.json_data, indent=4))
+```
+
+Point Chrome at a persistent `--user-data-dir` and a named `--profile-directory`, hydrate that directory from your store, and the session carries real cookies and `localStorage` between runs. To a fingerprinting suite, that's the difference between a tourist and a regular.
+
+Tie it together and the driver factory does, in order: build Chrome options with the automation flags stripped, patch the chromedriver binary, attach a persistent profile, then inject the stealth scripts over CDP before the first navigation:
+
+```python
+# Apply selenium-stealth's patches over CDP after the driver is built.
+from selenium_stealth import (
+    navigator_webdriver, navigator_languages, navigator_vendor,
+    webgl_vendor_override, user_agent_override,
+)
+
+navigator_webdriver(driver)
+navigator_languages(driver, ["en-US", "en"])
+navigator_vendor(driver, "Google Inc.")
+webgl_vendor_override(driver, "Intel Inc.", "Intel Iris OpenGL Engine")
+user_agent_override(driver, ua_languages="en-US,en")
+```
+
+## Isolating with Selenoid
+
+Running stealth Chrome on your laptop is fine for development, but at any scale you want each session in its own disposable, identical container — both for cleanliness and because a consistent, real-looking environment is itself part of the fingerprint. [Selenoid](https://aerokube.com/selenoid/latest/) from Aerokube is built for exactly this: it launches a fresh browser container per session over the standard Selenium protocol, managed by a small config file.
+
+The wrinkle is headless detection. A naive headless container fails on a software GPU, missing fonts, and a giveaway user-agent. Selenoid's VNC browser images run a *real* Chrome inside a virtual framebuffer (Xvfb) instead of true headless mode, which sidesteps a whole class of "is this headless?" checks. The container's entrypoint sets up the display, then launches chromedriver with the automation features disabled — and patches the `$cdc_` markers out of the in-container driver the same way we did locally:
+
+```bash
+#!/bin/bash
+DISPLAY_NUM=99
+export DISPLAY=":$DISPLAY_NUM"
+
+# Real Chrome inside a virtual framebuffer — not true headless.
+xvfb-run -l -n "$DISPLAY_NUM" -s "-screen 0 1920x1080x24" fluxbox &
+
+# Strip chromedriver's '$cdc_' markers in-place (same length replacement).
+xxd /usr/bin/chromedriver > driver.hex
+sed -i 's/24 63 64 63 5f/78 79 6d 75/g' driver.hex
+xxd -r driver.hex > /usr/bin/chromedriver
+chmod +x /usr/bin/chromedriver
+
+chromedriver --port=4444 --allowed-origins='*' \
+  --disable-blink-features=AutomationControlled \
+  --disable-infobars --no-sandbox --disable-dev-shm-usage &
+wait
+```
+
+A `browsers.json` tells Selenoid which image to spin up, with a `tmpfs` mount so each session's scratch space lives in RAM and vanishes when the container dies:
+
+```json
+{
+  "chrome": {
+    "default": "chrome_127.0",
+    "versions": {
+      "chrome_127.0": {
+        "image": "weberist-chrome_127.0",
+        "port": 4444,
+        "tmpfs": { "/tmp": "size=512m" },
+        "path": "/"
+      }
+    }
+  }
+}
+```
+
+Your client connects to Selenoid's endpoint with `remote=True`, which is why that `execute_cdp_cmd` shim from earlier matters — the remote driver needs it to inject the stealth scripts.
+
+## Did it work?
+
+Honest answer: "well enough, and it depends on the suite." There's no permanent victory here — detection vendors update constantly, and a config that passes today can fail next month. To give a *qualitative* sense of the gap, here's an illustrative comparison of how vanilla automation versus a stealth setup tends to fare across the suites discussed above.
+
+<Image src={passrate} alt="Grouped bar chart of representative detection-test pass rates: vanilla Selenium passes few checks across BotD, Pixelscan, deviceandbrowserinfo, and CreepJS, while a stealth setup passes most of them but still gives ground on CreepJS's deeper fingerprinting." />
+
+To be clear, these numbers are **representative, not measured** — a cartoon of the shape, not a benchmark. The pattern they illustrate is the real lesson: the cheap automation tells (BotD, basic environment checks) close almost completely once you strip the markers and spoof the environment, while the deepest fingerprinting (CreepJS) keeps finding the seams, because perfectly impersonating real hardware and real human timing is genuinely hard. Stealth buys you a lot, but it doesn't make you invisible.
+
+## Ethics and the rules of the road
+
+Everything above is dual-use, so let's be plain about the line. These techniques are for **legitimate automation and testing** — QA against your own apps, monitoring sites you operate, accessibility checks, research, and scraping of public data where you're permitted to do so. They are not a license to ignore the wishes of the sites you visit.
+
+Concretely, that means:
+
+- **Respect `robots.txt` and the Terms of Service.** If a site disallows automated access to a path, don't bypass it because you technically can. Defeating a fingerprinting check is not consent.
+- **Rate-limit yourself.** Crawl politely — modest concurrency, real delays, off-peak when possible. Fingerprinting is partly a defence against load; don't validate it by hammering the server.
+- **Don't defeat access controls or scrape personal/private data.** Anti-bot systems often protect logins, paywalls, and PII. Stealth tooling should never be used to get at things behind a real access boundary.
+- **Know your jurisdiction.** The legality of scraping varies, and ToS can be contractually binding. When in doubt, ask, use an official API, or don't.
+
+The honest framing is that fingerprinting evasion is a tool for making *authorized* automation behave like a normal user — not a way to take what a site has decided not to give you.
+
+## Where I used this
+
+I built this stealth-driver-plus-Selenoid setup into [weberist](https://github.com/bessavagner/weberist), my own web-automation toolkit, to run reliable authorized automation against sites whose anti-bot layers would otherwise trip on a stock Selenium session. The principles travel further than the code: detection is about consistency, so the durable wins come from removing the obvious automation tells, presenting a coherent and persistent environment, and — above all — staying on the right side of what each site has agreed to allow.
+
+## References and further reading
+
+- [`navigator.webdriver` — MDN](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/webdriver) and the [W3C WebDriver spec](https://www.w3.org/TR/webdriver/#dfn-webdriver-active-flag) — the property that reports automation
+- [BotD](https://github.com/fingerprintjs/BotD) — FingerprintJS's open-source, in-browser bot detection library
+- [CreepJS](https://github.com/abrahamjuliot/creepjs) — a deep browser-fingerprinting / anti-fingerprinting research tool
+- [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/) — the protocol behind `execute_cdp_cmd`, including [`Page.addScriptToEvaluateOnNewDocument`](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-addScriptToEvaluateOnNewDocument)
+- [selenium-stealth](https://github.com/diprajpatra/selenium-stealth) ([PyPI](https://pypi.org/project/selenium-stealth/)) — a Python port of the puppeteer-extra stealth patches
+- [Selenoid](https://aerokube.com/selenoid/latest/) — Aerokube's per-session browser-in-Docker grid

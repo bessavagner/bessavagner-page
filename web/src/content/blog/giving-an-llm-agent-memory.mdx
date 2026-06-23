@@ -1,0 +1,190 @@
+---
+title: "Giving an LLM Agent Memory: Semantic Recall + Working Memory"
+description: "A generic assistant can't personalize. Pair a vector store for semantic recall with a persistent working-memory profile, and an agent starts to actually know the user — their categories, budgets, and anomalies."
+pubDate: 2026-07-03
+tags: ["llm-agents", "rag", "memory", "embeddings", "typescript"]
+draft: false
+---
+
+import { Image } from 'astro:assets';
+import trend from '../../assets/blog/giving-an-llm-agent-memory/spending-trend.svg';
+import forecast from '../../assets/blog/giving-an-llm-agent-memory/forecast-vs-actual.svg';
+
+Ask a fresh language model "how am I doing on spending this month?" and it has nothing to say. It doesn't know who you are, what you bought last week, or that your dining-out habit has been creeping up since March. Every conversation starts from zero. That's fine for a one-shot question, but it's the opposite of what makes an *assistant* feel like an assistant — the sense that it remembers you.
+
+The fix isn't a bigger context window. It's giving the agent two different kinds of memory, each doing a job the other can't. This post is about how those two systems fit together, with real code from an expense-tracking agent built on the [Mastra](https://mastra.ai/) framework.
+
+## Why retrieval alone isn't memory
+
+The reflex when someone says "memory" for an LLM is to reach for retrieval-augmented generation: embed everything the user has ever said, and at query time pull back the most similar chunks. That idea — retrieve relevant passages and condition generation on them — comes from [Lewis et al. (2020)](https://arxiv.org/abs/2005.11401), and it's genuinely powerful. If the user asks "what did I spend at that Italian place?", embedding-based search will find the transaction even if they never use the word "restaurant."
+
+But retrieval has a blind spot. It can only return things that were *said*. It surfaces the past; it doesn't maintain a *state*. Ask "what's my monthly grocery budget?" and retrieval can only help if the user once typed that number into a message that happens to rank well against the query. There's no place for the agent to *decide* "this person's grocery budget is $400" and keep that fact around, updating it as evidence changes.
+
+That's the distinction worth internalizing:
+
+- **Semantic recall** answers *"what did we talk about that's relevant right now?"* — it's a search over history.
+- **Working memory** answers *"what do I currently know to be true about this user?"* — it's a small, structured profile the agent maintains.
+
+You want both. Retrieval gives you breadth over everything that ever happened; working memory gives you a stable, curated summary the agent actively tends. Pair them and the assistant stops being generic.
+
+## Semantic recall
+
+In Mastra, both systems are configured on a single `Memory` object attached to the agent. Here's the real configuration from the expense agent — storage, a vector store, an embedder, and the recall options:
+
+```typescript
+import { Memory } from '@mastra/memory';
+import { LibSQLStore, LibSQLVector } from '@mastra/libsql';
+
+const memory = new Memory({
+  // Use the same database for storage and vector store
+  storage: new LibSQLStore({ url: env.DATABASE_URL }),
+  vector: new LibSQLVector({ connectionUrl: env.DATABASE_URL }),
+  // Use OpenAI embeddings for semantic recall
+  embedder: 'openai/text-embedding-3-small',
+  options: {
+    // Include last 20 messages for conversation history
+    lastMessages: 20,
+    // Enable semantic recall (RAG) for retrieving relevant past messages
+    semanticRecall: {
+      topK: 5,                              // 5 most similar messages
+      messageRange: { before: 2, after: 2 }, // context around each match
+      scope: 'resource',                    // search across all threads
+    },
+  },
+});
+```
+
+A few decisions in there are doing real work:
+
+- **`lastMessages: 20`** is the cheap, dumb part of memory — the recent conversation, included verbatim. No embeddings, no search; just "here's what we just said." Most turns are answered from this alone.
+- **`semanticRecall`** is the RAG part. Each incoming message is embedded with `text-embedding-3-small`, and the `topK: 5` most similar past messages are pulled back from the [vector store](https://mastra.ai/docs/memory/semantic-recall). `messageRange` widens each hit to include the two messages on either side, so a matched line arrives with its surrounding context instead of stranded alone.
+- **`scope: 'resource'`** is the one I'd flag hardest. It means recall searches across *all* of this user's conversation threads, not just the current one — so a budget the user mentioned in a chat three weeks ago is still findable today. The flip side is that `resource` is the user ID, and getting that scoping right is what keeps one user's history from leaking into another's.
+
+That last point is worth a guardrail. The agent never constructs the memory scope inline; it goes through a helper whose entire job is to refuse an empty user ID:
+
+```typescript
+export function createUserScopedMemory(
+  userId: string,
+  threadId: string = 'default'
+): { memory: UserScopedMemoryConfig } {
+  if (!userId || typeof userId !== 'string' || userId.trim().length === 0) {
+    throw new Error('User ID is required for agent memory isolation');
+  }
+
+  return {
+    memory: {
+      resource: userId, // CRITICAL: this ensures user isolation
+      thread: threadId,
+    },
+  };
+}
+```
+
+It's a small function, but in a multi-user app it's load-bearing: `resource` *is* the isolation boundary for the vector search. A blank or wrong `resource` doesn't error out at the database — it quietly searches the wrong person's embeddings. Failing fast on a missing ID is cheaper than discovering the leak later.
+
+Under the hood, the vector store here is [LibSQL](https://github.com/tursodatabase/libsql) — an open-source SQLite fork from Turso — which keeps embeddings in the same database as everything else. For a single-node app that's a real simplification: no separate vector service to run. If you ever outgrow it, the same shape works with a dedicated extension like [sqlite-vec](https://github.com/asg017/sqlite-vec) or a managed store; only the `vector` line changes.
+
+## Working memory
+
+Semantic recall is reactive — it fires on a query. Working memory is the opposite: it's a profile the agent *writes to* as it goes, and it rides along in context on every turn without a search. In Mastra you enable it on the same `Memory` object and hand it a Markdown template:
+
+```typescript
+const memory = new Memory({
+  // ...storage, vector, embedder as above...
+  options: {
+    lastMessages: 20,
+    semanticRecall: { topK: 5, scope: 'resource' },
+    // Persist a profile the agent maintains across conversations
+    workingMemory: {
+      enabled: true,
+      scope: 'resource', // persist across all threads for this user
+      template: `# User Profile
+- **Name**:
+- **Financial Goals**:
+- **Preferred Categories**:
+- **Transaction Patterns**:
+`,
+    },
+  },
+});
+```
+
+The template is the whole trick. It's not a database schema and it's not prompt boilerplate — it's a [block of Markdown the agent owns](https://mastra.ai/docs/memory/working-memory) and rewrites over time. Start it empty, as above, and the fields fill in as the agent learns: the first time the user mentions they're saving for a house, `Financial Goals` gets that line; as transactions accumulate, `Transaction Patterns` might grow to "dines out 3–4×/week, groceries weekly at the same store."
+
+Two things make this different from just throwing more history at the model:
+
+- **It's curated, not accumulated.** The agent decides what's worth keeping. A hundred coffee purchases collapse into one line — "frequent small coffee transactions" — instead of a hundred rows the model has to re-derive every time.
+- **`scope: 'resource'`** again means the profile follows the user across every conversation. Open a new chat tomorrow and the agent still knows your goals and your categories. That persistence is what makes it feel like memory rather than a session.
+
+Crucially, this is also where the two systems divide labor. Working memory holds the *stable* facts — name, goals, the shape of normal spending. Semantic recall handles the *long tail* — that one transaction at the Italian place six months ago that no profile would bother to store. Neither covers for the other.
+
+## Normalizing messy input
+
+There's a wrinkle that memory makes more important, not less: people don't hand an expense agent clean data. They type "spent 50 on lunch yesterday," or forward a PDF bank statement, or dictate a voice note on the way out of a store, or photograph a receipt. If each of those flowed into memory in its own shape, the agent's history would be a mess — and embeddings over inconsistent text recall badly.
+
+So everything is funneled through one normalization step *before* it touches memory. Audio and documents are converted to text first — Whisper for speech, PDF extraction or OCR for documents — and then a single parser turns that text into one canonical transaction shape, regardless of where it came from:
+
+```typescript
+export const parseTransactionTool = createTool({
+  id: 'parse-transaction',
+  description:
+    'Parse natural language transaction description into structured data. ' +
+    'Extracts amount, description, merchant, date, and payment method.',
+  inputSchema: z.object({
+    input: z.string().describe('Natural language transaction description'),
+    inputType: z
+      .enum(['text', 'audio', 'document'])
+      .optional()
+      .default('text')
+      .describe('Type of input'),
+    currentDate: z
+      .string()
+      .optional()
+      .describe('Current date in ISO format (YYYY-MM-DD) from system context.'),
+  }),
+  outputSchema: z.object({
+    amount: z.number(),
+    description: z.string(),
+    merchant: z.string().optional(),
+    type: z.enum(['INCOME', 'EXPENSE']),
+    date: z.string().optional(),
+    paymentMethod: z.enum(['CASH', 'CARD', 'PIX', 'TRANSFER', 'OTHER']).optional(),
+    confidence: z.number(),
+  }),
+  execute: async ({ context }) => {
+    // ...prompt the model with the input + current date, parse JSON,
+    //    default the date to today, clamp confidence to [0, 1]...
+  },
+});
+```
+
+The `inputType` enum is the seam. A voice note becomes `audio`, a statement becomes `document`, a chat message stays `text` — but all three exit the parser as the *same* `outputSchema`: an amount, a type, a merchant, a date, a confidence. By the time anything reaches storage or the embedder, the provenance is gone and the shape is uniform. Recall over that history is clean precisely because the messiness was absorbed at the door.
+
+One small detail that turned out to matter: `currentDate` is passed in explicitly rather than read from the model's notion of "now." Models are confidently wrong about today's date, and "yesterday" is meaningless without an anchor. Feeding the real date in keeps relative dates honest — which matters a lot when you're later asking memory "what did I spend *this* month?"
+
+## Seeing it personalize
+
+What does all this buy you? Once the agent has a profile and a searchable history, it can do things a stateless assistant simply can't — like notice that one category is drifting. The chart below is built from **synthetic, fabricated data** (no real user or account), but it shows the kind of pattern working memory is meant to capture: groceries holding steady, transport bouncing around seasonally, and dining-out quietly climbing month over month.
+
+<Image src={trend} alt="Synthetic monthly spend by category: groceries flat, transport seasonal, dining-out steadily rising — the kind of drift an agent with memory can flag." />
+
+That rising dining-out line is exactly the sort of thing that belongs in `Transaction Patterns`: not a single transaction, but a *trend* the agent summarizes and keeps. And once it knows your normal, it can project forward and tell you when reality diverges from it. The next chart — again, **entirely synthetic** — contrasts a forecast the agent might produce from recalled history against what "actually" came in:
+
+<Image src={forecast} alt="Synthetic forecast vs. actual total spend: the two tracks together early, then actual pulls above forecast — the gap an anomaly check would surface." />
+
+The widening gap is the payoff. A generic model can't draw this chart for you, because it has no idea what your baseline is. An agent that remembers — both the curated profile and the searchable detail behind it — can say "you're running about $85 over your usual pace this month, mostly on dining out," and actually be right.
+
+## Where I used this
+
+I built this two-memory setup into a personal expense-tracking agent — a Mastra app that ingests transactions from text, voice, PDFs, and photos, normalizes them into one shape, and pairs semantic recall over the full history with a working-memory profile it updates as it learns. The specifics are domain-flavored, but the architecture isn't: any agent that's supposed to *know* a user, rather than just answer a question, wants this same split.
+
+The durable lesson is that "give the agent memory" is really two requests wearing one word. Retrieval gives you reach over everything that was ever said; a maintained profile gives you a stable sense of who the user is. Build only the first and the agent forgets what matters; build only the second and it can't find the detail. Build both, normalize what flows into them, and the assistant finally starts to feel like it's paying attention.
+
+## References and further reading
+
+- [Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks](https://arxiv.org/abs/2005.11401) — Lewis et al., 2020 (NeurIPS) — the paper that framed retrieval + generation
+- [Mastra Memory overview](https://mastra.ai/docs/memory/overview) — conversation history, semantic recall, and working memory in one place
+- [Mastra semantic recall](https://mastra.ai/docs/memory/semantic-recall) — `topK`, `messageRange`, `scope`, and embedder/vector-store configuration
+- [Mastra working memory](https://mastra.ai/docs/memory/working-memory) — the persistent Markdown-template profile and resource vs. thread scope
+- [libSQL](https://github.com/tursodatabase/libsql) — open-source SQLite fork (Turso) used here for both storage and vectors
+- [sqlite-vec](https://github.com/asg017/sqlite-vec) — a small, portable vector-search SQLite extension if you outgrow LibSQL's built-in vectors

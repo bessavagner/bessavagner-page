@@ -1,0 +1,153 @@
+---
+title: "Sub-second triage: tiering LLMs for latency-critical paths"
+description: "When a safety check has to run in milliseconds, one big model per turn is too slow and too costly. A model cascade — a tiny fast model on the hot path, a larger one for reasoning — plus circuit breakers and a deliberately biased fallback buys you speed without dropping the dangerous cases."
+pubDate: 2026-07-05
+tags: ["llm-agents", "latency", "reliability", "architecture"]
+draft: false
+---
+
+import { Image } from 'astro:assets';
+import latencyCdf from '../../assets/blog/sub-second-llm-triage/latency-cdf.svg';
+import costPerRequest from '../../assets/blog/sub-second-llm-triage/cost-per-request.svg';
+
+Some checks can take their time. If a model is summarizing a document or drafting a reply, a second or two of latency is invisible — the user is reading, thinking, waiting anyway. But some checks sit on a hot path where every message has to pass through them first, and where being slow is itself a failure. A safety gate that decides "is this the dangerous case?" on every single turn is the canonical example: it runs before anything else happens, it runs constantly, and if it's slow it makes *everything* slow.
+
+The instinct is to reach for your best model and let it judge. It will judge well. It will also cost you a few hundred milliseconds to a couple of seconds per call, on every turn, forever — and bill you for a large model's tokens to answer what is usually a trivial question. This post is about the shape that gets you out of that trade: a **cascade** of differently-sized models, a resilience layer so the cascade fails safe instead of failing open, and a fallback that's deliberately biased toward caution.
+
+## The latency budget of a safety check
+
+Start by being honest about the budget. A check on the hot path isn't allowed to "usually" be fast — it has to be fast at the *tail*, because the tail is what users actually feel. This is the point Dean and Barroso make in [The Tail at Scale](https://research.google/pubs/the-tail-at-scale/): when a request fans out across components, the slow ones dominate the experience, so you have to design for p99, not the mean. If your gate's median is 200 ms but its p99 is three seconds, a meaningful slice of every conversation stalls for three seconds before anything else can happen.
+
+So the budget is a *distribution*, not a number. "Under 500 ms" means under 500 ms for nearly all requests, with a known, bounded tail — exactly the framing the [Google SRE book's chapter on SLOs](https://sre.google/sre-book/service-level-objectives/) pushes you toward: pick the percentile that reflects what users care about, set a target, and measure against it.
+
+Here's the problem with a single large model in that frame, drawn from a synthetic timing harness:
+
+<Image src={latencyCdf} alt="CDF of per-request latency: the large-tier-only curve crosses the 500 ms budget late and has a long tail, while the fast tier and the cascade clear the budget for almost all requests." />
+
+The large-tier-only curve clears a 500 ms budget for only a small fraction of requests. A tiny model clears it almost always. The interesting line is the cascade: it tracks the fast tier for the bulk of requests and only inherits the large model's slow tail on the minority it escalates.
+
+## Right-sizing the model per job
+
+The move is to stop asking one model to do two jobs. The hot-path check is mostly a classification: *is this the dangerous case, yes or no?* That's a job a small, fast model does well — and a small model is where you cut latency and cost at the same time. The harder job — reasoning about an ambiguous case, picking an action, weighing severity — goes to a larger model, but only when it's actually needed.
+
+This is the **LLM cascade** idea from the literature. [FrugalGPT](https://arxiv.org/abs/2305.05176) (Chen, Zaharia, Zou) shows you can match a top model's quality at a fraction of the cost by sending each query to the cheapest model that can handle it and escalating only when necessary; [RouteLLM](https://arxiv.org/abs/2406.18665) frames the same thing as a learned router between a weak and a strong model. You don't need a learned router to start — a confidence threshold gets you most of the way.
+
+The fast tier is a stateless detector: a tiny model, a tight prompt, no conversational memory or semantic recall, because recall is latency you can't afford on every turn. In a [Mastra](https://mastra.ai/) agent that looks like this — note the pruned memory config, all in service of speed:
+
+```typescript
+export const fastDetector = new Agent({
+  name: 'fastDetector',
+  model: openai('gpt-5-nano'), // fastest/cheapest tier for a yes/no job
+  // Minimal memory: recent turns only, no semantic recall (recall is
+  // latency we can't pay on every message).
+  memory: new Memory({
+    storage: memoryStorage,
+    options: {
+      lastMessages: 5,
+      semanticRecall: false,   // disabled for speed
+      workingMemory: { enabled: false },
+    },
+  }),
+  instructions: `
+You are a detection agent. Your only job is to decide whether a
+message describes the critical case. Return JSON only.
+Be conservative: when in doubt, flag it.
+Respond as fast as possible.`,
+});
+```
+
+The reasoning tier is a different agent on a larger model (`gpt-4.1-mini` in this code), and crucially it calls the fast detector *first*, before it does its own work. The cheap check runs on the hot path; the expensive reasoning only happens for the cases that earn it. Routing the bulk of traffic to the small tier is also where the cost line bends:
+
+<Image src={costPerRequest} alt="Bar chart of cost per 1,000 requests: the large tier dominates, the fast tier is roughly an order of magnitude cheaper, and the cascade lands just above the fast tier." />
+
+The cascade lands a hair above the fast tier — you pay the large model only on the escalated minority — while a large-model-on-every-turn design pays the tall bar every time.
+
+## Failing safe
+
+A cascade adds moving parts, and moving parts fail. Your fast tier's API has a bad minute; rate limits kick in; a deploy on the provider's side adds a second of latency to every call. If your gate is synchronous on the hot path, a flaky upstream doesn't just slow you down — it can take the whole conversation flow with it. Two patterns keep that contained.
+
+The first is the **circuit breaker**, popularized by Michael Nygard in *Release It!* and written up in [Martin Fowler's CircuitBreaker article](https://martinfowler.com/bliki/CircuitBreaker.html). The idea: wrap the risky call, count failures, and once they cross a threshold *stop calling* for a cooldown — fail fast instead of piling requests onto a service that's already drowning. After the cooldown it lets a trial request through to see if the service recovered.
+
+```typescript
+async execute<T>(fn: () => Promise<T>): Promise<T> {
+  if (this.state === CircuitState.OPEN) {
+    if (this.nextAttemptTime && new Date() < this.nextAttemptTime) {
+      throw new Error(`Circuit breaker [${this.name}] is OPEN`);
+    }
+    this.state = CircuitState.HALF_OPEN; // time to test the service again
+  }
+
+  try {
+    const result = await fn();
+    if (this.state === CircuitState.HALF_OPEN) this.reset(); // recovered
+    return result;
+  } catch (error) {
+    this.recordFailure();
+    if (this.state === CircuitState.HALF_OPEN) this.trip(); // still broken
+    throw error;
+  }
+}
+```
+
+The second is **retry with exponential backoff** for transient failures — a dropped connection, a 429, a 5xx — so a single blip doesn't surface as a hard error. The two compose: retry handles the one-off hiccup, the breaker handles the sustained outage, and the breaker only counts a failure once retries are exhausted.
+
+```typescript
+const delay = Math.min(
+  opts.initialDelayMs * Math.pow(opts.exponentialBase, attempt - 1),
+  opts.maxDelayMs,
+);
+await new Promise((resolve) => setTimeout(resolve, delay));
+```
+
+But resilience plumbing only decides *whether* you get an answer. The more important question is what you return when you *don't* — and here the safety framing changes the default. For a gate whose whole purpose is catching the dangerous case, the two ways to be wrong are not equal. A false positive — flagging a benign message as dangerous — is cheap: at worst it routes someone to a more careful path. A false negative — waving the dangerous case through — is the failure you built the gate to prevent. So the fallback is **deliberately biased**: when detection fails, assume the dangerous case.
+
+```typescript
+structuredOutput: {
+  schema: detectionSchema,
+  errorStrategy: 'fallback',
+  fallbackValue: {
+    isCritical: true,        // conservative: assume the dangerous case on error
+    confidence: 0.5,
+    reasoning: 'Detection failed; escalating out of caution.',
+  },
+},
+```
+
+That one line is the whole philosophy of a latency-critical safety check in miniature. Fast on the common path, cheap on the common path — and when anything goes wrong, it errs toward the expensive-but-safe outcome rather than the cheap-but-dangerous one.
+
+## Measuring the trade
+
+None of this is worth much if you can't see it. A cascade is a *bet* — that the fast tier is accurate enough often enough that escalations stay rare — and the only way to know if the bet is paying off is per-tier instrumentation: latency, token usage, and cost, tagged by which model handled the request.
+
+The cheap version is to record it on every call. Capture a start time, measure the duration, and emit the model, the token counts, and a computed cost:
+
+```typescript
+await trackAgentMetrics({
+  agentName: 'fastDetector',
+  model: 'gpt-5-nano',
+  promptTokens,
+  completionTokens,
+  totalTokens,
+  responseTimeMs: durationMs,
+  costUsd: calculateLLMCost('gpt-5-nano', promptTokens, completionTokens),
+  success: true,
+});
+```
+
+For something you can graph and alert on, expose the same numbers as [Prometheus](https://prometheus.io/docs/practices/histograms/) metrics — latency as a `Histogram` so you can compute real p95/p99 quantiles rather than averages, tokens and cost as counters, all labelled by tier — and put a [Grafana](https://grafana.com/docs/grafana/latest/panels-visualizations/) dashboard on top. In Node that's a few lines with [prom-client](https://github.com/siimon/prom-client). Once it's wired up, the questions that decide whether the cascade is healthy become observable: What's the p99 of the fast tier? What fraction of requests escalate? Is the escalation rate creeping up — meaning the fast tier is losing confidence and you're slowly paying for the large model on more traffic? Those are the numbers that tell you when to retune the threshold, swap a model tier, or tighten a prompt.
+
+## Where I used this
+
+I built exactly this shape into a real-time messaging assistant of my own — a tiny stateless model on the hot path to catch the one case that had to be caught immediately, a larger model behind it for the cases that needed real reasoning, wrapped in a circuit breaker and a retry layer, with a fallback hardwired to escalate when anything failed. The domain specifics don't matter; the structure is the point, and it generalizes to any check that has to be fast, cheap, and safe at the same time.
+
+The durable lessons are the ones that travel across implementations. Treat the latency budget as a distribution and design for the tail. Size the model to the job and escalate only when the cheap tier is unsure. Wrap the hot path in a breaker so a flaky upstream fails fast instead of cascading. Bias the fallback toward the safe error. And measure every tier, because a cascade is only as good as your ability to see when it stops paying off.
+
+## References and further reading
+
+- [FrugalGPT: How to Use Large Language Models While Reducing Cost and Improving Performance](https://arxiv.org/abs/2305.05176) — Chen, Zaharia & Zou; the LLM-cascade idea (cheap model first, escalate when needed)
+- [RouteLLM: Learning to Route LLMs with Preference Data](https://arxiv.org/abs/2406.18665) — routing between a weak and a strong model with a learned router
+- [The Tail at Scale](https://research.google/pubs/the-tail-at-scale/) — Dean & Barroso (CACM, 2013); why you design for p99, not the mean
+- [Google SRE book — Service Level Objectives](https://sre.google/sre-book/service-level-objectives/) — choosing latency percentiles and targets
+- [CircuitBreaker](https://martinfowler.com/bliki/CircuitBreaker.html) — Martin Fowler; the pattern Michael Nygard popularized in *Release It!*
+- [Prometheus: histograms and summaries](https://prometheus.io/docs/practices/histograms/) — measuring latency quantiles · [Grafana panels & visualizations](https://grafana.com/docs/grafana/latest/panels-visualizations/) · [prom-client](https://github.com/siimon/prom-client) (Node.js)
+- [Mastra](https://mastra.ai/) — the TypeScript agent framework used in the code snippets
