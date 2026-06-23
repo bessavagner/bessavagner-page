@@ -3,10 +3,10 @@ import { type Profile } from '../lib/portfolio';
 const { profile } = Astro.props as { profile: Profile };
 const accessKey = import.meta.env.PUBLIC_WEB3FORMS_KEY ?? '';
 ---
-<div class="w-11/12 lg:w-4/6 max-w-3xl mx-auto">
+<div class="w-11/12 lg:w-5/6 max-w-5xl mx-auto">
   <div class="text-center">
     <h3 class="font-header-5 text-2xl font-bold">Let's build something together</h3>
-    <p class="font-base text-sm lg:text-lg text-base-content/70 mt-4">
+    <p class="font-base text-sm lg:text-lg text-base-content/70 max-w-xl mt-4 mx-auto">
       Whether you want to start a new project or need help with an existing one — for hire or
       for a role — I'd love to hear from you.
     </p>
