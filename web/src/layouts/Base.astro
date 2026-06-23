@@ -36,9 +36,9 @@ const analyticsSrc = import.meta.env.PUBLIC_ANALYTICS_SRC ?? 'https://plausible.
 // verification is an alternative that needs no code.)
 const gscVerification = import.meta.env.PUBLIC_GSC_VERIFICATION;
 
-// Only the weights actually used: Roboto 100/300/400/700, Condensed 800, Ubuntu Mono 400.
+// Display: Space Grotesk (400–700). Body: Plus Jakarta Sans (300–700). Mono: JetBrains Mono (400).
 const fontHref =
-  'https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400&family=Roboto+Condensed:wght@800&family=Roboto:wght@100;300;400;700&display=swap';
+  'https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400&display=swap';
 ---
 <!DOCTYPE html>
 <html lang="en" data-theme="custom">
@@ -133,9 +133,10 @@ const fontHref =
       <script is:inline defer data-domain={analyticsDomain} src={analyticsSrc}></script>
     )}
   </head>
-  <body class="relative flex flex-col min-h-screen bg-base-100">
+  <body class="relative flex flex-col min-h-[100dvh] bg-base-100">
+    <div class="grain-overlay" aria-hidden="true"></div>
     <Header />
-    <main id="content" class="flex-1">
+    <main id="content" class="relative z-[2] flex-1">
       <slot />
     </main>
     <Footer />

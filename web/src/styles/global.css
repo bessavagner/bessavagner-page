@@ -62,25 +62,37 @@
   --radius-field: 0.5rem;
 }
 
-/* ---- Fonts ---- */
-.roboto-thin   { font-family: "Roboto", sans-serif; font-weight: 100; }
-.roboto-light  { font-family: "Roboto", sans-serif; font-weight: 300; }
-.roboto-regular{ font-family: "Roboto", sans-serif; font-weight: 400; }
-.roboto-medium { font-family: "Roboto", sans-serif; font-weight: 500; }
-.roboto-bold   { font-family: "Roboto", sans-serif; font-weight: 700; }
-.roboto-black  { font-family: "Roboto", sans-serif; font-weight: 900; }
-.roboto-condensed-800 { font-family: "Roboto Condensed", sans-serif; font-weight: 800; }
-.ubuntu-mono-regular  { font-family: "Ubuntu Mono", monospace; font-weight: 400; }
+/* ---- Font system ----
+   Display: Space Grotesk — a technical grotesk with real character, replacing
+   the generic Roboto. Body: Plus Jakarta Sans. Mono: JetBrains Mono.
+   The legacy utility-class names are kept (used across ~90 call sites) but now
+   resolve to the new families through these CSS variables. */
+:root {
+  --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Ubuntu Mono", ui-monospace, monospace;
+}
 
-body { font-family: "Roboto", sans-serif; }
+.roboto-thin   { font-family: var(--font-display); font-weight: 300; letter-spacing: -0.02em; }
+.roboto-light  { font-family: var(--font-sans); font-weight: 300; }
+.roboto-regular{ font-family: var(--font-sans); font-weight: 400; }
+.roboto-medium { font-family: var(--font-sans); font-weight: 500; }
+.roboto-bold   { font-family: var(--font-sans); font-weight: 700; }
+.roboto-black  { font-family: var(--font-display); font-weight: 700; }
+.roboto-condensed-800 { font-family: var(--font-display); font-weight: 700; letter-spacing: -0.03em; }
+.ubuntu-mono-regular  { font-family: var(--font-mono); font-weight: 400; }
 
-.font-base   { font-family: "Roboto", sans-serif; color: var(--color-base-content); }
-.font-header { font-family: "Roboto", sans-serif; font-weight: 100; }
+body { font-family: var(--font-sans); }
+
+.font-base   { font-family: var(--font-sans); color: var(--color-base-content); }
+/* Display headers now carry weight: SemiBold + tight tracking gives presence the
+   old Thin (100) weight lacked. */
+.font-header { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.03em; }
 
 /* ---- Display type scale ---- */
-.font-header-3 { font-family: "Roboto", sans-serif; font-weight: 100; @apply text-5xl sm:text-6xl md:text-7xl lg:text-8xl; }
-.font-header-4 { font-family: "Roboto", sans-serif; font-weight: 100; @apply text-4xl sm:text-5xl md:text-6xl lg:text-7xl; }
-.font-header-5 { font-family: "Roboto", sans-serif; font-weight: 100; @apply text-3xl sm:text-4xl md:text-5xl lg:text-6xl; }
+.font-header-3 { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.03em; text-wrap: balance; @apply text-5xl sm:text-6xl md:text-7xl lg:text-8xl; }
+.font-header-4 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.025em; text-wrap: balance; @apply text-4xl sm:text-5xl md:text-6xl lg:text-7xl; }
+.font-header-5 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.02em; text-wrap: balance; @apply text-3xl sm:text-4xl md:text-5xl lg:text-6xl; }
 
 /* ---- Reveal-on-scroll (JS adds .reveal then .is-visible) ---- */
 .reveal { @apply opacity-0 translate-y-6 transition-all duration-700 ease-out; }
@@ -132,8 +144,44 @@ body { font-family: "Roboto", sans-serif; }
   --tw-prose-th-borders: color-mix(in oklab, var(--color-base-content) 20%, transparent);
   --tw-prose-td-borders: color-mix(in oklab, var(--color-base-content) 12%, transparent);
 }
-.prose :where(h1, h2, h3) { font-family: "Roboto", sans-serif; font-weight: 700; }
+.prose :where(h1, h2, h3) { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.02em; }
+.prose :where(p) { text-wrap: pretty; }
 .prose :where(code):not(:where(pre code)) {
   background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
   padding: 0.15em 0.4em; border-radius: 0.35rem; font-weight: 400;
+}
+
+/* ---- Smooth anchor scrolling (index uses in-page #section links) ---- */
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+/* ---- Physical press feedback on buttons (daisyUI handles hover/focus) ---- */
+.btn { transition-property: transform, background-color, border-color, color, box-shadow; transition-duration: 200ms; }
+.btn:active:not(:disabled) { transform: translateY(1px) scale(0.98); }
+
+/* ---- Grain overlay: a fixed, non-interactive noise layer that breaks the
+   flat digital surfaces. Tuned to be barely perceptible. ---- */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+[data-theme="custom-dark"] .grain-overlay { opacity: 0.06; }
+
+/* ---- Ambient hero glow: a soft, off-center radial wash that gives the hero
+   depth instead of a flat fill. Sits behind content. ---- */
+.ambient-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 55% at 18% 22%, color-mix(in oklab, var(--color-primary) 22%, transparent) 0%, transparent 60%),
+    radial-gradient(45% 50% at 88% 12%, color-mix(in oklab, var(--color-accent) 16%, transparent) 0%, transparent 55%);
 }
