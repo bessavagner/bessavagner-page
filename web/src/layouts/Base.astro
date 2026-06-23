@@ -7,12 +7,14 @@ export interface Props {
   title?: string;
   description?: string;
   ogImage?: string;
+  ogType?: string;
 }
 
 const {
   title = 'Vagner Bessa — Full-stack & AI Engineer',
   description = 'Full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for international freelance projects and roles.',
   ogImage = '/images/og-default.png',
+  ogType = 'website',
 } = Astro.props;
 
 const siteUrl = Astro.site?.href.replace(/\/$/, '') ?? 'https://bessavagner.com';
@@ -33,8 +35,9 @@ const analyticsSrc = import.meta.env.PUBLIC_ANALYTICS_SRC ?? 'https://plausible.
 // verification is an alternative that needs no code.)
 const gscVerification = import.meta.env.PUBLIC_GSC_VERIFICATION;
 
+// Only the weights actually used: Roboto 100/300/400/700, Condensed 800, Ubuntu Mono 400.
 const fontHref =
-  'https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400;700&family=Roboto+Condensed:wght@800&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,400&display=swap';
+  'https://fonts.googleapis.com/css2?family=Ubuntu+Mono:wght@400&family=Roboto+Condensed:wght@800&family=Roboto:wght@100;300;400;700&display=swap';
 ---
 <!DOCTYPE html>
 <html lang="en" data-theme="custom">
@@ -59,7 +62,7 @@ const fontHref =
     <meta name="theme-color" content="#3a3d98" />
     <link rel="canonical" href={canonical} />
 
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={ogType} />
     <meta property="og:site_name" content="Vagner Bessa" />
     <meta property="og:locale" content="en_US" />
     <meta property="og:title" content={title} />
@@ -80,6 +83,7 @@ const fontHref =
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
     {/* Load fonts without blocking render (display=swap shows fallback first). */}
     <link rel="preload" as="style" href={fontHref} />
     <noscript><link rel="stylesheet" href={fontHref} /></noscript>
@@ -94,13 +98,31 @@ const fontHref =
 
     <script is:inline type="application/ld+json" set:html={JSON.stringify({
       '@context': 'https://schema.org',
-      '@type': 'Person',
-      name: 'Vagner Bessa',
-      url: siteUrl,
-      jobTitle: 'Full-stack & AI Engineer',
-      email: 'mailto:bessavagner.dev@gmail.com',
-      sameAs: ['https://github.com/bessavagner', 'https://www.linkedin.com/in/bessavagner/'],
-      knowsAbout: ['Python', 'TypeScript', 'Artificial Intelligence', 'LLM agents', 'Web development', 'Machine learning'],
+      '@graph': [
+        {
+          '@type': 'Person',
+          '@id': `${siteUrl}/#vagner-bessa`,
+          name: 'Vagner Bessa',
+          url: `${siteUrl}/`,
+          image: `${siteUrl}/images/avatar.png`,
+          jobTitle: 'Full-stack & AI Engineer',
+          description: 'Full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for international freelance projects and roles.',
+          email: 'bessavagner.dev@gmail.com',
+          address: { '@type': 'PostalAddress', addressLocality: 'Crateús', addressRegion: 'CE', addressCountry: 'BR' },
+          alumniOf: { '@type': 'CollegeOrUniversity', name: 'Instituto Federal de Educação, Ciência e Tecnologia do Ceará', alternateName: 'IFCE', url: 'https://ifce.edu.br' },
+          knowsLanguage: ['pt-BR', 'en', 'es'],
+          knowsAbout: ['Python', 'TypeScript', 'Artificial Intelligence', 'LLM agents', 'Web development', 'Machine learning'],
+          sameAs: ['https://github.com/bessavagner', 'https://www.linkedin.com/in/bessavagner/'],
+        },
+        {
+          '@type': 'WebSite',
+          '@id': `${siteUrl}/#website`,
+          url: `${siteUrl}/`,
+          name: 'Vagner Bessa',
+          inLanguage: 'en',
+          publisher: { '@id': `${siteUrl}/#vagner-bessa` },
+        },
+      ],
     })} />
 
     {analyticsWebsiteId ? (

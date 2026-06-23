@@ -10,6 +10,12 @@ export interface Project {
   name: string;
   tagline: string;
   summary: string;
+  /** Long-form narrative paragraph rendered on the project detail page. */
+  body?: string;
+  /** Optional case-study framing (rendered on featured project pages). */
+  problem?: string;
+  approach?: string;
+  outcome?: string;
   kind?: string;
   role?: string;
   featured: boolean;

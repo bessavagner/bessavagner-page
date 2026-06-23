@@ -10,8 +10,20 @@ import Contact from '../components/Contact.astro';
 import { portfolio } from '../lib/portfolio';
 
 const { profile, featured, cards } = portfolio;
+const siteUrl = (Astro.site?.href ?? 'https://bessavagner.com/').replace(/\/$/, '');
 ---
 <Base>
+  <script is:inline type="application/ld+json" set:html={JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'ProfilePage',
+    '@id': `${siteUrl}/#profile`,
+    url: `${siteUrl}/`,
+    name: 'Vagner Bessa — Full-stack & AI Engineer',
+    inLanguage: 'en',
+    about: { '@id': `${siteUrl}/#vagner-bessa` },
+    mainEntity: { '@id': `${siteUrl}/#vagner-bessa` },
+    isPartOf: { '@id': `${siteUrl}/#website` },
+  })} />
   <Hero profile={profile} />
 
   <!-- About / Stack -->
@@ -20,7 +32,7 @@ const { profile, featured, cards } = portfolio;
       <div class="flex flex-col items-center text-center lg:w-1/3 shrink-0">
         <div class="avatar">
           <div class="w-40 h-40 rounded-full ring ring-primary/30 ring-offset-base-100 ring-offset-2">
-            <Image src={avatar} alt="Portrait of Vagner Bessa" width={320} height={320} loading="eager" />
+            <Image src={avatar} alt="Portrait of Vagner Bessa" width={320} height={320} loading="lazy" />
           </div>
         </div>
         <p class="font-base roboto-light text-base lg:text-lg mt-5 text-base-content/80">

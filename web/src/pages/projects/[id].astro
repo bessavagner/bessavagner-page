@@ -35,25 +35,33 @@ const repos = [
 ].filter((r) => r.href);
 
 const siteHref = Astro.site?.href ?? 'https://bessavagner.com/';
+const personId = `${siteHref.replace(/\/$/, '')}/#vagner-bessa`;
 const sameAs = [p.links.repo, p.links.repo_app, p.links.repo_frontend, p.links.live]
   .filter((u): u is string => Boolean(u));
+// Public OSS work is described as SoftwareSourceCode (Google's software entity type);
+// private/closed work stays a generic CreativeWork.
+const isSoftware = Boolean(p.links.repo) && !p.private;
+const codeLanguages = p.stack.filter((s) =>
+  ['Python', 'TypeScript', 'JavaScript', 'C++', 'Bash', 'Django', 'React', 'Svelte', 'Spring Boot', 'Angular'].includes(s),
+);
 const creativeWork = {
   '@context': 'https://schema.org',
-  '@type': 'CreativeWork',
+  '@type': isSoftware ? 'SoftwareSourceCode' : 'CreativeWork',
+  '@id': `${Astro.url.href}#project`,
   name: p.name,
-  headline: p.tagline,
   description: p.summary || p.tagline,
   url: Astro.url.href,
   inLanguage: 'en',
-  author: { '@type': 'Person', name: 'Vagner Bessa', url: siteHref },
-  creator: { '@type': 'Person', name: 'Vagner Bessa', url: siteHref },
+  author: { '@id': personId },
   keywords: p.stack.join(', '),
   ...(ogImage ? { image: new URL(ogImage, siteHref).href } : {}),
-  ...(p.year ? { dateCreated: String(p.year) } : {}),
+  ...(p.year ? { dateCreated: `${p.year}-01-01` } : {}),
+  ...(isSoftware ? { codeRepository: p.links.repo } : {}),
+  ...(isSoftware && codeLanguages.length ? { programmingLanguage: codeLanguages } : {}),
   ...(sameAs.length ? { sameAs } : {}),
 };
 ---
-<Base title={title} description={description} ogImage={ogImage}>
+<Base title={title} description={description} ogImage={ogImage} ogType="article">
   <script
     is:inline
     type="application/ld+json"
@@ -106,6 +114,35 @@ const creativeWork = {
     <section class="mt-8">
       <p class="font-base text-base lg:text-lg text-base-content/80 leading-relaxed">{p.summary}</p>
     </section>
+
+    {p.body && (
+      <section class="mt-6">
+        <p class="font-base text-base text-base-content/75 leading-relaxed">{p.body}</p>
+      </section>
+    )}
+
+    {(p.problem || p.approach || p.outcome) && (
+      <section class="mt-8 grid grid-cols-1 gap-5">
+        {p.problem && (
+          <div>
+            <h2 class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent mb-1">Problem</h2>
+            <p class="font-base text-base text-base-content/80 leading-relaxed">{p.problem}</p>
+          </div>
+        )}
+        {p.approach && (
+          <div>
+            <h2 class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent mb-1">Approach</h2>
+            <p class="font-base text-base text-base-content/80 leading-relaxed">{p.approach}</p>
+          </div>
+        )}
+        {p.outcome && (
+          <div>
+            <h2 class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent mb-1">Outcome</h2>
+            <p class="font-base text-base text-base-content/80 leading-relaxed">{p.outcome}</p>
+          </div>
+        )}
+      </section>
+    )}
 
     {p.highlights && p.highlights.length > 0 && (
       <section class="mt-8">
