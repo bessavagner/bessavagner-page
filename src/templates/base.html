@@ -1,22 +1,78 @@
 <!DOCTYPE html>
 
-<html lang="pt-br" data-theme="custom">
+<html lang="en" data-theme="custom">
 
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>{% block title %}Vagner Bessa{% endblock %}</title>
+
+        {# --- Set theme as early as possible to avoid flash (FOUC) --- #}
+        <script>
+            (function () {
+                var stored = localStorage.getItem('theme');
+                var prefersDark = window.matchMedia &&
+                    window.matchMedia('(prefers-color-scheme: dark)').matches;
+                var theme = stored || (prefersDark ? 'custom-dark' : 'custom');
+                document.documentElement.setAttribute('data-theme', theme);
+            })();
+        </script>
+
+        {# --- Page metadata (override these blocks in child templates) --- #}
+        {% set site_url = site_url | default('https://bessavagner.dev') %}
+        {% set page_title %}{% block title %}Vagner Bessa — Full-stack &amp; AI Engineer{% endblock %}{% endset %}
+        {% set page_description %}{% block description %}Vagner Bessa — full-stack and AI engineer. I design and ship production-grade AI products and web platforms in Python and TypeScript.{% endblock %}{% endset %}
+        {% set og_image_path %}{% block og_image %}images/og-default.png{% endblock %}{% endset %}
+        {% set canonical_path %}{% block canonical_path %}/{% endblock %}{% endset %}
+        {% set page_image = site_url ~ '/static/' ~ og_image_path | trim %}
+
+        <title>{{ page_title }}</title>
+        <meta name="description" content="{{ page_description | trim }}">
+        <meta name="author" content="Vagner Bessa">
+        <meta name="theme-color" content="#3a3d98">
+        <link rel="canonical" href="{{ site_url }}{{ canonical_path | trim }}">
+
+        {# --- Open Graph / Twitter --- #}
+        <meta property="og:type" content="website">
+        <meta property="og:site_name" content="Vagner Bessa">
+        <meta property="og:title" content="{{ page_title | trim }}">
+        <meta property="og:description" content="{{ page_description | trim }}">
+        <meta property="og:url" content="{{ site_url }}{{ canonical_path | trim }}">
+        <meta property="og:image" content="{{ page_image }}">
+        <meta name="twitter:card" content="summary_large_image">
+        <meta name="twitter:title" content="{{ page_title | trim }}">
+        <meta name="twitter:description" content="{{ page_description | trim }}">
+        <meta name="twitter:image" content="{{ page_image }}">
+
+        {# --- Icons --- #}
+        <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+        <link rel="apple-touch-icon" href="/static/images/avatar.png">
+
         <link href="/static/css/styles.css?version=1" rel="stylesheet">
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
-        <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
-        <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,100;1,300;1,400;1,500;1,700;1,900&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Ubuntu+Mono:ital,wght@0,400;0,700;1,400;1,700&family=Roboto+Condensed:wght@800&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,400&display=swap" rel="stylesheet">
+
+        {# --- Structured data: Person --- #}
+        <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "Person",
+            "name": "Vagner Bessa",
+            "url": "{{ site_url }}",
+            "jobTitle": "Full-stack & AI Engineer",
+            "email": "mailto:bessavagner.dev@gmail.com",
+            "sameAs": ["https://github.com/bessavagner"],
+            "knowsAbout": ["Python", "TypeScript", "Artificial Intelligence", "LLM agents", "Web development", "Machine learning"]
+        }
+        </script>
+        {% block head_extra %}{% endblock %}
     </head>
 
     <body>
         {% block header %}{% include 'includes/header.html' %}{% endblock %}
-        {% block content %}{% endblock %}
+        <main id="content">
+            {% block content %}{% endblock %}
+        </main>
         {% block footer %}{% include 'includes/footer.html' %}{% endblock %}
     </body>
 

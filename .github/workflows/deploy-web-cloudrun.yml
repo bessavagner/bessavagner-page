@@ -1,0 +1,75 @@
+name: Deploy web (Astro) to Cloud Run
+
+# Builds the static Astro site in web/ into an nginx image and deploys it to the
+# existing Cloud Run service `bessavagner-page` (us-central1).
+#
+# Required GitHub secrets (see docs/.ai/plans/003-cloud-run-deploy.md):
+#   GCP_WIF_PROVIDER     - Workload Identity provider resource name
+#   GCP_SERVICE_ACCOUNT  - deployer service account email
+#   PUBLIC_WEB3FORMS_KEY - Web3Forms access key (baked into the static build)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-web-cloudrun.yml'
+  workflow_dispatch: {}
+
+env:
+  PROJECT_ID: bessavagner-page
+  REGION: us-central1
+  SERVICE: bessavagner-page
+  AR_REPO: web
+  IMAGE: site
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for Workload Identity Federation
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Build & push image
+        run: |
+          IMG="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE}:${GITHUB_SHA}"
+          docker build \
+            --build-arg PUBLIC_WEB3FORMS_KEY="${{ secrets.PUBLIC_WEB3FORMS_KEY }}" \
+            -t "$IMG" \
+            -t "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE}:latest" \
+            web
+          docker push --all-tags "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE}"
+          echo "IMG=$IMG" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image "$IMG" \
+            --project "$PROJECT_ID" \
+            --region "$REGION" \
+            --platform managed \
+            --allow-unauthenticated \
+            --port 8080 \
+            --quiet
+
+      - name: Show service URL
+        run: |
+          gcloud run services describe "$SERVICE" \
+            --project "$PROJECT_ID" --region "$REGION" \
+            --format='value(status.url)'

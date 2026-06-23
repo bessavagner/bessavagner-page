@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Portfolio content",
+  "type": "object",
+  "required": ["profile", "projects"],
+  "properties": {
+    "profile": {
+      "type": "object",
+      "required": ["name", "headline", "tagline", "links", "stacks"],
+      "properties": {
+        "name": { "type": "string" },
+        "headline": { "type": "string" },
+        "tagline": { "type": "string" },
+        "location": { "type": "string" },
+        "availability": { "type": "string" },
+        "languages": { "type": "array", "items": { "type": "string" } },
+        "links": { "type": "object" },
+        "stacks": { "type": "object" }
+      }
+    },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "tagline", "summary", "featured", "order", "stack", "links"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "name": { "type": "string" },
+          "tagline": { "type": "string" },
+          "summary": { "type": "string" },
+          "kind": { "type": "string" },
+          "role": { "type": "string" },
+          "featured": { "type": "boolean" },
+          "order": { "type": "integer" },
+          "year": { "type": "integer" },
+          "status": { "type": "string" },
+          "private": { "type": "boolean" },
+          "stack": { "type": "array", "items": { "type": "string" } },
+          "highlights": { "type": "array", "items": { "type": "string" } },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["label", "value"],
+              "properties": { "label": { "type": "string" }, "value": { "type": "string" } }
+            }
+          },
+          "links": { "type": "object" },
+          "image": { "type": "string" },
+          "ogImage": { "type": "string" }
+        }
+      }
+    }
+  }
+}

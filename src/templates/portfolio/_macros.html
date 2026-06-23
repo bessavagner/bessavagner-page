@@ -1,0 +1,142 @@
+{# ---------------------------------------------------------------------------
+   Portfolio macros — render everything from content/projects.json.
+   Adding/editing a project = edit the JSON only. No template changes needed.
+--------------------------------------------------------------------------- #}
+
+{% macro stack_tags(items, limit=0) %}
+<ul class="flex flex-wrap gap-2">
+  {% for t in items %}
+    {% if limit == 0 or loop.index0 < limit %}
+      <li class="badge badge-outline border-primary/40 text-base-content/80 font-base text-xs py-3">{{ t }}</li>
+    {% endif %}
+  {% endfor %}
+  {% if limit and items|length > limit %}
+    <li class="badge badge-ghost font-base text-xs py-3">+{{ items|length - limit }}</li>
+  {% endif %}
+</ul>
+{% endmacro %}
+
+
+{% macro project_links(p) %}
+<div class="flex flex-wrap gap-3 mt-6">
+  {% if p.links.live %}
+    <a href="{{ p.links.live }}" target="_blank" rel="noopener"
+       class="btn btn-primary btn-sm font-base">Live demo</a>
+  {% endif %}
+  {% if p.links.repo %}
+    <a href="{{ p.links.repo }}" target="_blank" rel="noopener"
+       class="btn btn-outline btn-sm font-base">View code</a>
+  {% endif %}
+  {% if p.links.case_study %}
+    <a href="{{ p.links.case_study }}" target="_blank" rel="noopener"
+       class="btn btn-ghost btn-sm font-base">Case study</a>
+  {% endif %}
+  {% if p.private and not p.links.repo and not p.links.live %}
+    <span class="badge badge-neutral font-base text-xs py-3">Private / under NDA</span>
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{# Project visual: a framed screenshot when `image` is set, else a branded panel. #}
+{% macro project_visual(p) %}
+<div class="relative w-full max-w-[520px] rounded-2xl overflow-hidden
+            border border-primary/20 shadow-2xl shadow-primary/20 bg-base-300">
+  {# window chrome #}
+  <div class="flex items-center gap-1.5 px-4 py-2.5 bg-base-200 border-b border-base-content/10">
+    <span class="w-2.5 h-2.5 rounded-full bg-error/70"></span>
+    <span class="w-2.5 h-2.5 rounded-full bg-warning/70"></span>
+    <span class="w-2.5 h-2.5 rounded-full bg-success/70"></span>
+    <span class="ml-auto badge badge-primary badge-sm font-base capitalize">{{ p.status }}</span>
+  </div>
+  {% if p.image %}
+    <img src="{{ static(p.image) }}" alt="{{ p.name }} screenshot"
+         loading="lazy" class="block w-full aspect-[4/3] object-cover object-top" />
+  {% else %}
+    <div class="relative aspect-[4/3] bg-gradient-to-br from-primary/15 via-base-200 to-base-300">
+      <div class="absolute inset-0 opacity-[0.07]"
+           style="background-image:radial-gradient(currentColor 1px,transparent 1px);background-size:18px 18px;"></div>
+      <div class="relative flex flex-col h-full p-6">
+        <div class="flex-1 flex items-center justify-center">
+          <span class="font-header roboto-condensed-800 text-7xl lg:text-8xl text-primary/70 leading-none">
+            {{ p.name[:2] | upper }}
+          </span>
+        </div>
+        {% if p.metrics %}
+        <dl class="grid grid-cols-1 gap-1 mt-2">
+          {% for m in p.metrics %}
+          <div class="flex items-baseline justify-between border-t border-base-content/10 pt-1">
+            <dt class="text-xs text-base-content/60 font-base">{{ m.label }}</dt>
+            <dd class="text-xs ubuntu-mono-regular text-base-content/90 text-right ml-3">{{ m.value }}</dd>
+          </div>
+          {% endfor %}
+        </dl>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+
+{# Full-width featured section, alternating sides on large screens. #}
+{% macro project_section(p, index) %}
+<article class="subsection scroll-mt-24 py-12 lg:py-16">
+  <div class="flex flex-col {{ 'lg:flex-row-reverse' if index % 2 else 'lg:flex-row' }}
+              items-center gap-10 lg:gap-14 w-11/12 max-w-6xl mx-auto">
+    <div class="w-full lg:w-1/2 flex justify-center">{{ project_visual(p) }}</div>
+    <div class="w-full lg:w-1/2 text-left">
+      <p class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent mb-2">
+        {{ p.role }}
+      </p>
+      <h3 class="font-header-5 font-bold leading-tight">{{ p.name }}</h3>
+      <p class="font-base text-lg lg:text-xl text-base-content/80 mt-2">{{ p.tagline }}</p>
+      <p class="font-base text-sm lg:text-base text-base-content/70 mt-4">{{ p.summary }}</p>
+      {% if p.highlights %}
+      <ul class="mt-5 space-y-1.5">
+        {% for h in p.highlights %}
+        <li class="flex gap-2 font-base text-sm text-base-content/80">
+          <span class="text-accent mt-0.5" aria-hidden="true">▹</span><span>{{ h }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+      <div class="mt-5">{{ stack_tags(p.stack) }}</div>
+      {{ project_links(p) }}
+    </div>
+  </div>
+</article>
+{% endmacro %}
+
+
+{# Compact card for secondary projects. #}
+{% macro project_card(p) %}
+<a class="group relative flex flex-col h-full p-6 rounded-xl border border-base-content/10
+          bg-base-200/60 hover:border-primary/50 hover:-translate-y-1 transition
+          shadow-lg shadow-neutral/10"
+   href="{{ p.links.live or p.links.repo or '#' }}"
+   {% if p.links.live or p.links.repo %}target="_blank" rel="noopener"{% endif %}>
+  <div class="flex items-center justify-between">
+    <h4 class="card-title font-header-5 text-2xl font-bold text-base-content">{{ p.name }}</h4>
+    <span class="ubuntu-mono-regular text-xs text-base-content/40">{{ p.year }}</span>
+  </div>
+  <p class="font-base text-sm text-base-content/70 mt-2 flex-1">{{ p.tagline }}</p>
+  <div class="mt-4">{{ stack_tags(p.stack, limit=4) }}</div>
+  <span class="mt-4 font-base text-sm text-primary group-hover:underline">
+    {{ 'Visit →' if p.links.live else ('View code →' if p.links.repo else '') }}
+  </span>
+</a>
+{% endmacro %}
+
+
+{# Grouped tech stack (replaces the % skill bars). #}
+{% macro tech_stack(stacks) %}
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 w-full">
+  {% for group, items in stacks.items() %}
+  <div>
+    <p class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent mb-2">{{ group }}</p>
+    {{ stack_tags(items) }}
+  </div>
+  {% endfor %}
+</div>
+{% endmacro %}

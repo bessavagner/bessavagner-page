@@ -44,8 +44,10 @@ RUN chown -R ${ID_USER}:${ID_GROUP} "$SRC_DIR" \
     && chmod 755 "$SRC_DIR/entrypoint.sh"
 
 ENV PATH="/usr/local/.venv/bin:$PATH"
+# App binds to $PORT (default 8080); Cloud Run injects PORT at runtime.
+ENV PORT=8080
 USER $USER
-EXPOSE 8081
+EXPOSE 8080
 WORKDIR $SRC_DIR
 
 ENTRYPOINT ["./entrypoint.sh"]

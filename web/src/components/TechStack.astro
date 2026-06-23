@@ -1,0 +1,15 @@
+---
+const { stacks } = Astro.props as { stacks: Record<string, string[]> };
+---
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 w-full">
+  {Object.entries(stacks).map(([group, items]) => (
+    <div>
+      <p class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent mb-2">{group}</p>
+      <ul class="flex flex-wrap gap-2">
+        {items.map((t) => (
+          <li class="badge badge-outline border-primary/40 text-base-content/80 font-base text-xs py-3">{t}</li>
+        ))}
+      </ul>
+    </div>
+  ))}
+</div>

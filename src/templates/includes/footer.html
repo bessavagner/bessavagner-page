@@ -1,3 +1,7 @@
-<footer class="absolute bottom-0 right-0 left-0 bg-transparent md:p-4 text-center">
-    <p>&copy; 2025 Vagner Bessa</p>
+<footer class="w-full border-t border-base-content/10 bg-base-200/40 py-6 text-center">
+    <p class="font-base text-sm text-base-content/60">
+        &copy; {{ current_year | default(2026) }} Vagner Bessa ·
+        <a href="https://github.com/bessavagner" target="_blank" rel="noopener"
+           class="hover:text-primary">GitHub</a>
+    </p>
 </footer>

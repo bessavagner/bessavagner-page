@@ -1,0 +1,81 @@
+---
+import { type Profile } from '../lib/portfolio';
+const { profile } = Astro.props as { profile: Profile };
+const accessKey = import.meta.env.PUBLIC_WEB3FORMS_KEY ?? '';
+---
+<div class="w-11/12 lg:w-4/6 max-w-3xl mx-auto">
+  <div class="text-center">
+    <h3 class="font-header-5 text-2xl font-bold">Let's build something together</h3>
+    <p class="font-base text-sm lg:text-lg text-base-content/70 mt-4">
+      Whether you want to start a new project or need help with an existing one — for hire or
+      for a role — I'd love to hear from you.
+    </p>
+  </div>
+
+  <form id="contact-form" class="flex flex-col w-full sm:w-2/3 lg:w-1/2 mx-auto mt-8">
+    <input type="hidden" name="access_key" value={accessKey} />
+    <input type="hidden" name="subject" value="New message from bessavagner.dev" />
+    <input type="hidden" name="from_name" value="bessavagner.dev" />
+    <!-- Honeypot -->
+    <input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1" autocomplete="off" />
+
+    <label for="name" class="font-base text-sm">Name</label>
+    <input id="name" name="name" type="text" required autocomplete="name" maxlength="200"
+           class="input input-bordered w-full mb-3 mt-1" />
+
+    <label for="email" class="font-base text-sm">Email</label>
+    <input id="email" name="email" type="email" required autocomplete="email"
+           class="input input-bordered w-full mb-3 mt-1" />
+
+    <label for="message" class="font-base text-sm">Message</label>
+    <textarea id="message" name="message" required maxlength="5000" rows="5"
+              class="textarea textarea-bordered w-full mb-4 mt-1"></textarea>
+
+    <button type="submit" class="btn btn-primary font-base">Send message</button>
+    <p id="form-status" class="text-sm text-center mt-3 min-h-5" role="status" aria-live="polite"></p>
+  </form>
+
+  <div class="text-center mt-8">
+    <p class="font-base text-sm text-base-content/70">
+      Prefer email? <a href={`mailto:${profile.links.email}`} class="text-primary hover:underline">{profile.links.email}</a>
+    </p>
+  </div>
+</div>
+
+<script is:inline>
+  (function () {
+    const form = document.getElementById('contact-form');
+    const status = document.getElementById('form-status');
+    if (!form) return;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form).entries());
+      if (!data.access_key) {
+        status.textContent = 'Contact form is not configured yet.';
+        status.className = 'text-sm text-center mt-3 text-error';
+        return;
+      }
+      status.textContent = 'Sending…';
+      status.className = 'text-sm text-center mt-3 text-base-content/60';
+      try {
+        const res = await fetch('https://api.web3forms.com/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(data),
+        });
+        const json = await res.json();
+        if (json.success) {
+          form.reset();
+          status.textContent = "Thanks! I'll get back to you soon.";
+          status.className = 'text-sm text-center mt-3 text-success';
+        } else {
+          status.textContent = json.message || 'Something went wrong. Please email me directly.';
+          status.className = 'text-sm text-center mt-3 text-error';
+        }
+      } catch (err) {
+        status.textContent = 'Network error. Please email me directly.';
+        status.className = 'text-sm text-center mt-3 text-error';
+      }
+    });
+  })();
+</script>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@500;700;800&family=Roboto:wght@300;400;500;700&family=Ubuntu+Mono&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#151516; --muted:#5b5f6b; --line:#e2e4ea;
+    --primary:#3a3d98; --accent:#9a7400; --bg:#ffffff;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{font-size:13.5px}
+  body{font-family:'Roboto',sans-serif;color:var(--ink);background:var(--bg);line-height:1.4}
+  .page{width:210mm;min-height:297mm;margin:0 auto;padding:14mm 15mm 12mm;}
+  header{display:flex;justify-content:space-between;align-items:flex-end;
+    border-bottom:3px solid var(--primary);padding-bottom:12px;margin-bottom:14px}
+  .name{font-family:'Roboto Condensed',sans-serif;font-weight:800;font-size:2.7rem;
+    line-height:.95;letter-spacing:-.5px;color:var(--primary)}
+  .role{font-weight:300;font-size:1.2rem;color:var(--muted);margin-top:2px}
+  .contact{text-align:right;font-family:'Ubuntu Mono',monospace;font-size:.7rem;color:var(--muted)}
+  .contact a{color:var(--primary);text-decoration:none}
+  .contact div{margin-bottom:2px}
+  .cols{display:grid;grid-template-columns:1fr 1.95fr;gap:20px}
+  h2{font-family:'Roboto Condensed',sans-serif;font-weight:700;font-size:.8rem;
+    text-transform:uppercase;letter-spacing:.16em;color:var(--accent);
+    margin:0 0 7px;padding-bottom:4px;border-bottom:1px solid var(--line)}
+  section{margin-bottom:14px}
+  .summary{font-size:.9rem;color:#333}
+  .skillgroup{margin-bottom:8px}
+  .skillgroup .lbl{font-weight:700;font-size:.76rem;color:var(--ink);margin-bottom:1px}
+  .skillgroup .val{font-size:.78rem;color:var(--muted)}
+  .item{margin-bottom:10px}
+  .item .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .item .title{font-weight:700;font-size:.92rem}
+  .item .org{color:var(--primary);font-weight:500}
+  .item .date{font-family:'Ubuntu Mono',monospace;font-size:.7rem;color:var(--muted);white-space:nowrap}
+  .item .sub{font-size:.76rem;color:var(--muted);margin:1px 0 3px}
+  .item ul{margin:2px 0 0 15px}
+  .item li{font-size:.8rem;margin-bottom:2px}
+  .ph{background:#fff6d6;border-bottom:1px dashed var(--accent);color:#7a5b00;padding:0 2px;border-radius:2px}
+  .tag{display:inline-block;font-family:'Ubuntu Mono',monospace;font-size:.64rem;color:var(--muted);
+    border:1px solid var(--line);border-radius:4px;padding:1px 5px;margin:2px 3px 0 0}
+  .proj .title{font-size:.85rem}
+  .pub{font-size:.77rem;color:#333;margin-bottom:5px}
+  .pub .hl{color:var(--primary);font-weight:500}
+  a{color:var(--primary)}
+  @page{size:A4;margin:0}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <div class="name">Vagner&nbsp;Bessa</div>
+      <div class="role">Full-stack &amp; AI Engineer · Physicist</div>
+    </div>
+    <div class="contact">
+      <div>bessavagner.dev@gmail.com</div>
+      <div><a href="https://github.com/bessavagner">github.com/bessavagner</a></div>
+      <div><a href="https://www.linkedin.com/in/bessavagner/">linkedin.com/in/bessavagner</a></div>
+      <div>Crateús, CE, Brazil · Remote (UTC−3)</div>
+    </div>
+  </header>
+
+  <section class="summary">
+    Full-stack and AI engineer — physicist by training — who designs and ships production-grade
+    AI products and web platforms end to end, from LLM agents and APIs to the interfaces people
+    use. Strong in Python and TypeScript, with experience leading government-tech ML and
+    multi-tenant SaaS delivery. Tenured professor and researcher (co-author of a 130+ citation
+    Nature Physics paper). Open to international freelance projects and roles.
+  </section>
+
+  <div class="cols">
+    <!-- LEFT -->
+    <div>
+      <section>
+        <h2>Core Skills</h2>
+        <div class="skillgroup"><div class="lbl">Languages</div><div class="val">Python, TypeScript, JavaScript, C++, Bash</div></div>
+        <div class="skillgroup"><div class="lbl">Backend &amp; AI</div><div class="val">FastAPI, Django, aiohttp, Fastify, Mastra (AI agents), LLM/RAG, XGBoost / ML</div></div>
+        <div class="skillgroup"><div class="lbl">Frontend</div><div class="val">React, Svelte, Tailwind CSS, DaisyUI, Vite</div></div>
+        <div class="skillgroup"><div class="lbl">Data &amp; Infra</div><div class="val">PostgreSQL, Prisma, Docker, Google Cloud Run, Prometheus/Grafana, Linux</div></div>
+      </section>
+
+      <section>
+        <h2>Education</h2>
+        <div class="item">
+          <div class="title">MSc in Physics</div>
+          <div class="sub">Universidade Federal do Ceará (UFC) · 2010–2012</div>
+        </div>
+        <div class="item">
+          <div class="title">BSc in Physics</div>
+          <div class="sub">Universidade Federal do Ceará (UFC) · 2006–2009</div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Open Source</h2>
+        <div class="item">
+          <div class="title">Weberist <span class="date">★2</span></div>
+          <div class="sub">Stealth web-automation framework on Selenium; passes major bot-detection systems; Docker-ready.</div>
+        </div>
+        <div class="item">
+          <div class="title">Aigents</div>
+          <div class="sub">Provider-agnostic LLM adapter library (Python).</div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Languages</h2>
+        <div class="skillgroup"><div class="val">Portuguese (native) · English (fluent) · Spanish (basic)</div></div>
+      </section>
+    </div>
+
+    <!-- RIGHT -->
+    <div>
+      <section>
+        <h2>Experience</h2>
+
+        <div class="item">
+          <div class="top">
+            <div><span class="title">Lead Developer &amp; Technical Coordinator</span> — <span class="org">RHIA</span></div>
+            <div class="date">2026 – present</div>
+          </div>
+          <div class="sub">AI-assisted HR platform · EMBRAPII / IFCE in partnership with Jubilato</div>
+          <ul>
+            <li>Lead technical delivery; coordinate backend, frontend and modeling workstreams.</li>
+            <li>Defined multi-tenant, LGPD-aware architecture and AI-documentation conventions.</li>
+          </ul>
+        </div>
+
+        <div class="item">
+          <div class="top">
+            <div><span class="title">Lead Developer / ML &amp; AI Engineer</span> — <span class="org">BitGov</span></div>
+            <div class="date">Mar 2025 – present</div>
+          </div>
+          <div class="sub">Public-sector supplier credit-risk AI · IFCE Innovation Hub / Nova BitGov — FINAI (Mar 2025–Feb 2026) → FinRePAI</div>
+          <ul>
+            <li>Built adaptive multi-agent extraction from transparency portals (200+ sources, scalable to 5,500 municipalities).</li>
+            <li>Developed supplier rating (survival models), backtesting/validation and LLM-based explainable reports.</li>
+            <li>Authored the core <span style="font-family:'Ubuntu Mono',monospace">bitgovprocessor</span> ML package.</li>
+          </ul>
+        </div>
+
+        <div class="item">
+          <div class="top">
+            <div><span class="title">Professor of Physics (tenured)</span> — <span class="org">IFCE, Campus Crateús</span></div>
+            <div class="date">2014 – present</div>
+          </div>
+          <div class="sub">Full-time (dedicação exclusiva). Researcher: superconductivity / Josephson vortices, nonlinear dynamics. Advised undergraduate theses.</div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Selected Research</h2>
+        <div class="pub">Roditchev, Brun, … <span class="hl">Bessa, V. H. L.</span>, … Cren. “Direct observation of Josephson vortex cores.” <em>Nature Physics</em> 11, 332–337 (2015). <span class="hl">130+ citations.</span></div>
+        <div class="pub">Bessa &amp; Guedes. “The quantum Lane–Emden-type Kanai–Caldirola oscillators.” <em>J. Math. Phys.</em> 53, 122104 (2012).</div>
+      </section>
+
+      <section>
+        <h2>Selected Projects</h2>
+        <div class="item proj">
+          <div class="title">Agente Clínicas — AI WhatsApp service for clinics</div>
+          <span class="tag">TypeScript</span><span class="tag">Fastify</span><span class="tag">Prisma</span><span class="tag">Mastra</span><span class="tag">WhatsApp</span><span class="tag">React</span>
+        </div>
+        <div class="item proj">
+          <div class="title">FinRePAI · BitGov — gov-tech credit-risk AI</div>
+          <span class="tag">Python</span><span class="tag">Django</span><span class="tag">XGBoost</span><span class="tag">LLM agents</span>
+        </div>
+        <div class="item proj">
+          <div class="title">Expense Tracker AI — conversational finance app</div>
+          <div class="sub">Natural-language input, AI insights and forecasts; mobile-first.</div>
+          <span class="tag">React 18</span><span class="tag">TypeScript</span><span class="tag">Vite</span><span class="tag">TanStack Query</span>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</body>
+</html>

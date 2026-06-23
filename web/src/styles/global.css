@@ -1,0 +1,115 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+/* ---- Brand themes (ported from the legacy DaisyUI 4 config) ---- */
+@plugin "daisyui/theme" {
+  name: "custom";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+  --color-primary: #3a3d98;
+  --color-primary-content: #d3d7ec;
+  --color-secondary: #727d95;
+  --color-secondary-content: #040508;
+  --color-accent: #9a7400;
+  --color-accent-content: #110a00;
+  --color-neutral: #2f2f2f;
+  --color-neutral-content: #d1d1d1;
+  --color-base-100: #f7fafc;
+  --color-base-200: #eceef1;
+  --color-base-300: #d7d9db;
+  --color-base-content: #151516;
+  --color-info: #4c88d2;
+  --color-info-content: #020610;
+  --color-success: #3aab5f;
+  --color-success-content: #010b03;
+  --color-warning: #eba417;
+  --color-warning-content: #130a00;
+  --color-error: #d9534f;
+  --color-error-content: #110202;
+  --radius-box: 1rem;
+  --radius-field: 0.5rem;
+}
+@plugin "daisyui/theme" {
+  name: "custom-dark";
+  default: false;
+  prefersdark: true;
+  color-scheme: dark;
+  --color-primary: #6f74d6;
+  --color-primary-content: #0a0d1a;
+  --color-secondary: #444c63;
+  --color-secondary-content: #d6d9de;
+  --color-accent: #daa520;
+  --color-accent-content: #0c0600;
+  --color-neutral: #1b1e28;
+  --color-neutral-content: #cccdcf;
+  --color-base-100: #121621;
+  --color-base-200: #0e121b;
+  --color-base-300: #0a0d16;
+  --color-base-content: #c9cace;
+  --color-info: #3b82fc;
+  --color-info-content: #010616;
+  --color-success: #28a745;
+  --color-success-content: #010a02;
+  --color-warning: #ffc107;
+  --color-warning-content: #160e00;
+  --color-error: #ff4d4f;
+  --color-error-content: #160202;
+  --radius-box: 1rem;
+  --radius-field: 0.5rem;
+}
+
+/* ---- Fonts ---- */
+.roboto-thin   { font-family: "Roboto", sans-serif; font-weight: 100; }
+.roboto-light  { font-family: "Roboto", sans-serif; font-weight: 300; }
+.roboto-regular{ font-family: "Roboto", sans-serif; font-weight: 400; }
+.roboto-medium { font-family: "Roboto", sans-serif; font-weight: 500; }
+.roboto-bold   { font-family: "Roboto", sans-serif; font-weight: 700; }
+.roboto-black  { font-family: "Roboto", sans-serif; font-weight: 900; }
+.roboto-condensed-800 { font-family: "Roboto Condensed", sans-serif; font-weight: 800; }
+.ubuntu-mono-regular  { font-family: "Ubuntu Mono", monospace; font-weight: 400; }
+
+body { font-family: "Roboto", sans-serif; }
+
+.font-base   { font-family: "Roboto", sans-serif; color: var(--color-base-content); }
+.font-header { font-family: "Roboto", sans-serif; font-weight: 100; }
+
+/* ---- Display type scale ---- */
+.font-header-3 { font-family: "Roboto", sans-serif; font-weight: 100; @apply text-5xl sm:text-6xl md:text-7xl lg:text-8xl; }
+.font-header-4 { font-family: "Roboto", sans-serif; font-weight: 100; @apply text-4xl sm:text-5xl md:text-6xl lg:text-7xl; }
+.font-header-5 { font-family: "Roboto", sans-serif; font-weight: 100; @apply text-3xl sm:text-4xl md:text-5xl lg:text-6xl; }
+
+/* ---- Reveal-on-scroll (JS adds .reveal then .is-visible) ---- */
+.reveal { @apply opacity-0 translate-y-6 transition-all duration-700 ease-out; }
+.reveal.is-visible { @apply opacity-100 translate-y-0; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { @apply opacity-100 translate-y-0 transition-none; }
+}
+
+/* ---- Entrance animations ---- */
+@keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slideIn { from { transform: translateY(24px); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+.animate-fade-in  { animation: fadeIn 1.2s ease-in-out both; }
+.animate-slide-in { animation: slideIn 0.9s ease-in-out both; }
+
+/* ---- Code mockup (typing animation target) ---- */
+.code-mockup pre { @apply my-0 py-0 leading-relaxed; }
+.code-mockup pre > code { background: transparent; }
+.code-mockup pre:before { color: color-mix(in oklab, currentColor 35%, transparent); }
+
+/* Prism token colors tuned for the dark mockup */
+.code-mockup .token.comment,
+.code-mockup .token.prolog,
+.code-mockup .token.doctype,
+.code-mockup .token.cdata { color: #7c8499; }
+.code-mockup .token.punctuation { color: #9aa1b2; }
+.code-mockup .token.keyword,
+.code-mockup .token.atrule { color: #6f9cf0; }
+.code-mockup .token.string,
+.code-mockup .token.attr-value { color: #8fd07a; }
+.code-mockup .token.function,
+.code-mockup .token.class-name { color: #e07a9b; }
+.code-mockup .token.number,
+.code-mockup .token.boolean,
+.code-mockup .token.tag { color: #d8a657; }
+.code-mockup .token.operator { color: #c0a48a; }

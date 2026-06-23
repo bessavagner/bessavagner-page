@@ -1,0 +1,113 @@
+---
+const { class: className = '' } = Astro.props;
+---
+<div class:list={["code-mockup mockup-code bg-neutral text-neutral-content w-full h-[360px] lg:h-[460px] overflow-hidden rounded-2xl shadow-2xl shadow-primary/30", className]}>
+  <div id="codeContainer" class="px-1 pt-2 text-sm"></div>
+</div>
+
+<script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+<script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+<script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+<script is:inline src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+
+<script is:inline>
+  (function () {
+    const animations = [
+      { language: 'python', code: [
+        '# server.py',
+        'from aiohttp import web, WSMsgType',
+        'import aiohttp_jinja2, json, uuid',
+        '',
+        'clients = {}',
+        '',
+        'async def ws_handler(request):',
+        '    ws = web.WebSocketResponse()',
+        '    await ws.prepare(request)',
+        '    cid = str(uuid.uuid4())',
+        '    clients[cid] = ws',
+        '    async for msg in ws:',
+        '        if msg.type == WSMsgType.TEXT:',
+        '            data = json.loads(msg.data)',
+        '            await broadcast(cid, data)',
+        '    return ws',
+      ]},
+      { language: 'javascript', code: [
+        '// agent.ts',
+        'import { Agent } from "@mastra/core";',
+        '',
+        'export const triage = new Agent({',
+        '  name: "triage",',
+        '  instructions: "Assess urgency and route.",',
+        '  model: openai("gpt-5-mini"),',
+        '  tools: { bookAppointment, checkAvailability },',
+        '});',
+        '',
+        'const reply = await triage.generate(message);',
+      ]},
+      { language: 'python', code: [
+        'from aigents import AsyncOpenAIChatter',
+        '',
+        'chatter = AsyncOpenAIChatter(',
+        '    setup="You are a helpful assistant.",',
+        '    api_key=API_KEY,',
+        ')',
+        '',
+        'response = await chatter.answer(',
+        '    "Summarize this contract risk."',
+        ')',
+      ]},
+    ];
+
+    const reduce = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const container = document.getElementById('codeContainer');
+    if (!container) return;
+    let current = 0;
+
+    function highlight(text, lang) {
+      try {
+        if (window.Prism && Prism.languages[lang]) {
+          return Prism.highlight(text, Prism.languages[lang], lang);
+        }
+      } catch (e) {}
+      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    }
+
+    function renderInstant(anim) {
+      container.innerHTML = '';
+      anim.code.forEach((line, i) => {
+        const pre = document.createElement('pre');
+        pre.setAttribute('data-prefix', String(i + 1));
+        pre.innerHTML = '<code>' + highlight(line, anim.language) + '</code>';
+        container.appendChild(pre);
+      });
+    }
+
+    async function typeAnim(anim) {
+      container.innerHTML = '';
+      for (let i = 0; i < anim.code.length; i++) {
+        const line = anim.code[i];
+        const pre = document.createElement('pre');
+        pre.setAttribute('data-prefix', String(i + 1));
+        const code = document.createElement('code');
+        pre.appendChild(code);
+        container.appendChild(pre);
+        for (let c = 0; c < line.length; c++) {
+          code.innerHTML = highlight(line.slice(0, c + 1), anim.language);
+          await new Promise((r) => setTimeout(r, 8));
+        }
+        code.innerHTML = highlight(line, anim.language);
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      await new Promise((r) => setTimeout(r, 2600));
+      current = (current + 1) % animations.length;
+      typeAnim(animations[current]);
+    }
+
+    if (reduce) {
+      renderInstant(animations[0]);
+    } else {
+      typeAnim(animations[0]);
+    }
+  })();
+</script>

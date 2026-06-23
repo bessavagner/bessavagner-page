@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@800&family=Roboto:wght@300;400;700&family=Ubuntu+Mono&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; }
+  body {
+    font-family: 'Roboto', sans-serif;
+    background: radial-gradient(120% 120% at 85% 0%, #3a3d98 0%, #1d2342 45%, #121621 100%);
+    color: #d3d7ec; position: relative; overflow: hidden;
+    padding: 70px 80px; display: flex; flex-direction: column;
+  }
+  .grid { position:absolute; inset:0; opacity:.06;
+    background-image: radial-gradient(#fff 1.2px, transparent 1.2px); background-size: 26px 26px; }
+  .top { display:flex; align-items:center; justify-content:space-between; }
+  .brand { font-family:'Ubuntu Mono',monospace; font-size:20px; letter-spacing:.2em; color:#8b90b8; }
+  .role { font-family:'Ubuntu Mono',monospace; font-size:18px; letter-spacing:.28em; text-transform:uppercase; color:#daa520; }
+  .mono { width:120px; height:120px; border-radius:24px; background:rgba(255,255,255,.06);
+    border:1px solid rgba(255,255,255,.12); display:flex; align-items:center; justify-content:center;
+    font-family:'Roboto Condensed',sans-serif; font-weight:800; font-size:60px; color:#fff; }
+  .mid { flex:1; display:flex; flex-direction:column; justify-content:center; }
+  h1 { font-family:'Roboto Condensed',sans-serif; font-weight:800; font-size:84px; line-height:.98;
+    color:#fff; letter-spacing:-1px; }
+  .tagline { font-weight:300; font-size:34px; color:#c7cbe6; margin-top:18px; max-width:900px; line-height:1.35; }
+  .chips { display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; }
+  .chip { font-family:'Ubuntu Mono',monospace; font-size:20px; color:#aab; background:rgba(255,255,255,.05);
+    border:1px solid rgba(255,255,255,.12); border-radius:10px; padding:8px 16px; }
+  .foot { display:flex; align-items:center; justify-content:space-between;
+    font-family:'Ubuntu Mono',monospace; font-size:22px; color:#8b90b8; }
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="top">
+    <span class="role" id="role"></span>
+    <span class="mono" id="mono"></span>
+  </div>
+  <div class="mid">
+    <h1 id="name"></h1>
+    <p class="tagline" id="tagline"></p>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="foot" style="margin-top:28px">
+    <span>Vagner Bessa — Full-stack &amp; AI Engineer</span>
+    <span>github.com/bessavagner</span>
+  </div>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const name = q.get('name') || '';
+    document.getElementById('name').textContent = name;
+    document.getElementById('tagline').textContent = q.get('tagline') || '';
+    document.getElementById('role').textContent = q.get('role') || '';
+    document.getElementById('mono').textContent = name.slice(0, 2).toUpperCase();
+    const stack = (q.get('stack') || '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 5);
+    document.getElementById('chips').innerHTML = stack.map(s => `<span class="chip">${s}</span>`).join('');
+  </script>
+</body>
+</html>

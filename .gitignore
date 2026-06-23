@@ -46,3 +46,11 @@ video/
 
 # Others
 z_*
+
+# Local agent/tooling state (not versioned)
+.codegraph/
+.omc/
+.playwright-mcp/
+
+# AI audit screenshots (dev evidence; keep the .md reports, not the PNGs)
+docs/.ai/audits/*.png

@@ -5,13 +5,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = BASE_DIR.parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
+CONTENT_DIR = PROJECT_ROOT / "content"
 CSS_FILE = STATIC_DIR / "css" / "output.css"
 
-ALLOWED_ORIGINS = os.getenv(
-        'ALLOWED_ORIGINS', 'http://0.0.0.0/8080'
-    ).split(',')
+SITE_URL = os.getenv("SITE_URL", "https://bessavagner.dev").rstrip("/")
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://0.0.0.0:8080").split(",")
+    if origin.strip()
+]
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8080"))
 DEBUG = bool(int(os.getenv("DEBUG", "1")))

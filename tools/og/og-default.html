@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@800&family=Roboto:wght@300;400;700&family=Ubuntu+Mono&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; }
+  body {
+    font-family: 'Roboto', sans-serif;
+    background: radial-gradient(120% 120% at 80% 0%, #3a3d98 0%, #1d2342 45%, #121621 100%);
+    color: #d3d7ec; position: relative; overflow: hidden;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 80px 90px;
+  }
+  .grid { position:absolute; inset:0; opacity:.06;
+    background-image: radial-gradient(#fff 1.2px, transparent 1.2px); background-size: 26px 26px; }
+  .status { font-family:'Ubuntu Mono',monospace; font-size:20px; letter-spacing:.32em;
+    text-transform:uppercase; color:#daa520; display:flex; align-items:center; gap:14px; margin-bottom:26px; }
+  .dot { width:12px; height:12px; border-radius:50%; background:#3aab5f; box-shadow:0 0 0 6px rgba(58,171,95,.25); }
+  h1 { font-family:'Roboto Condensed',sans-serif; font-weight:800; font-size:118px; line-height:.92;
+    color:#fff; letter-spacing:-2px; }
+  .role { font-weight:300; font-size:46px; color:#a9aecb; margin-top:8px; }
+  .tagline { font-size:28px; color:#c7cbe6; margin-top:30px; max-width:880px; line-height:1.4; }
+  .foot { position:absolute; bottom:64px; left:90px; right:90px; display:flex;
+    justify-content:space-between; align-items:center;
+    font-family:'Ubuntu Mono',monospace; font-size:22px; color:#8b90b8; }
+  .badge { background:#3a3d98; color:#d3d7ec; border-radius:12px; padding:10px 18px; font-weight:700; }
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="status"><span class="dot"></span>Open to international projects &amp; roles</div>
+  <h1>Vagner&nbsp;Bessa</h1>
+  <div class="role">Full-stack &amp; AI Engineer</div>
+  <div class="tagline">I design and ship production-grade AI products and web platforms — Python &amp; TypeScript.</div>
+  <div class="foot">
+    <span>github.com/bessavagner</span>
+    <span class="badge">VB</span>
+  </div>
+</body>
+</html>

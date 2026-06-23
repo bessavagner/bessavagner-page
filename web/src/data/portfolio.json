@@ -1,0 +1,396 @@
+{
+  "$schema": "./projects.schema.json",
+  "_note": "Single source of truth for the portfolio. Carries over to the Astro content collection in Phase 2. Copy is in English (international audience). Keep `order` ascending; `featured` projects render as full sections, others as cards.",
+  "profile": {
+    "name": "Vagner Bessa",
+    "headline": "Full-stack & AI Engineer",
+    "tagline": "I design and ship production-grade AI products and web platforms — Python & TypeScript.",
+    "location": "Crateús, CE, Brazil · Remote (UTC−3)",
+    "availability": "Open to international freelance projects and roles",
+    "languages": [
+      "Portuguese (native)",
+      "English (fluent)",
+      "Spanish (basic)"
+    ],
+    "links": {
+      "github": "https://github.com/bessavagner",
+      "linkedin": "https://www.linkedin.com/in/bessavagner/",
+      "email": "bessavagner.dev@gmail.com",
+      "cv": "/static/vagner-bessa-cv.pdf"
+    },
+    "stacks": {
+      "Languages": [
+        "Python",
+        "TypeScript",
+        "JavaScript",
+        "C++",
+        "Bash"
+      ],
+      "Backend & AI": [
+        "FastAPI",
+        "Django",
+        "aiohttp",
+        "Fastify",
+        "Mastra (AI agents)",
+        "LLM/RAG",
+        "XGBoost / ML"
+      ],
+      "Frontend": [
+        "React",
+        "Svelte",
+        "Tailwind CSS",
+        "DaisyUI",
+        "Vite"
+      ],
+      "Data & Infra": [
+        "PostgreSQL",
+        "Prisma",
+        "Docker",
+        "Google Cloud Run",
+        "Prometheus/Grafana",
+        "Linux"
+      ]
+    }
+  },
+  "projects": [
+    {
+      "id": "agente-clinicas",
+      "name": "Agente Clínicas",
+      "tagline": "AI-powered WhatsApp service for medical clinics",
+      "summary": "A production-grade monolith that automates patient communication for clinics over WhatsApp: scheduling, triage, emergency detection and clinic management, with full LGPD (Brazilian GDPR) compliance.",
+      "kind": "full-stack-ai",
+      "role": "Architect & lead developer",
+      "featured": true,
+      "order": 1,
+      "year": 2025,
+      "status": "production",
+      "private": false,
+      "stack": [
+        "TypeScript",
+        "Fastify",
+        "Prisma",
+        "Mastra AI agents",
+        "Baileys / WhatsApp",
+        "React (SPA)",
+        "Redis",
+        "Prometheus",
+        "Grafana",
+        "Sentry"
+      ],
+      "highlights": [
+        "Multiple specialized AI agents (assistant, triage, scheduler, emergency)",
+        "Full WhatsApp Business integration with multi-instance support",
+        "LGPD compliance with audit logging and PII redaction",
+        "Resilience: retry with backoff, circuit breakers, rate-limit bypass for emergencies",
+        "Full observability stack and multi-clinic data isolation",
+        "Role-based React admin dashboard (clinics, patients, doctors, appointments)"
+      ],
+      "metrics": [],
+      "links": {
+        "repo": "https://github.com/bessavagner/clinics_agent",
+        "repo_frontend": "https://github.com/bessavagner/agente-clinicas-web",
+        "live": "",
+        "case_study": ""
+      },
+      "image": "images/projects/agente-clinicas.png",
+      "ogImage": "images/og/agente-clinicas.png"
+    },
+    {
+      "id": "finrepai-bitgov",
+      "name": "FinRePAI · BitGov",
+      "tagline": "AI credit-risk evaluation for public-sector suppliers",
+      "summary": "An AI platform that evaluates the financial risk of Brazilian public-sector suppliers. Continuation of FINAI-BitGov, developed at IFCE's Innovation Hub in partnership with Bitgov — multi-agent data extraction, supplier rating and explainable analytics.",
+      "kind": "gov-tech-ml",
+      "role": "Lead developer / ML & AI engineer",
+      "featured": true,
+      "order": 2,
+      "year": 2026,
+      "status": "active",
+      "private": false,
+      "stack": [
+        "Python 3.12",
+        "Django",
+        "XGBoost / ML",
+        "Multi-agent LLM system",
+        "Survival models",
+        "RESTful APIs",
+        "uv"
+      ],
+      "highlights": [
+        "Adaptive multi-agent extraction from public transparency portals (200+ sources, scalable to 5,500 municipalities)",
+        "SiRaC — supplier rating system (4 dimensions, exponential smoothing, survival models)",
+        "MoBaVE — backtesting and empirical validation module",
+        "RExAn — explainable analytical reports generated via LLMs",
+        "Fuzzy matching to link payments to contracts; ML prediction of manager evaluations"
+      ],
+      "metrics": [
+        {
+          "label": "Institutional context",
+          "value": "IFCE Innovation Hub · EMBRAPII · Bitgov"
+        },
+        {
+          "label": "Core package stars",
+          "value": "★3 (bitgovprocessor)"
+        }
+      ],
+      "links": {
+        "repo": "https://github.com/bessavagner/bitgovprocessor",
+        "repo_app": "https://github.com/bessavagner/finai-bitgov",
+        "live": "",
+        "case_study": ""
+      },
+      "image": "images/projects/finrepai-bitgov.png",
+      "ogImage": "images/og/finrepai-bitgov.png"
+    },
+    {
+      "id": "expense-tracker-ai",
+      "name": "Expense Tracker AI",
+      "tagline": "Conversational personal finance, powered by AI agents",
+      "summary": "A modern, AI-powered personal finance app: manage transactions, budgets, accounts and goals, create entries in natural language, and get AI-driven insights and spending forecasts.",
+      "kind": "modern-web-app",
+      "role": "Full-stack developer",
+      "featured": true,
+      "order": 3,
+      "year": 2025,
+      "status": "active",
+      "private": false,
+      "stack": [
+        "React 18",
+        "TypeScript",
+        "Vite",
+        "TanStack Query",
+        "DaisyUI",
+        "Mastra AI agents",
+        "PostgreSQL",
+        "Prisma"
+      ],
+      "highlights": [
+        "Natural-language transaction input (\"I spent $50 on groceries\")",
+        "AI-powered insights, smart categorization and balance projections",
+        "Budgets, accounts, goals and installment tracking with visual dashboards",
+        "Demo mode — explore with generated data, no backend required",
+        "Mobile-first responsive UI with light/dark/custom themes"
+      ],
+      "metrics": [
+        {
+          "label": "Orchestrator NL accuracy",
+          "value": "~93%"
+        }
+      ],
+      "links": {
+        "repo": "https://github.com/bessavagner/expense_tracker_v2",
+        "live": "",
+        "case_study": ""
+      },
+      "image": "images/projects/expense-tracker.png",
+      "ogImage": "images/og/expense-tracker-ai.png"
+    },
+    {
+      "id": "weberist",
+      "name": "Weberist",
+      "tagline": "Open-source stealth web-automation framework",
+      "summary": "A flexible web automation and scraping framework on top of Selenium, with out-of-the-box stealth that passes major bot-detection systems and first-class Docker support.",
+      "kind": "oss-framework",
+      "role": "Creator & maintainer",
+      "featured": false,
+      "order": 4,
+      "year": 2024,
+      "status": "maintained",
+      "private": false,
+      "stack": [
+        "Python",
+        "Selenium",
+        "Docker"
+      ],
+      "highlights": [
+        "Stealth Chrome driver passing BotD, pixelscan and device/browser fingerprint tests",
+        "Chrome & Firefox support, profile and local-storage management",
+        "Dockerized headless execution",
+        "Customizable user agents and window sizes"
+      ],
+      "metrics": [
+        {
+          "label": "GitHub",
+          "value": "★2"
+        }
+      ],
+      "links": {
+        "repo": "https://github.com/bessavagner/weberist",
+        "live": "",
+        "case_study": ""
+      },
+      "image": "",
+      "ogImage": "images/og/weberist.png"
+    },
+    {
+      "id": "aigents",
+      "name": "Aigents",
+      "tagline": "Provider-agnostic LLM adapters for Python",
+      "summary": "A Python library of adapters for Large Language Models and GPT-style APIs, used to build chatbots and contextual bots with a consistent interface.",
+      "kind": "oss-library",
+      "role": "Creator & maintainer",
+      "featured": false,
+      "order": 5,
+      "year": 2025,
+      "status": "maintained",
+      "private": false,
+      "stack": [
+        "Python",
+        "OpenAI / LLM APIs",
+        "async"
+      ],
+      "highlights": [
+        "Simple async API for building chatbots",
+        "Adapters across multiple LLM providers",
+        "Highly customizable and extensible"
+      ],
+      "metrics": [],
+      "links": {
+        "repo": "https://github.com/bessavagner/aigents",
+        "live": "",
+        "case_study": ""
+      },
+      "image": "",
+      "ogImage": "images/og/aigents.png"
+    },
+    {
+      "id": "rhia",
+      "name": "RHIA",
+      "tagline": "AI-assisted HR platform — technical lead & coordination",
+      "summary": "An EMBRAPII/IFCE initiative in partnership with Jubilato: an AI-assisted human-resources platform. Role focused on technical leadership, architecture and coordination across backend, frontend and modeling teams.",
+      "kind": "leadership",
+      "role": "Lead developer & coordination",
+      "featured": false,
+      "order": 6,
+      "year": 2026,
+      "status": "active",
+      "private": true,
+      "stack": [
+        "Spring Boot",
+        "Angular",
+        "AI pipelines",
+        "Multi-tenant",
+        "LGPD"
+      ],
+      "highlights": [
+        "Technical coordination across backend / frontend / modeling repositories",
+        "AI-document and reporting conventions for the team",
+        "Multi-tenant and LGPD-aware architecture"
+      ],
+      "metrics": [
+        {
+          "label": "Context",
+          "value": "EMBRAPII · IFCE · Jubilato"
+        }
+      ],
+      "links": {
+        "repo": "",
+        "live": "",
+        "case_study": ""
+      },
+      "image": "",
+      "ogImage": "images/og/rhia.png"
+    },
+    {
+      "id": "rumo-ao-zero",
+      "name": "Rumo ao Zero",
+      "tagline": "Full-stack health app with a WhatsApp bot",
+      "summary": "A simultaneous alcohol-and-tobacco cessation app: Django API + Svelte SPA + a WhatsApp bot, tracking daily logs, cravings, slips and metrics.",
+      "kind": "full-stack",
+      "role": "Full-stack developer",
+      "featured": false,
+      "order": 7,
+      "year": 2026,
+      "status": "active",
+      "private": false,
+      "stack": [
+        "Django",
+        "Svelte",
+        "WhatsApp bot",
+        "REST API"
+      ],
+      "highlights": [
+        "Django REST backend + Svelte single-page app",
+        "WhatsApp bot for daily check-ins (logs, cravings, slips, pulse)",
+        "Metrics and progress tracking"
+      ],
+      "metrics": [],
+      "links": {
+        "repo": "https://github.com/bessavagner/rumo-ao-zero",
+        "live": "",
+        "case_study": ""
+      },
+      "image": "images/projects/rumo-ao-zero.png",
+      "ogImage": "images/og/rumo-ao-zero.png"
+    },
+    {
+      "id": "sample-chat",
+      "name": "Sample Chat",
+      "tagline": "Real-time WebSocket chat demo",
+      "summary": "A small live demonstration of real-time communication between users over WebSockets, built with Python and aiohttp.",
+      "kind": "demo",
+      "role": "Developer",
+      "featured": false,
+      "order": 8,
+      "year": 2024,
+      "status": "live",
+      "private": false,
+      "stack": [
+        "Python",
+        "aiohttp",
+        "WebSockets",
+        "Tailwind CSS"
+      ],
+      "highlights": [
+        "Asynchronous WebSocket server with aiohttp",
+        "Responsive UI with Tailwind CSS",
+        "One-click Docker deployment"
+      ],
+      "metrics": [],
+      "links": {
+        "repo": "https://github.com/bessavagner/sample-chat",
+        "live": "https://sample-chat.onrender.com",
+        "case_study": ""
+      },
+      "image": "",
+      "ogImage": "images/og/sample-chat.png"
+    },
+    {
+      "id": "meta-agent",
+      "name": "Meta Agent",
+      "tagline": "An AI that builds AI agents",
+      "summary": "A meta-agent system that creates custom Mastra-based AI agents from natural language — researching best practices, interviewing for requirements, designing a plan and generating the implementation.",
+      "kind": "ai-tooling",
+      "role": "Creator",
+      "featured": false,
+      "order": 9,
+      "year": 2025,
+      "status": "active",
+      "private": false,
+      "stack": [
+        "TypeScript",
+        "Mastra",
+        "PostgreSQL",
+        "OpenAI"
+      ],
+      "highlights": [
+        "Researches, interviews, designs and generates Mastra agents",
+        "Structured plan generation in JSON",
+        "Agent mock system for fast, zero-cost testing"
+      ],
+      "metrics": [
+        {
+          "label": "Tests",
+          "value": "308"
+        }
+      ],
+      "links": {
+        "repo": "https://github.com/bessavagner/meta-agent",
+        "live": "",
+        "case_study": ""
+      },
+      "image": "",
+      "ogImage": "images/og/meta-agent.png"
+    }
+  ]
+}

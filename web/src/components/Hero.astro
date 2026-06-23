@@ -1,0 +1,40 @@
+---
+import CodeAnimation from './CodeAnimation.astro';
+import { asset, type Profile } from '../lib/portfolio';
+const { profile } = Astro.props as { profile: Profile };
+const cv = asset(profile.links.cv);
+---
+<section id="section-home" class="relative min-h-screen w-full px-6 lg:px-14 py-24 lg:py-28 flex items-center">
+  <div class="flex flex-col lg:flex-row items-center gap-10 lg:gap-14 w-11/12 max-w-7xl mx-auto">
+    <div class="w-full lg:w-3/5 text-center lg:text-left animate-fade-in">
+      {profile.availability && (
+        <p class="inline-flex items-center gap-2 ubuntu-mono-regular text-xs uppercase tracking-widest text-accent mb-4">
+          <span class="relative flex h-2 w-2">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+          </span>
+          {profile.availability}
+        </p>
+      )}
+      <h1 class="font-header whitespace-nowrap leading-[0.95] text-base-content text-4xl sm:text-5xl lg:text-6xl xl:text-7xl">{profile.name}</h1>
+      <p class="font-header-5 roboto-thin text-base-content/80 mt-1">{profile.headline}</p>
+      <p class="font-base text-lg lg:text-xl text-base-content/70 mt-5 max-w-xl mx-auto lg:mx-0">{profile.tagline}</p>
+
+      <div class="flex flex-wrap gap-3 justify-center lg:justify-start mt-8">
+        <a href="#section-contact" class="btn btn-primary font-base">Let's talk</a>
+        <a href="#section-featured" class="btn btn-outline font-base">See my work</a>
+      </div>
+
+      <div class="flex flex-wrap gap-x-5 gap-y-2 justify-center lg:justify-start mt-6 text-sm">
+        {profile.links.github && <a href={profile.links.github} target="_blank" rel="noopener" class="font-base text-base-content/60 hover:text-primary">GitHub ↗</a>}
+        {profile.links.linkedin && <a href={profile.links.linkedin} target="_blank" rel="noopener" class="font-base text-base-content/60 hover:text-primary">LinkedIn ↗</a>}
+        {cv && <a href={cv} target="_blank" rel="noopener" class="font-base text-base-content/60 hover:text-primary">Download CV ↓</a>}
+        {profile.links.email && <a href={`mailto:${profile.links.email}`} class="font-base text-base-content/60 hover:text-primary">{profile.links.email}</a>}
+      </div>
+    </div>
+
+    <div class="w-full lg:w-2/5">
+      <CodeAnimation class="animate-slide-in" />
+    </div>
+  </div>
+</section>

@@ -1,4 +1,4 @@
-import { MockupCode, SlideDownButton } from './modules/components.js'
+import { MockupCode } from './modules/components.js'
 
 const animations = [
   {
@@ -137,7 +137,7 @@ const paymentsApiAnimation = {
   code: [
     'import httpx',
     '',
-    'async with httpx.AsyncClient() as client: "',
+    'async with httpx.AsyncClient() as client:',
     '  response = await client.post(',
     '    f"{BASE_URL}/auth/token",',
     '    data={"username": USERNAME, "password": PASSWORD},',
@@ -184,61 +184,25 @@ function nextAnimation() {
   typeCode({animation: animations[currentAnimation], id: 'codeContainer'});
 }
 
-const mockAigentsCodeId = "mock-aigents-code";
-const mockpaymentsApiCodeId = "mock-payments-api-code";
-
-const aigentsSectionObserver = new IntersectionObserver(
-  (entries) => {
-    if (entries[0].isIntersecting) {
-      console.debug('aigents section is visible');
-      typeCode({animation: aigentsAnimation, id: mockAigentsCodeId});
-    }
-});
-
-const paymentsApiSectionObserver = new IntersectionObserver(
-  (entries) => {
-    if (entries[0].isIntersecting) {
-      console.debug('aigents section is visible');
-      typeCode({animation: paymentsApiAnimation, id: mockpaymentsApiCodeId});
-    }
-});
+// Reveal-on-scroll for content blocks (progressive enhancement).
+function setupReveals() {
+  const blocks = document.querySelectorAll('#home-content > section, .subsection');
+  if (!('IntersectionObserver' in window) || !blocks.length) return;
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  blocks.forEach((b) => { b.classList.add('reveal'); observer.observe(b); });
+}
 
 window.addEventListener('load', () => {
-
-  typeCode({animation: animations[currentAnimation], id: 'codeContainer'});
-  aigentsSectionObserver.observe(document.getElementById(mockAigentsCodeId));
-  paymentsApiSectionObserver.observe(document.getElementById(mockpaymentsApiCodeId));
-
-  new SlideDownButton({
-    tagOrElement: document.getElementById('arrow-section-about'),
-    targetId: 'section-about'
-  })
-  new SlideDownButton({
-    tagOrElement: document.getElementById('arrow-section-cards'),
-    targetId: 'section-cards'
-  });
-  new SlideDownButton({
-    tagOrElement: document.getElementById('arrow-section-sample-chat'),
-    targetId: 'section-sample-chat'
-  });
-  new SlideDownButton({
-    tagOrElement: document.getElementById('arrow-section-aigents'),
-    targetId: 'section-aigents'
-  });
-  new SlideDownButton({
-    tagOrElement: document.getElementById('arrow-section-datasets'),
-    targetId: 'section-datasets'
-  });
-  new SlideDownButton({
-    tagOrElement: document.getElementById('arrow-section-contact'),
-    targetId: 'section-contact'
-  });
-  new SlideDownButton({
-    tagOrElement: document.getElementById('arrow-payments-api'),
-    targetId: 'payments-api'
-  });
+  const codeContainer = document.getElementById('codeContainer');
+  if (codeContainer) {
+    typeCode({ animation: animations[currentAnimation], id: 'codeContainer' });
+  }
+  setupReveals();
 });
-
-
-
-// await typeCode(animations[currentAnimation]);

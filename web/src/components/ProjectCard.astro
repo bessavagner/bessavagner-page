@@ -1,0 +1,27 @@
+---
+import { type Project } from '../lib/portfolio';
+const { project: p } = Astro.props as { project: Project };
+const href = p.links.live || p.links.repo || '#';
+const external = Boolean(p.links.live || p.links.repo);
+const cta = p.links.live ? 'Visit →' : (p.links.repo ? 'View code →' : '');
+const tags = p.stack.slice(0, 4);
+const extra = p.stack.length - tags.length;
+---
+<a
+  class="group relative flex flex-col h-full p-6 rounded-xl border border-base-content/10 bg-base-200/60 hover:border-primary/50 hover:-translate-y-1 transition shadow-lg shadow-neutral/10"
+  href={href}
+  {...external ? { target: '_blank', rel: 'noopener' } : {}}
+>
+  <div class="flex items-center justify-between">
+    <h4 class="font-header-5 text-2xl font-bold text-base-content">{p.name}</h4>
+    {p.year && <span class="ubuntu-mono-regular text-xs text-base-content/40">{p.year}</span>}
+  </div>
+  <p class="font-base text-sm text-base-content/70 mt-2 flex-1">{p.tagline}</p>
+  <ul class="flex flex-wrap gap-2 mt-4">
+    {tags.map((t) => (
+      <li class="badge badge-outline border-primary/40 text-base-content/80 font-base text-xs py-3">{t}</li>
+    ))}
+    {extra > 0 && <li class="badge badge-ghost font-base text-xs py-3">+{extra}</li>}
+  </ul>
+  {cta && <span class="mt-4 font-base text-sm text-primary group-hover:underline">{cta}</span>}
+</a>

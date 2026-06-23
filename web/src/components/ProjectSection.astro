@@ -1,0 +1,72 @@
+---
+import { asset, type Project } from '../lib/portfolio';
+const { project: p, index } = Astro.props as { project: Project; index: number };
+const reversed = index % 2 === 1;
+const img = asset(p.image);
+const initials = p.name.slice(0, 2).toUpperCase();
+---
+<article class="scroll-mt-24 py-12 lg:py-16 w-full">
+  <div class:list={["flex flex-col items-center gap-10 lg:gap-14 w-11/12 max-w-6xl mx-auto", reversed ? 'lg:flex-row-reverse' : 'lg:flex-row']}>
+    <!-- Visual -->
+    <div class="w-full lg:w-1/2 flex justify-center">
+      <div class="relative w-full max-w-[520px] rounded-2xl overflow-hidden border border-primary/20 shadow-2xl shadow-primary/20 bg-base-300">
+        <div class="flex items-center gap-1.5 px-4 py-2.5 bg-base-200 border-b border-base-content/10">
+          <span class="w-2.5 h-2.5 rounded-full bg-error/70"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-warning/70"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-success/70"></span>
+          {p.status && <span class="ml-auto badge badge-primary badge-sm font-base capitalize">{p.status}</span>}
+        </div>
+        {img ? (
+          <img src={img} alt={`${p.name} screenshot`} loading="lazy" class="block w-full h-auto" />
+        ) : (
+          <div class="relative aspect-[4/3] bg-gradient-to-br from-primary/15 via-base-200 to-base-300">
+            <div class="absolute inset-0 opacity-[0.07]" style="background-image:radial-gradient(currentColor 1px,transparent 1px);background-size:18px 18px;"></div>
+            <div class="relative flex flex-col h-full p-6">
+              <div class="flex-1 flex items-center justify-center">
+                <span class="roboto-condensed-800 text-7xl lg:text-8xl text-primary/70 leading-none">{initials}</span>
+              </div>
+              {p.metrics && p.metrics.length > 0 && (
+                <dl class="grid grid-cols-1 gap-1 mt-2">
+                  {p.metrics.map((m) => (
+                    <div class="flex items-baseline justify-between border-t border-base-content/10 pt-1">
+                      <dt class="text-xs text-base-content/60 font-base">{m.label}</dt>
+                      <dd class="text-xs ubuntu-mono-regular text-base-content/90 text-right ml-3">{m.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <!-- Text -->
+    <div class="w-full lg:w-1/2 text-left">
+      {p.role && <p class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent mb-2">{p.role}</p>}
+      <h3 class="font-header-5 font-bold leading-tight">{p.name}</h3>
+      <p class="font-base text-lg lg:text-xl text-base-content/80 mt-2">{p.tagline}</p>
+      <p class="font-base text-sm lg:text-base text-base-content/70 mt-4">{p.summary}</p>
+      {p.highlights && p.highlights.length > 0 && (
+        <ul class="mt-5 space-y-1.5">
+          {p.highlights.map((h) => (
+            <li class="flex gap-2 font-base text-sm text-base-content/80">
+              <span class="text-accent mt-0.5" aria-hidden="true">▹</span><span>{h}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <ul class="flex flex-wrap gap-2 mt-5">
+        {p.stack.map((t) => (
+          <li class="badge badge-outline border-primary/40 text-base-content/80 font-base text-xs py-3">{t}</li>
+        ))}
+      </ul>
+      <div class="flex flex-wrap gap-3 mt-6">
+        {p.links.live && <a href={p.links.live} target="_blank" rel="noopener" class="btn btn-primary btn-sm font-base">Live demo</a>}
+        {p.links.repo && <a href={p.links.repo} target="_blank" rel="noopener" class="btn btn-outline btn-sm font-base">View code</a>}
+        {p.links.case_study && <a href={p.links.case_study} target="_blank" rel="noopener" class="btn btn-ghost btn-sm font-base">Case study</a>}
+        {p.private && !p.links.repo && !p.links.live && <span class="badge badge-neutral font-base text-xs py-3">Private / under NDA</span>}
+      </div>
+    </div>
+  </div>
+</article>
