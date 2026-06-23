@@ -1,16 +1,17 @@
 ---
 import { formatDate } from '../../lib/blog';
-interface Props { pubDate: Date; minutes: number; tags: string[]; class?: string; }
-const { pubDate, minutes, tags, class: className = '' } = Astro.props;
+interface Props { pubDate: Date; minutes: number; tags: string[]; class?: string; maxTags?: number; }
+const { pubDate, minutes, tags, class: className = '', maxTags = 2 } = Astro.props;
+const shown = tags.slice(0, maxTags);
 ---
-<div class:list={["flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-base-content/60", className]}>
-  <time datetime={pubDate.toISOString()} class="ubuntu-mono-regular">{formatDate(pubDate)}</time>
-  <span aria-hidden="true">·</span>
-  <span class="ubuntu-mono-regular">{minutes} min read</span>
-  {tags.length > 0 && (
-    <ul class="flex flex-wrap gap-2">
-      {tags.map((t) => (
-        <li><a href={`/blog/tags/${t}/`} class="badge badge-outline border-primary/40 font-base text-xs">#{t}</a></li>
+<div class:list={["flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-base-content/55", className]}>
+  <time datetime={pubDate.toISOString()} class="ubuntu-mono-regular uppercase tracking-wide">{formatDate(pubDate)}</time>
+  <span aria-hidden="true" class="text-base-content/30">·</span>
+  <span class="ubuntu-mono-regular">{minutes} min</span>
+  {shown.length > 0 && (
+    <ul class="flex flex-wrap gap-1.5">
+      {shown.map((t) => (
+        <li><a href={`/blog/tags/${t}/`} class="font-base text-base-content/55 hover:text-primary">#{t}</a></li>
       ))}
     </ul>
   )}
