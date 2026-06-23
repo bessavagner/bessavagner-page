@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @plugin "daisyui";
+@plugin "@tailwindcss/typography";
 
 /* ---- Brand themes (ported from the legacy DaisyUI 4 config) ---- */
 @plugin "daisyui/theme" {
@@ -115,3 +116,24 @@ body { font-family: "Roboto", sans-serif; }
 .code-mockup .token.boolean,
 .code-mockup .token.tag { color: #d8a657; }
 .code-mockup .token.operator { color: #c0a48a; }
+
+/* ---- Long-form article (blog) prose, themed to daisyUI tokens ---- */
+.prose {
+  --tw-prose-body: var(--color-base-content);
+  --tw-prose-headings: var(--color-base-content);
+  --tw-prose-links: var(--color-primary);
+  --tw-prose-bold: var(--color-base-content);
+  --tw-prose-quotes: var(--color-base-content);
+  --tw-prose-quote-borders: var(--color-primary);
+  --tw-prose-code: var(--color-base-content);
+  --tw-prose-bullets: var(--color-accent);
+  --tw-prose-counters: var(--color-accent);
+  --tw-prose-hr: color-mix(in oklab, var(--color-base-content) 15%, transparent);
+  --tw-prose-th-borders: color-mix(in oklab, var(--color-base-content) 20%, transparent);
+  --tw-prose-td-borders: color-mix(in oklab, var(--color-base-content) 12%, transparent);
+}
+.prose :where(h1, h2, h3) { font-family: "Roboto", sans-serif; font-weight: 700; }
+.prose :where(code):not(:where(pre code)) {
+  background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+  padding: 0.15em 0.4em; border-radius: 0.35rem; font-weight: 400;
+}
