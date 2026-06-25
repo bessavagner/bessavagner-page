@@ -13,7 +13,7 @@ export interface Props {
 
 const {
   title = 'Vagner Bessa — Senior Developer & AI Engineer',
-  description = 'Senior full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for international freelance projects and roles.',
+  description = 'Senior full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for remote roles and freelance work with US and European teams.',
   ogImage = '/images/og-default.png',
   ogType = 'website',
 } = Astro.props;
@@ -86,17 +86,11 @@ const fontHref =
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin />
-    {/* Load fonts without blocking render (display=swap shows fallback first). */}
-    <link rel="preload" as="style" href={fontHref} />
+    {/* Load fonts off the critical path: preload as style, then promote to a
+        stylesheet on load so first paint never waits on the font CSS round-trip
+        (display=swap shows the fallback first, keeping CLS at 0). */}
+    <link rel="preload" as="style" href={fontHref} onload="this.onload=null;this.rel='stylesheet'" />
     <noscript><link rel="stylesheet" href={fontHref} /></noscript>
-    <script is:inline define:vars={{ fontHref }}>
-      (function () {
-        var l = document.createElement('link');
-        l.rel = 'stylesheet';
-        l.href = fontHref;
-        document.head.appendChild(l);
-      })();
-    </script>
 
     <script is:inline type="application/ld+json" set:html={JSON.stringify({
       '@context': 'https://schema.org',
@@ -108,13 +102,21 @@ const fontHref =
           url: `${siteUrl}/`,
           image: `${siteUrl}/images/avatar.png`,
           jobTitle: 'Senior Developer & AI Engineer',
-          description: 'Senior full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for international freelance projects and roles.',
+          description: 'Senior full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Works remotely with US and European teams across overlapping business hours.',
           email: 'bessavagner.dev@gmail.com',
           address: { '@type': 'PostalAddress', addressLocality: 'Crateús', addressRegion: 'CE', addressCountry: 'BR' },
           alumniOf: { '@type': 'CollegeOrUniversity', name: 'Instituto Federal de Educação, Ciência e Tecnologia do Ceará', alternateName: 'IFCE', url: 'https://ifce.edu.br' },
           knowsLanguage: ['pt-BR', 'en', 'es'],
-          knowsAbout: ['Python', 'TypeScript', 'Artificial Intelligence', 'LLM agents', 'Web development', 'Machine learning'],
+          knowsAbout: ['Python', 'TypeScript', 'Artificial Intelligence', 'LLM agents', 'RAG (Retrieval-Augmented Generation)', 'FastAPI', 'Django', 'React', 'Full-stack web development', 'Machine learning', 'Google Cloud', 'Software engineering'],
           sameAs: ['https://github.com/bessavagner', 'https://www.linkedin.com/in/bessavagner/'],
+          workLocation: { '@type': 'VirtualLocation', name: 'Remote — US & Europe' },
+          contactPoint: {
+            '@type': 'ContactPoint',
+            contactType: 'Hiring & project inquiries',
+            email: 'bessavagner.dev@gmail.com',
+            availableLanguage: ['en', 'pt', 'es'],
+            areaServed: ['US', 'Europe'],
+          },
         },
         {
           '@type': 'WebSite',
