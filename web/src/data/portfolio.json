@@ -103,49 +103,47 @@
     },
     {
       "id": "finrepai-bitgov",
-      "name": "FinRePAI · BitGov",
-      "tagline": "AI credit-risk evaluation for public-sector suppliers",
-      "summary": "An AI platform that evaluates the financial risk of Brazilian public-sector suppliers. Continuation of FINAI-BitGov, developed at IFCE's Innovation Hub in partnership with Bitgov — multi-agent data extraction, supplier rating and explainable analytics.",
-      "body": "FinRePAI · BitGov is an AI platform that assesses the financial risk of public-sector suppliers in Brazil, developed at IFCE's Innovation Hub with EMBRAPII support in partnership with Bitgov. Continuing the earlier FINAI-BitGov work, it combines classical machine learning with a multi-agent LLM system. Adaptive agents extract data from public transparency portals — 200+ sources today, with an architecture designed to scale toward all 5,500 Brazilian municipalities. On top of that data sit several purpose-built modules: SiRaC, a four-dimension supplier rating system using exponential smoothing and survival models; MoBaVE, for backtesting and empirical validation; and RExAn, which generates explainable analytical reports via LLMs. The platform uses fuzzy matching to link payments to contracts and ML to predict manager evaluations, giving administrators an auditable, explainable view of supplier risk on a Python 3.12, Django and XGBoost stack.",
-      "problem": "Public bodies must evaluate supplier financial risk across thousands of municipalities, but the data is scattered across transparency portals and the reasoning has to be explainable and auditable.",
-      "approach": "Adaptive multi-agent extraction feeding ML and survival models — SiRaC (rating), MoBaVE (validation) and RExAn (LLM-generated explainable reports) — built on Python 3.12, Django and XGBoost.",
-      "outcome": "An active platform extracting from 200+ public sources and architected to scale to 5,500 municipalities, developed under IFCE Innovation Hub · EMBRAPII · Bitgov.",
+      "name": "Public-Sector AI R&D · IFCE Innovation Hub",
+      "tagline": "Applied ML & LLM research on public-sector financial data",
+      "summary": "An applied AI/ML research-and-development engagement at IFCE's Innovation Hub, supported by EMBRAPII, building machine-learning and LLM-based tooling for public-sector financial data. Project specifics are covered by a confidentiality agreement and are not disclosed here.",
+      "body": "A research-and-development engagement at the IFCE Innovation Hub, with EMBRAPII support, applying machine learning and large-language-model techniques to the analysis of public-sector financial data. My contribution spanned data engineering, ML modeling and LLM-based analytical tooling on a Python/Django stack. The project's methods, components and results are protected by a confidentiality agreement, so this entry describes only the nature of the work and its institutional context — not its internals.",
+      "problem": "Public-sector financial data is fragmented and hard to analyze at scale, and any automated assessment has to stay explainable and auditable.",
+      "approach": "Applied machine learning and LLM techniques on a Python/Django stack, within an EMBRAPII-supported innovation project. Specific methods and components are under a confidentiality agreement.",
+      "outcome": "Delivered as part of an EMBRAPII-supported R&D project at IFCE's Innovation Hub. Further detail is withheld under confidentiality.",
       "kind": "gov-tech-ml",
       "role": "Lead developer / ML & AI engineer",
       "featured": true,
       "order": 2,
       "year": 2026,
       "status": "active",
-      "private": false,
+      "private": true,
       "stack": [
-        "Python 3.12",
+        "Python",
         "Django",
-        "XGBoost / ML",
-        "Multi-agent LLM system",
-        "Survival models",
+        "Machine learning",
+        "LLM-based tooling",
         "RESTful APIs",
         "uv"
       ],
       "highlights": [
-        "Adaptive multi-agent extraction from public transparency portals (200+ sources, scalable to 5,500 municipalities)",
-        "SiRaC — supplier rating system (4 dimensions, exponential smoothing, survival models)",
-        "MoBaVE — backtesting and empirical validation module",
-        "RExAn — explainable analytical reports generated via LLMs",
-        "Fuzzy matching to link payments to contracts; ML prediction of manager evaluations"
+        "Applied machine learning and LLM techniques to public-sector financial data",
+        "Data engineering and analytical tooling on a Python / Django stack",
+        "Conducted within IFCE's EMBRAPII-supported Innovation Hub",
+        "Methods, components and results withheld under a confidentiality agreement"
       ],
       "metrics": [
         {
           "label": "Institutional context",
-          "value": "IFCE Innovation Hub · EMBRAPII · Bitgov"
+          "value": "IFCE Innovation Hub · EMBRAPII"
         },
         {
-          "label": "Core package stars",
-          "value": "★3 (bitgovprocessor)"
+          "label": "Confidentiality",
+          "value": "Project under NDA"
         }
       ],
       "links": {
-        "repo": "https://github.com/bessavagner/bitgovprocessor",
-        "repo_app": "https://github.com/bessavagner/finai-bitgov",
+        "repo": "",
+        "repo_app": "",
         "live": "",
         "case_study": ""
       },
