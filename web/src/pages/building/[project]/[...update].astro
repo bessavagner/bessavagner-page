@@ -6,6 +6,7 @@ import UpdateMeta from '../../../components/building/UpdateMeta.astro';
 import TableOfContents from '../../../components/blog/TableOfContents.astro';
 import { readingTime } from '../../../lib/blog';
 import { isVisible, splitUpdateId, getBuildProject } from '../../../lib/buildlog';
+import SubscribeForm from '../../../components/SubscribeForm.astro';
 
 export async function getStaticPaths() {
   const updates = await getCollection('buildlog', isVisible);
@@ -80,5 +81,6 @@ const breadcrumb = {
       <a href={`/building/${projectSlug}/`} class="btn btn-ghost btn-sm font-base">← All updates</a>
       <a href="/#section-contact" class="btn btn-primary btn-sm font-base">Work with me →</a>
     </div>
+    <SubscribeForm class="mt-10" />
   </article>
 </Base>

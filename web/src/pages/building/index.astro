@@ -2,6 +2,7 @@
 import Base from '../../layouts/Base.astro';
 import BuildProjectCard from '../../components/building/BuildProjectCard.astro';
 import ShippedCard from '../../components/building/ShippedCard.astro';
+import SubscribeForm from '../../components/SubscribeForm.astro';
 import { getIndexData } from '../../lib/buildlog';
 
 const { active, shipped } = await getIndexData();
@@ -43,5 +44,6 @@ const pageSchema = {
         )}
       </div>
     )}
+    <SubscribeForm class="mt-16" heading="Follow the build" />
   </section>
 </Base>

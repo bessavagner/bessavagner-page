@@ -5,6 +5,7 @@ import Base from '../../layouts/Base.astro';
 import PostMeta from '../../components/blog/PostMeta.astro';
 import TableOfContents from '../../components/blog/TableOfContents.astro';
 import { readingTime, isPublic } from '../../lib/blog';
+import SubscribeForm from '../../components/SubscribeForm.astro';
 
 export async function getStaticPaths() {
   const posts = await getCollection('blog', isPublic);
@@ -63,5 +64,6 @@ const breadcrumb = {
     <div class="mt-12 pt-8 border-t border-base-content/10">
       <a href="/#section-contact" class="btn btn-primary btn-sm font-base">Work with me →</a>
     </div>
+    <SubscribeForm class="mt-10" />
   </article>
 </Base>
