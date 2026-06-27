@@ -8,9 +8,9 @@ tags: ["django", "tdd", "httpx", "lxml", "clean-room", "building-in-public", "go
 draft: false
 ---
 
-In [update #1](/building/regwatch/01-starting-regwatch-clean-room-core/) I chose where RegWatch's data comes from — **INlabs**, the government's own service that hands you each day's Diário Oficial da União as a ZIP of per-article XML — and proved the whole path by hand: login, list a date, download, parse. I ended that post promising the next slice would be the real ingestor, turning that validated path into a tested `fetch_editions(date)`. It's now built, reviewed, and merged. This is that slice.
+In [update #1](/building/regwatch/01-starting-regwatch-clean-room-core/) I chose where RegWatch's data comes from: **INlabs**, the government's own service that hands you each day's Diário Oficial da União as a ZIP of per-article XML — and proved the whole path by hand: login, list a date, download, parse. The next slice would be the real ingestor, turning that validated path into a tested `fetch_editions(date)`. I just did it.
 
-## The whole job is one function
+## One function to rule them all
 
 The ingestor's entire public surface is a single function:
 
@@ -18,7 +18,7 @@ The ingestor's entire public surface is a single function:
 def fetch_editions(date: datetime.date, *, client=None) -> list[RawEdition]:
 ```
 
-That's the seam, and the seam is the story. Back in #1 I built and tested the matcher and enricher against a frozen contract before any network code existed:
+Back in #1 I built and tested the matcher and enricher against a frozen contract before any network code existed:
 
 ```python
 @dataclass(frozen=True)
@@ -37,9 +37,9 @@ class RawEdition:
     items: tuple[RawItem, ...]
 ```
 
-`fetch_editions` sits *below* that pipeline and produces exactly this shape. Everything above it — matching, enrichment, digests — was already done and green, with the network deferred behind the contract. The ingestor just had to fill the boundary in. Picking that seam early is what let the core ship first.
+`fetch_editions` goes under that pipeline and produces exactly this shape. Everything above it (matching, enrichment, digests) was already done, with the network deferred behind the contract. The ingestor's job was just to fill the boundary in — and doing it this way is what let me ship the core first.
 
-## Three modules, one job each
+## Three were given to the `gazette/inlabs` module
 
 I split the work along the obvious fault lines and kept each piece ignorant of the others:
 
@@ -73,9 +73,9 @@ def fetch_editions(date, *, client=None) -> list[RawEdition]:
             client.close()
 ```
 
-## The parser, where the traps live
+## Deep in the data, he poured his cruelty, his malice and his will to dominate
 
-In #1 I measured field presence across three editions and 1,297 real articles and found that several "obvious" fields are traps: `Titulo` is dead (0% populated), `Ementa` is unreliable (0% in the Seção 2 personnel section), and `idMateria` looks like a key but isn't unique. I said those numbers mattered. Here's where they cash out.
+Here I want to show how important it is to inspect the data in detail before writing any scraper: by measuring field presence across three editions and 1,297 real articles, I found that several "obvious" fields are traps: `Titulo` is dead (0% populated), `Ementa` is unreliable (0% in the Seção 2 personnel section), and `idMateria` looks like a key but isn't unique.
 
 The title comes from `Identifica`, but ~7% of Seção 1 articles and over half of some extra editions ship without one — so there's a fallback to `"{artType} {id}"`:
 
@@ -98,15 +98,21 @@ def _plain_text(texto_html: str) -> str:
     return _collapse(" ".join(pieces))
 ```
 
-The rest is a near-mechanical mapping: `identifier` ← `@id` (the stable key, not `idMateria`), `agency` ← `@artCategory` (already a clean `Ministério/.../Órgão` string, no parsing needed), `source_anchor` ← `@pdfPage`, and the edition's `date`/`section` from `@pubDate`/`@pubName`. The `pdfPage` URLs arrive with `&amp;` entities; I get the un-escaping for free because they're parsed as XML attributes, not handled as strings. The dead and unreliable fields I simply never read.
+The rest is a near-mechanical mapping: `identifier` ← `@id` (the stable key, not `idMateria`), `agency` ← `@artCategory` (already a clean `Ministério/.../Órgão` string, no parsing needed), `source_anchor` ← `@pdfPage`, and the edition's `date`/`section` from `@pubDate`/`@pubName`. The `pdfPage` URLs arrive with `&amp;` entities; I get the un-escaping for free because they're parsed as XML attributes, not handled as strings.
 
-## TDD-ing a scraper with no network
+The dead and unreliable fields I simply never read.
 
-The discipline from #1 holds: no production code without a failing test first. The catch is that the thing I'm building is a network client, and I refuse to hit a live government endpoint in a unit test. Two techniques solve it.
+## Testing became legend, legend became design
 
-The parser is pure, so it's tested directly against the real XML fixtures the spike captured — including the awkward retificação with an empty `Identifica` and self-closed `Ementa`.
+The discipline from [#1](/building/regwatch/01-starting-regwatch-clean-room-core/) holds now and should hold till the end of this project: no production code without a failing test first — a.k.a. *Test-Driven Development* (TDD).
 
-The HTTP client is tested with httpx's `MockTransport`: a fake transport you hand a request→response function. The client's *real* login, cookie, 404, and re-login logic runs; only the wire is faked. No recorded cassettes, no network, no flakiness. Here's the test that the client re-authenticates exactly once when the session cookie expires mid-download:
+The catch is that the thing I'm building is a network client. So how do you test it over and over without hitting a live government endpoint on every unit test? In other words: how do you TDD a scraper?
+
+Two techniques solve it:
+
+* The parser is pure, so it's tested directly against the real XML fixtures the spike captured — including the awkward retificação with an empty `Identifica` and self-closed `Ementa`.
+
+* The HTTP client is tested with httpx's `MockTransport`: a fake transport you hand a request→response function. The client's *real* login, cookie, 404, and re-login logic runs; only the wire is faked. No recorded cassettes, no network, no flakiness. Here's the test that the client re-authenticates exactly once when the session cookie expires mid-download:
 
 ```python
 def handler(request: httpx.Request) -> httpx.Response:
@@ -119,9 +125,9 @@ def handler(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, content=b"PK\x03\x04ok")
 ```
 
-That's my answer to "how do you TDD a scraper": make the parser pure and fake the transport, not the server. Nineteen tests cover the three modules this way; the whole suite is **38 tests, green on Postgres**. There's also a small runnable notebook that drives login→download→parse end to end against the live service when I want to eyeball real output — but nothing in the test path touches the network.
+That's my answer to "how to TDD a scraper": make the parser pure and fake the transport, not the server. Nineteen tests cover the three modules this way; the whole suite is **38 tests, green on Postgres**. There's also a small runnable notebook that drives login→download→parse end to end against the live service when I want to eyeball real output — but nothing in the test path touches the network.
 
-## Operational reality
+## The data came to me, my own, my love, my own, my precious!
 
 The spike's operational notes are now code. `download_section` is where the gazette's quirks live:
 
@@ -138,7 +144,7 @@ def download_section(self, date, section) -> bytes | None:
     return body if body.startswith(b"PK") else None
 ```
 
-A `404` *or* a body that doesn't start with the `PK` ZIP magic both mean "this section wasn't published today" — return `None`, and the orchestrator skips it. Each day has up to six sections: `DO1`–`DO3` plus the extras `DO1E`–`DO3E`. And `fetch.py` exposes a `content_hash`:
+A `404` *or* a body that doesn't start with the `PK` ZIP magic both mean "this section wasn't published today" (return `None`), and the orchestrator skips it. Each day has up to six sections: `DO1`–`DO3` plus the extras `DO1E`–`DO3E`. And `fetch.py` exposes a `content_hash`:
 
 ```python
 def content_hash(data: bytes) -> str:
@@ -147,11 +153,13 @@ def content_hash(data: bytes) -> str:
 
 It's unused for now, but it's there on purpose. INlabs stamps a fresh `Last-Modified` on every ZIP roughly every 30 minutes whether the content changed or not, so timestamps are useless for "did this actually change." The scheduler will hash bytes instead.
 
-## The thing I deliberately didn't build
+## But something happened that the developer did intend
 
-A build log is only worth reading if it's honest about the corners cut, so: **`fetch_editions` is currently all-or-nothing.** One malformed article, or one non-404 HTTP error on any section, aborts the entire day's run for *every* section — there's no per-section `try/except` in that loop. The final review flagged exactly this, and I left it in on purpose.
+For now, **`fetch_editions` is all-or-nothing.** One malformed article, or one non-404 HTTP error on any section, aborts the entire day's run for *every* section. I've already written about how much resilience matters for web scrapers in [*Scraping a fragile legacy site into a clean time series*](/blog/scraping-a-fragile-legacy-site/).
 
-The reasoning: the fields I actually depend on are present in 100% of the 1,297 articles I measured, so a parse failure is unlikely; the spike notes XML completeness isn't *guaranteed*, but it's been reliable. And the pipeline is idempotent by construction (those unique constraints from #1), so a failed run is safe to simply re-run once fixed — fail-fast trades a one-article gap for a one-day gap, and the day is recoverable. Per-section isolation and skip-and-count for bad members are real improvements, but they belong with the scheduler, where observability and retry policy live. So I wrote it down as a tracked deferral rather than quietly shipping a half-measure.
+And there's no per-section `try/except` in that loop — I left it that way on purpose, though.
+
+The reasoning: the fields I actually depend on are present in 100% of the 1,297 articles I measured, so a parse failure is unlikely; the spike notes XML completeness isn't *guaranteed*, but it's been reliable. And the pipeline is idempotent by construction (those unique constraints from [#1](/building/regwatch/01-starting-regwatch-clean-room-core/)), so a failed run is safe to simply re-run once fixed — fail-fast trades a one-article gap for a one-day gap, and the day is recoverable. Per-section isolation and skip-and-count for bad members are real improvements, but they belong with the scheduler, where observability and retry policy live. So I wrote it down as a tracked deferral rather than quietly shipping a half-measure.
 
 ## What I learned
 
@@ -160,5 +168,3 @@ A frozen-dataclass contract is what makes "test the core before the network exis
 ## What's next
 
 The **scheduler**: a management command wiring `fetch_editions → run_pipeline` on a daily cadence, headed for Cloud Run + Cloud Scheduler. That's also where the all-or-nothing resilience gets fixed for real and where `content_hash` finally gets persisted to skip unchanged ZIPs.
-
-One open thread stays open: the DOU **license question**. The INlabs portal shows CC BY-ND (NoDerivatives) in one place while the same content is public under Brazil's access-to-information law and open-data policy — and "NoDerivatives" could bear on summarizing acts for a paid product. That's the gate before any of this goes public or commercial, and I'd rather resolve it in writing than assume. If you've navigated a similar open-data-vs-license tension on a public registry, I'd genuinely like to hear how it landed.
