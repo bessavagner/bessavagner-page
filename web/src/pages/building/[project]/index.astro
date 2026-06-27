@@ -1,0 +1,68 @@
+---
+import Base from '../../../layouts/Base.astro';
+import UpdateCard from '../../../components/building/UpdateCard.astro';
+import { getHubProjects, getVisibleUpdates } from '../../../lib/buildlog';
+
+export async function getStaticPaths() {
+  const projects = await getHubProjects();
+  return Promise.all(
+    projects.map(async (project) => ({
+      params: { project: project.slug },
+      props: { project, updates: await getVisibleUpdates(project.slug) },
+    })),
+  );
+}
+
+const { project, updates } = Astro.props;
+const siteHref = (Astro.site?.href ?? 'https://bessavagner.com/').replace(/\/$/, '');
+const personId = `${siteHref}/#vagner-bessa`;
+const hubUrl = `${siteHref}/building/${project.slug}/`;
+
+const blogSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Blog',
+  '@id': `${hubUrl}#buildlog`,
+  name: `${project.title} — Build log`,
+  description: project.blurb,
+  url: hubUrl,
+  author: { '@id': personId },
+  inLanguage: 'en',
+};
+const breadcrumb = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'Building', item: `${siteHref}/building/` },
+    { '@type': 'ListItem', position: 2, name: project.title, item: hubUrl },
+  ],
+};
+const isShipped = project.status === 'shipped';
+---
+<Base title={`${project.title} — Building Publicly — Vagner Bessa`} description={project.blurb} ogType="article" rssHref="/building/rss.xml" rssTitle="Vagner Bessa — Building Publicly">
+  <script is:inline type="application/ld+json" set:html={JSON.stringify(blogSchema)} />
+  <script is:inline type="application/ld+json" set:html={JSON.stringify(breadcrumb)} />
+  <section class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
+    <a href="/building/" class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← Building</a>
+    <header class="mt-6">
+      <div class="flex items-center gap-2">
+        <span class:list={["badge badge-sm font-base", isShipped ? "badge-success" : "badge-primary"]}>{isShipped ? 'Shipped' : 'Building'}</span>
+        <span class="ubuntu-mono-regular text-xs text-base-content/55">{updates.length} update{updates.length === 1 ? '' : 's'}</span>
+      </div>
+      <h1 class="font-header-4 font-bold leading-tight mt-3">{project.title}</h1>
+      <p class="font-base text-lg text-base-content/80 mt-2">{project.tagline}</p>
+      <p class="font-base text-base text-base-content/70 mt-3 leading-relaxed">{project.blurb}</p>
+      <ul class="flex flex-wrap gap-2 mt-4">
+        {project.stack.map((t) => (
+          <li class="badge badge-outline border-primary/40 text-base-content/80 font-base text-xs py-3">{t}</li>
+        ))}
+      </ul>
+      <div class="flex flex-wrap gap-3 mt-5">
+        {project.repo && <a href={project.repo} target="_blank" rel="noopener" class="btn btn-outline btn-sm font-base">Repository</a>}
+        {isShipped && <a href={`/projects/${project.slug}/`} class="btn btn-primary btn-sm font-base">Case study →</a>}
+      </div>
+    </header>
+    <div class="mt-10 divide-y divide-base-content/10 border-t border-base-content/10">
+      {updates.map((update) => <UpdateCard update={update} />)}
+    </div>
+  </section>
+</Base>
