@@ -91,6 +91,9 @@ const cv = asset(profile.links.cv);
     const setGrid = () => {
       P.NX = innerWidth < 640 ? 140 : 200;
       P.NZ = innerWidth < 640 ? 130 : 180;
+      // Desktop (wide two-column hero) drops the band ~half a viewport lower so
+      // it doesn't crowd the heading. Mobile placement is left untouched.
+      P.horizonFrac = innerWidth >= 1024 ? 0.30 : 0.1;
     };
     const resize = () => {
       DPR = Math.min(devicePixelRatio || 1, 2);
