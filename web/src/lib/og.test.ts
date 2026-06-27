@@ -16,6 +16,18 @@ test('loadFonts returns 5 non-empty font entries', () => {
   assert.ok(names.has('JetBrains Mono:400'));
 });
 
+import { buildOgMarkup } from './og.ts';
+
+test('buildOgMarkup tags building cards with a BUILDING IN PUBLIC eyebrow', () => {
+  const markup = buildOgMarkup({ title: 't', description: 'd', tags: [], minutes: 3, kind: 'building' });
+  assert.ok(JSON.stringify(markup).includes('BUILDING IN PUBLIC'));
+});
+
+test('buildOgMarkup leaves blog cards without the building eyebrow', () => {
+  const markup = buildOgMarkup({ title: 't', description: 'd', tags: [], minutes: 3 });
+  assert.ok(!JSON.stringify(markup).includes('BUILDING IN PUBLIC'));
+});
+
 import { renderOgPng } from './og.ts';
 
 test('renderOgPng returns a 1200x630 PNG', async () => {

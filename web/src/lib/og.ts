@@ -41,6 +41,7 @@ export interface OgProps {
   description: string;
   tags: string[];
   minutes: number;
+  kind?: 'blog' | 'building';
 }
 
 const ACCENT = '#787de0';
@@ -99,8 +100,14 @@ export function buildOgMarkup(props: OgProps): object {
         ),
         div({ display: 'flex' }, chips),
       ]),
-      // middle: title + description
+      // middle: optional building eyebrow + title + description
       div({ display: 'flex', flexDirection: 'column' }, [
+        ...(props.kind === 'building'
+          ? [div(
+              { display: 'flex', fontFamily: 'Space Grotesk', fontWeight: 600, fontSize: 22, letterSpacing: 3, color: ACCENT, marginBottom: 16 },
+              'BUILDING IN PUBLIC',
+            )]
+          : []),
         div(
           { display: 'flex', fontFamily: 'Space Grotesk', fontWeight: 700, fontSize: 60, lineHeight: 1.1, color: '#ffffff' },
           title,

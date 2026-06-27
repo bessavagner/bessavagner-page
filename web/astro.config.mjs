@@ -95,7 +95,7 @@ export default defineConfig({
   integrations: [
     mdx(),
     sitemap({
-      filter: (page) => !page.includes('/blog/og/'),
+      filter: (page) => !page.includes('/blog/og/') && !page.includes('/building/og/'),
       serialize(item) {
         const { pathname } = new URL(item.url);
         const lastmod = LASTMOD.get(pathname);
