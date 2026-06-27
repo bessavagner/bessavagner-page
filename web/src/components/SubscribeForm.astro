@@ -28,7 +28,7 @@ const action = handle ? `https://buttondown.com/api/emails/embed-subscribe/${han
       <input type="hidden" name="embed" value="1" />
       <button type="submit" class="btn btn-primary font-base">Subscribe</button>
     </form>
-    <p data-bd-status class="font-base text-sm text-success mt-3 hidden">
+    <p data-bd-status aria-live="polite" class="font-base text-sm text-success mt-3 hidden">
       Almost there — check your inbox to confirm.
     </p>
   </section>

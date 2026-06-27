@@ -86,10 +86,15 @@ function readItems(): DigestItem[] {
 }
 
 async function alreadySent(subject: string, key: string): Promise<boolean> {
-  const res = await fetch(`${API}/emails`, { headers: { Authorization: `Token ${key}` } });
-  if (!res.ok) throw new Error(`list emails failed: ${res.status} ${await res.text()}`);
-  const data = (await res.json()) as { results?: { subject?: string }[] };
-  return (data.results ?? []).some((e) => e.subject === subject);
+  let url: string | null = `${API}/emails`;
+  while (url) {
+    const res = await fetch(url, { headers: { Authorization: `Token ${key}` } });
+    if (!res.ok) throw new Error(`list emails failed: ${res.status} ${await res.text()}`);
+    const data = (await res.json()) as { results?: { subject?: string }[]; next?: string | null };
+    if ((data.results ?? []).some((e) => e.subject === subject)) return true;
+    url = data.next ?? null;
+  }
+  return false;
 }
 
 async function send(subject: string, body: string, key: string): Promise<void> {
