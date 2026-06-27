@@ -43,6 +43,7 @@ data/*
 users*
 target/
 video/
+.data/*
 
 # Others
 z_*
