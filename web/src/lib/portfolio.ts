@@ -50,8 +50,14 @@ export function asset(path?: string): string {
   return '/' + path;
 }
 
+import bpData from '../data/buildProjects.json';
+import { buildProjectToProject, type BuildProject } from './buildlog-core';
+
 const profile = data.profile as Profile;
-const projects = [...(data.projects as Project[])].sort((a, b) => a.order - b.order);
+const graduated = (bpData.projects as BuildProject[])
+  .filter((p) => p.status === 'shipped' && p.work)
+  .map(buildProjectToProject);
+const projects = [...(data.projects as Project[]), ...graduated].sort((a, b) => a.order - b.order);
 
 export const portfolio = {
   profile,

@@ -32,6 +32,7 @@ const repos = [
   { href: p.links.repo, label: 'Repository' },
   { href: p.links.repo_app, label: 'App repository' },
   { href: p.links.repo_frontend, label: 'Frontend repository' },
+  { href: p.links.buildlog, label: 'Build log' },
 ].filter((r) => r.href);
 
 const siteHref = Astro.site?.href ?? 'https://bessavagner.com/';
