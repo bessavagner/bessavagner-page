@@ -1,0 +1,95 @@
+// web/src/lib/buildlog-core.ts
+// Pure, framework-free logic for the Building-Publicly section. No `astro:content`
+// or `import.meta` here, so this module is unit-testable under `node --test`.
+import type { Project, Metric } from './portfolio.ts';
+
+export interface BuildWork {
+  summary?: string;
+  body?: string;
+  problem?: string;
+  approach?: string;
+  outcome?: string;
+  highlights?: string[];
+  metrics?: Metric[];
+  year?: number;
+  kind?: string;
+  role?: string;
+  image?: string;
+  ogImage?: string;
+  links?: Partial<Project['links']>;
+  featured?: boolean;
+  order?: number;
+}
+
+export interface BuildProject {
+  slug: string;
+  title: string;
+  tagline: string;
+  blurb: string;
+  repo: string;
+  startDate: string;
+  status: 'active' | 'shipped';
+  stack: string[];
+  work?: BuildWork;
+}
+
+/** Minimal shape of a buildlog update this module reasons about. */
+export interface UpdateLike {
+  id: string;
+  data: { project: string; update: number; pubDate: Date; draft?: boolean };
+}
+
+/** Split a collection id ("regwatch/01-foo") into its project folder + update slug. */
+export function splitUpdateId(id: string): { project: string; slug: string } {
+  const i = id.indexOf('/');
+  if (i === -1) return { project: id, slug: id };
+  return { project: id.slice(0, i), slug: id.slice(i + 1) };
+}
+
+/** In dev everything is visible; in prod, only non-drafts whose pubDate has arrived. */
+export function isUpdateVisible(
+  data: { draft?: boolean; pubDate: Date },
+  ctx: { now: number; prod: boolean },
+): boolean {
+  if (!ctx.prod) return true;
+  if (data.draft === true) return false;
+  return data.pubDate.getTime() <= ctx.now;
+}
+
+/** Newest-first by pubDate. Returns a new array; input is not mutated. */
+export function sortUpdatesByDateDesc<T extends { data: { pubDate: Date } }>(updates: T[]): T[] {
+  return [...updates].sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime());
+}
+
+/** The single newest update, or undefined for an empty list. */
+export function latestUpdate<T extends { data: { pubDate: Date } }>(updates: T[]): T | undefined {
+  return sortUpdatesByDateDesc(updates)[0];
+}
+
+/** Map a shipped registry entry into a synthetic portfolio Project (graduation). */
+export function buildProjectToProject(bp: BuildProject): Project {
+  const w = bp.work ?? {};
+  return {
+    id: bp.slug,
+    name: bp.title,
+    tagline: bp.tagline,
+    summary: w.summary ?? bp.blurb,
+    body: w.body,
+    problem: w.problem,
+    approach: w.approach,
+    outcome: w.outcome,
+    kind: w.kind,
+    role: w.role,
+    featured: w.featured ?? false,
+    order: w.order ?? 999,
+    year: w.year,
+    status: 'shipped',
+    private: false,
+    stack: bp.stack,
+    highlights: w.highlights,
+    metrics: w.metrics,
+    links: { repo: bp.repo, buildlog: `/building/${bp.slug}/`, ...(w.links ?? {}) },
+    image: w.image,
+    ogImage: w.ogImage,
+  };
+}

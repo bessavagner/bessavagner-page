@@ -4,6 +4,7 @@ export interface Metric { label: string; value: string; }
 export interface ProjectLinks {
   repo?: string; live?: string; case_study?: string;
   repo_frontend?: string; repo_app?: string;
+  buildlog?: string;
 }
 export interface Project {
   id: string;

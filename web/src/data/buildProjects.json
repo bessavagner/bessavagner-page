@@ -1,0 +1,15 @@
+{
+  "$schema_note": "Registry of build-in-public projects. Single source of truth for status and Work-page graduation. status 'active' shows under Building; status 'shipped' + a `work` object also renders on the main Work page (merged by lib/portfolio.ts).",
+  "projects": [
+    {
+      "slug": "regwatch",
+      "title": "RegWatch",
+      "tagline": "Google Alerts for the Diário Oficial da União (DOU)",
+      "blurb": "A monitoring service that watches Brazil's federal gazette (the DOU) and alerts professional-services firms when their clients or topics are mentioned.",
+      "repo": "",
+      "startDate": "2026-06-20",
+      "status": "active",
+      "stack": ["Django", "PostgreSQL", "Postgres FTS", "LLM summarization"]
+    }
+  ]
+}
