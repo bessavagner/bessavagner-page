@@ -1,0 +1,84 @@
+---
+import { getCollection, render } from 'astro:content';
+import { Image } from 'astro:assets';
+import Base from '../../../layouts/Base.astro';
+import UpdateMeta from '../../../components/building/UpdateMeta.astro';
+import TableOfContents from '../../../components/blog/TableOfContents.astro';
+import { readingTime } from '../../../lib/blog';
+import { isVisible, splitUpdateId, getBuildProject } from '../../../lib/buildlog';
+
+export async function getStaticPaths() {
+  const updates = await getCollection('buildlog', isVisible);
+  return updates.map((u) => {
+    const { project, slug } = splitUpdateId(u.id);
+    return { params: { project, update: slug }, props: { update: u } };
+  });
+}
+
+const { update } = Astro.props;
+const { Content, headings } = await render(update);
+const { project: projectSlug } = splitUpdateId(update.id);
+const project = getBuildProject(projectSlug);
+const minutes = readingTime(update.body ?? '');
+const siteHref = (Astro.site?.href ?? 'https://bessavagner.com/').replace(/\/$/, '');
+const personId = `${siteHref}/#vagner-bessa`;
+const hubUrl = `${siteHref}/building/${projectSlug}/`;
+const ogImage = `/building/og/${update.id}.png`;
+const modified = update.data.updatedDate ?? update.data.pubDate;
+
+const blogPosting = {
+  '@context': 'https://schema.org',
+  '@type': 'BlogPosting',
+  '@id': `${Astro.url.href}#post`,
+  headline: update.data.title,
+  description: update.data.description,
+  datePublished: update.data.pubDate.toISOString(),
+  dateModified: modified.toISOString(),
+  author: { '@id': personId },
+  publisher: { '@id': personId },
+  inLanguage: 'en',
+  keywords: update.data.tags.join(', '),
+  image: new URL(ogImage, siteHref).href,
+  mainEntityOfPage: Astro.url.href,
+  isPartOf: { '@type': 'Blog', '@id': `${hubUrl}#buildlog` },
+};
+const breadcrumb = {
+  '@context': 'https://schema.org',
+  '@type': 'BreadcrumbList',
+  itemListElement: [
+    { '@type': 'ListItem', position: 1, name: 'Building', item: `${siteHref}/building/` },
+    { '@type': 'ListItem', position: 2, name: project?.title ?? projectSlug, item: hubUrl },
+    { '@type': 'ListItem', position: 3, name: update.data.title, item: Astro.url.href },
+  ],
+};
+---
+<Base title={`${update.data.title} — Vagner Bessa`} description={update.data.description} ogImage={ogImage} ogType="article" rssHref="/building/rss.xml" rssTitle="Vagner Bessa — Building Publicly">
+  <script is:inline type="application/ld+json" set:html={JSON.stringify(blogPosting)} />
+  <script is:inline type="application/ld+json" set:html={JSON.stringify(breadcrumb)} />
+
+  <article class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
+    <a href={`/building/${projectSlug}/`} class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← {project?.title ?? 'Build log'}</a>
+    <header class="mt-6">
+      <h1 class="font-header-4 font-bold leading-tight">{update.data.title}</h1>
+      <UpdateMeta pubDate={update.data.pubDate} minutes={minutes} update={update.data.update} class="mt-4" />
+      {update.data.tags.length > 0 && (
+        <ul class="flex flex-wrap gap-2 mt-3">
+          {update.data.tags.map((t) => (
+            <li class="badge badge-outline border-primary/40 font-base text-xs">#{t}</li>
+          ))}
+        </ul>
+      )}
+    </header>
+    {update.data.heroImage && (
+      <Image src={update.data.heroImage} alt={update.data.title} class="rounded-2xl border border-primary/20 mt-8 w-full h-auto" />
+    )}
+    {headings.length > 0 && <TableOfContents headings={headings} class="mt-8" />}
+    <div class="prose prose-lg max-w-none mt-8">
+      <Content />
+    </div>
+    <div class="mt-12 pt-8 border-t border-base-content/10 flex flex-wrap gap-3">
+      <a href={`/building/${projectSlug}/`} class="btn btn-ghost btn-sm font-base">← All updates</a>
+      <a href="/#section-contact" class="btn btn-primary btn-sm font-base">Work with me →</a>
+    </div>
+  </article>
+</Base>
