@@ -14,7 +14,7 @@ export async function getStaticPaths() {
 
 const { tag, posts } = Astro.props;
 ---
-<Base title={`Posts tagged “${tag}” — Vagner Bessa`} description={`Articles tagged ${tag} by Vagner Bessa.`}>
+<Base title={`Posts tagged “${tag}” — Vagner Bessa`} description={`Articles tagged ${tag} by Vagner Bessa.`} spotlightGrid>
   <section class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
     <a href="/blog/" class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← All posts</a>
     <h1 class="font-header-4 font-bold mt-6">Posts tagged <span class="text-primary">#{tag}</span></h1>

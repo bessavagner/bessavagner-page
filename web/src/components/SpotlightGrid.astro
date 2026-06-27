@@ -1,0 +1,66 @@
+---
+// Spotlight grid background: the grid lines are drawn ONLY by a cursor-following
+// radial light — nothing shows away from the pointer, and the lines fade to zero
+// far from it. Touch/coarse-pointer devices keep the light centered. Theme-aware
+// (uses the DaisyUI --color-primary / --color-accent vars). Opt-in via Base's
+// `spotlightGrid` prop (currently Building + Blog).
+---
+<div class="spotlight-grid" aria-hidden="true">
+  <div class="sg-lines"></div>
+  <div class="sg-glow"></div>
+</div>
+
+<style>
+  .spotlight-grid {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    --cell-x: 88px;     /* rectangular cells: wider than tall */
+    --cell-y: 60px;
+    --r: 55vmax;        /* how far the lit grid reaches (fades to 0 here) */
+    --glow-r: 300px;    /* colored light-source halo (kept tight) */
+    --x: 50%;
+    --y: 50%;
+  }
+  .sg-lines,
+  .sg-glow { position: absolute; inset: 0; }
+
+  /* The only grid layer: a full-viewport grid revealed through a radial mask
+     centered at the cursor. No constant base grid. */
+  .sg-lines {
+    background-image:
+      linear-gradient(to right, var(--color-primary) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--color-primary) 1px, transparent 1px);
+    background-size: var(--cell-x) var(--cell-y);
+    opacity: 0.2;
+    -webkit-mask: radial-gradient(circle var(--r) at var(--x) var(--y), #000 0%, rgba(0,0,0,0.7) 35%, rgba(0,0,0,0.25) 68%, transparent 100%);
+            mask: radial-gradient(circle var(--r) at var(--x) var(--y), #000 0%, rgba(0,0,0,0.7) 35%, rgba(0,0,0,0.25) 68%, transparent 100%);
+  }
+
+  /* Soft colored halo so the cursor reads as a light source. */
+  .sg-glow {
+    background: radial-gradient(circle var(--glow-r) at var(--x) var(--y),
+      color-mix(in oklab, var(--color-primary) 8%, transparent) 0%,
+      color-mix(in oklab, var(--color-accent) 3%, transparent) 35%,
+      transparent 70%);
+  }
+
+  @media (pointer: coarse) {
+    .spotlight-grid { --x: 50% !important; --y: 50% !important; }
+  }
+</style>
+
+<script>
+  const grid = document.querySelector('.spotlight-grid') as HTMLElement | null;
+  if (grid) {
+    const fine = matchMedia('(pointer: fine)');
+    let raf = 0, x = innerWidth / 2, y = innerHeight / 2;
+    const apply = () => { raf = 0; grid.style.setProperty('--x', x + 'px'); grid.style.setProperty('--y', y + 'px'); };
+    addEventListener('pointermove', (e) => {
+      if (!fine.matches) return;
+      x = e.clientX; y = e.clientY;
+      if (!raf) raf = requestAnimationFrame(apply);
+    }, { passive: true });
+  }
+</script>

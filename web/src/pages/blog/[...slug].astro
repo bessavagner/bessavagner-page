@@ -44,7 +44,7 @@ const breadcrumb = {
   ],
 };
 ---
-<Base title={`${post.data.title} — Vagner Bessa`} description={post.data.description} ogImage={ogImage} ogType="article">
+<Base title={`${post.data.title} — Vagner Bessa`} description={post.data.description} ogImage={ogImage} ogType="article" spotlightGrid>
   <script is:inline type="application/ld+json" set:html={JSON.stringify(blogPosting)} />
   <script is:inline type="application/ld+json" set:html={JSON.stringify(breadcrumb)} />
 
