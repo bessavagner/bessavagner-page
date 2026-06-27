@@ -9,7 +9,7 @@ const links = [
      the inline script below layers on a11y state, Esc-to-close, scroll-lock. -->
 <input id="nav-drawer" type="checkbox" class="peer sr-only" aria-hidden="true" tabindex="-1" />
 
-<nav class="navbar w-full justify-end fixed top-0 right-0 left-0 z-30 bg-base-100/90 backdrop-blur" aria-label="Main">
+<nav id="site-nav" class="site-nav navbar h-32 w-full justify-end fixed top-0 right-0 left-0 px-30 z-30 bg-transparent" aria-label="Main">
   <div class="flex-1">
     <a href="/" class="btn btn-ghost text-xl roboto-condensed-800">Vagner Bessa</a>
   </div>
@@ -52,6 +52,27 @@ const links = [
   </nav>
 </aside>
 
+<style>
+  /* Transparent over the hero; frosted + compact once the page scrolls. */
+  .site-nav {
+    border-bottom: 1px solid transparent;
+    transition: background-color .3s ease, backdrop-filter .3s ease,
+      height .3s ease, min-height .3s ease, box-shadow .3s ease, border-color .3s ease;
+  }
+  .site-nav.is-scrolled {
+    height: 5rem;
+    min-height: 5rem;
+    background-color: color-mix(in oklab, var(--color-base-100) 80%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border-bottom-color: color-mix(in oklab, var(--color-base-content) 12%, transparent);
+    box-shadow: 0 6px 24px -12px rgba(0, 0, 0, .35);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .site-nav { transition: none; }
+  }
+</style>
+
 <script is:inline>
   (function () {
     var toggle = document.querySelector('.theme-controller');
@@ -81,6 +102,20 @@ const links = [
       document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && drawer.checked) { drawer.checked = false; sync(); }
       });
+    }
+
+    // Transparent at the top → frosted/compact once scrolled.
+    var nav = document.getElementById('site-nav');
+    if (nav) {
+      var ticking = false;
+      var onScroll = function () {
+        ticking = false;
+        nav.classList.toggle('is-scrolled', window.scrollY > 8);
+      };
+      onScroll();
+      window.addEventListener('scroll', function () {
+        if (!ticking) { ticking = true; requestAnimationFrame(onScroll); }
+      }, { passive: true });
     }
   })();
 </script>
