@@ -169,7 +169,7 @@ After all 38 tests returned green I did the one thing the tests can't: wrote a s
 DataError: value too long for type character varying(300)
 ```
 
-The `agency` were to blame. Back in [#1](/building/regwatch/01-starting-regwatch-clean-room-core/) I sized the `Act` columns from the spike's tidy fixtures, and `CharField(max_length=300)` looked generous for a ministry name. But real DOU `artCategory` values are whole hierarchies, and they run long:
+The `agency` field was to blame. Back in [#1](/building/regwatch/01-starting-regwatch-clean-room-core/) I sized the `Act` columns from the spike's tidy fixtures, and `CharField(max_length=300)` looked generous for a ministry name. But real DOU `artCategory` values are whole hierarchies, and they run long:
 
 > Ministério da Gestão e da Inovação em Serviços Públicos/Secretaria de Gestão de Pessoas/Diretoria de Serviços de Aposentados e de Pensionistas e Órgãos Extintos/Coordenação-Geral de Benefícios
 
