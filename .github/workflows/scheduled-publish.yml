@@ -57,3 +57,19 @@ jobs:
       - name: Trigger the Cloud Run deploy workflow
         if: steps.gate.outputs.due == 'true'
         run: gh workflow run deploy-web-cloudrun.yml --ref main
+
+      - name: Check out the repository (for the digest script)
+        if: steps.gate.outputs.due == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        if: steps.gate.outputs.due == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Send today's content digest
+        if: steps.gate.outputs.due == 'true'
+        env:
+          BUTTONDOWN_KEY: ${{ secrets.BUTTONDOWN_KEY }}
+        run: node --experimental-strip-types web/scripts/digest.ts
