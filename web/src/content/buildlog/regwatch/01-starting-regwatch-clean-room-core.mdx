@@ -8,58 +8,113 @@ tags: ["django", "postgres-fts", "building-in-public", "tdd", "govtech"]
 draft: false
 ---
 
-I'm starting a new project in public, so this is update one of a log I'll keep as it grows. The project is **RegWatch**: think "Google Alerts for the Diário Oficial da União (DOU)" — Brazil's official federal gazette, the daily record where laws, appointments, fines, grants and public tenders get published. A law firm or accounting practice needs to know the moment a client's name, a program, or a law number shows up in it. Doing that by hand across dozens of clients is the kind of tedious, error-prone work software should eat. So far I have a tested core pipeline and one big question answered: where the data actually comes from.
+I'm starting a new project in public, so this is update one of a log I'll keep as it grows. The project is **RegWatch**: think "Google Alerts for the Diário Oficial da União (DOU)" — Brazil's official federal gazette, the daily record where laws, appointments, fines, grants and public tenders get published. A law firm or accounting practice needs to know the moment a client's name, a program, or a law number shows up in it. Doing that by hand across dozens of clients is tedious, error-prone work — and automating it, or at least part of it, clearly pays off. So far I have a tested core pipeline and one big question answered: where the data actually comes from.
 
 ## What RegWatch is, concretely
 
-The shape is a multi-client watcher. A firm runs a workspace, each client has saved searches ("watches"), and every new gazette mention becomes a "match" with a one-line AI summary and a category, delivered through a dashboard and per-client email digests. The data model is small and deliberate: `Workspace → Client → Watch → Match`, with `Edition` and `Act` representing the gazette itself.
+The product I'm aiming for is a multi-client watcher. A firm runs a workspace, each client has saved searches ("watches"), and every new gazette mention becomes a "match" with a categorized one-line AI summary, delivered through a dashboard and per-client email digests. The data model is small and deliberate: `Workspace → Client → Watch → Match`, with `Edition` and `Act` representing the gazette itself.
 
-The stack is Django 5 + DRF on Postgres, managed with `uv`, headed for Cloud Run, with a Svelte 5 dashboard. Matching runs as a daily batch over Postgres full-text search — no vector database, no streaming, no real-time anything in v1. That's a choice, not a gap: the job is "did these terms appear in today's editions," and Postgres FTS answers it directly.
+The stack is Django 5 + DRF on Postgres, managed with `uv`, headed for Cloud Run, with a Svelte 5 dashboard. Matching runs as a daily batch over Postgres full-text search — no vector database, no streaming, no real-time anything in v1. For now the job is: "did these terms appear in today's editions," and Postgres FTS answers it directly.
 
-## Two constraints I set before writing code
+## A development principle: TDD in every layer
 
-**Clean-room.** I've built a DOU scraper before, but it lives inside confidential work I can't reuse. So RegWatch is written fresh — no code, no naming carried over. Inspiration only. That rule shapes everything below.
+No production code without a failing test that fails for the right reason first. It sounds dogmatic, but for a pipeline with this many seams — ingest, parse, match, enrich, notify — having each unit nailed down in isolation is what lets me move fast later without breaking the run.
 
-**TDD in every layer.** No production code without a failing test that fails for the right reason first. It sounds dogmatic, but for a pipeline with this many seams — ingest, parse, match, enrich, notify — having each unit nailed down in isolation is what lets me move fast later without breaking the run.
+## What I've built so far
 
-Right now the suite is **19 passing tests** across the apps:
-
-```
-$ uv run pytest -q
-...................                          [100%]
-```
-
-Not a huge number, but every one of them earned its place by being written before the thing it tests.
-
-## The core that's already built
-
-The matcher is the heart, and it's the part I'm happiest with. A watch is a set of terms plus optional exclusions and a section filter; the matcher turns that into a Postgres FTS query:
+The core is a small data model plus two functions over it: a **matcher** that finds the gazette articles a client cares about, and an **enricher** that attaches the one-line AI summary. Here's the model the rest hangs on, trimmed to the load-bearing fields:
 
 ```python
-query = reduce(and_, (SearchQuery(t, config="simple", search_type="phrase") for t in terms))
-for ex in watch.exclude:
-    query &= ~SearchQuery(normalize_text(ex), config="simple", search_type="phrase")
+class Edition(models.Model):          # one section of one day's gazette
+    date = models.DateField()
+    section = models.CharField(max_length=20)
+    # UniqueConstraint(date, section)
+
+class Act(models.Model):              # one article inside an edition
+    edition = models.ForeignKey(Edition, related_name="acts", ...)
+    identifier = models.CharField(max_length=200)
+    raw_text = models.TextField()
+    search_vector = SearchVectorField(null=True)   # GIN-indexed
+    # UniqueConstraint(edition, identifier)
+
+class Watch(models.Model):            # a client's saved search
+    client = models.ForeignKey(Client, related_name="watches", ...)
+    terms = models.JSONField(default=list)     # required phrases, AND-ed
+    exclude = models.JSONField(default=list)   # excluded phrases
+    section = models.CharField(default="")     # "" = every section
+
+class Match(models.Model):            # a watch that hit an act
+    watch = models.ForeignKey(Watch, related_name="matches", ...)
+    act = models.ForeignKey(Act, related_name="matches", ...)
+    ai_summary = models.TextField(null=True, blank=True)
+    # UniqueConstraint(watch, act)
 ```
 
-Terms are accent- and whitespace-normalized first, so "São Paulo" and "Sao Paulo" land on the same hit — which matters a lot in Portuguese gazette text.
-
-The enricher (the AI summary step) is built around a provider-agnostic LLM client and one hard rule: it never breaks the pipeline. If the model call throws, the match is kept without a summary and the digests still go out.
+A `Watch` turns into a Postgres full-text query. Terms are accent- and whitespace-normalized first, so "São Paulo" and "Sao Paulo" land on the same hit — which matters a lot in Portuguese gazette text:
 
 ```python
-try:
-    result = client.summarize(match.act.raw_text, terms)
-except Exception:
-    logger.exception("enrichment failed for match %s", match.pk)
-    return
+def _query_for(watch: Watch) -> SearchQuery | None:
+    terms = [normalize_text(t) for t in watch.terms if t.strip()]
+    if not terms:
+        return None
+    query = reduce(and_, (SearchQuery(t, config="simple", search_type="phrase") for t in terms))
+    for ex in watch.exclude:
+        ex = normalize_text(ex)
+        if ex:
+            query &= ~SearchQuery(ex, config="simple", search_type="phrase")
+    return query
 ```
 
-The whole pipeline is idempotent by construction — uniqueness on `Edition(date, section)`, `Act(edition, identifier)`, and `Match(watch, act)` means the daily job is safe to re-run with no duplicates. There's an integration test that runs the full pipeline over a sample edition and an idempotency test that runs it twice and asserts nothing doubles.
+The matcher runs that query for every active watch over one edition's acts and records a `Match` for each hit:
 
-## The part I deliberately left undecided: where the data comes from
+```python
+def match_edition(edition: Edition) -> list[Match]:
+    created: list[Match] = []
+    acts = Act.objects.filter(edition=edition)
+    for watch in Watch.objects.filter(active=True).select_related("client"):
+        if watch.section and watch.section != edition.section:
+            continue
+        query = _query_for(watch)
+        if query is None:
+            continue
+        hits = acts.annotate(
+            rank=SearchRank(SearchVector("search_text", config="simple"), query)
+        ).filter(search_vector=query)
+        for act in hits:
+            match, was_created = Match.objects.get_or_create(
+                watch=watch, act=act,
+                defaults={"rank": act.rank, "snippet": act.raw_text[:280]},
+            )
+            if was_created:
+                created.append(match)
+    return created
+```
 
-In the design spec I refused to pick the ingestion method up front. The official site, in.gov.br, has sat behind Cloudflare since early 2023 and ships a `robots.txt` that disallows everything — so scraping the friendly-looking HTML was a dead end before I started. Instead of guessing, I ran a throwaway spike in a gitignored sandbox to settle it against real data.
+The enricher takes one of those `match` objects and a provider-agnostic `LLMClient`, and follows one hard rule: it never breaks the pipeline. If the model call throws, the match is kept without a summary and the digests still go out:
 
-The answer: **INlabs** (`inlabs.in.gov.br`), an official service that hands you each day's gazette as a ZIP of per-article XML after a free login. I validated the whole path end to end — login, list a date, download, parse — not just from docs.
+```python
+def enrich_match(match: Match, client: LLMClient) -> None:
+    terms = list(match.watch.terms)
+    try:
+        result = client.summarize(match.act.raw_text, terms)
+    except Exception:
+        logger.exception("enrichment failed for match %s", match.pk)
+        return
+    match.ai_summary = result.summary
+    match.category = result.category
+    match.confidence = result.confidence
+    match.save(update_fields=["ai_summary", "category", "confidence"])
+```
+
+The whole pipeline is idempotent by construction. The unique constraints above — `(date, section)` on an edition, `(edition, identifier)` on an act, `(watch, act)` on a match — mean the daily job is safe to re-run with no duplicates, since `get_or_create` just returns the existing row. There's an integration test that runs the full pipeline over a sample edition and an idempotency test that runs it twice and asserts nothing doubles.
+
+## Where's the source data?
+
+Before any planning, I ran a research spike to work out the best, safest way to collect the data.
+
+The official site, in.gov.br, has sat behind Cloudflare since early 2023 and ships a `robots.txt` that disallows everything — so scraping the friendly-looking HTML was a dead end before I started.
+
+But the solution turned out to be simple, and it came from the government itself: **INlabs** (`inlabs.in.gov.br`), an official service that hands you each day's gazette as a ZIP of per-article XML after a free login. I validated the whole path end to end — login, list a date, download, parse — not just from docs.
 
 The useful surprise was in the data quality. I measured field presence across three editions and 1,297 real articles, and several "obvious" fields are traps:
 
@@ -67,7 +122,7 @@ The useful surprise was in the data quality. I measured field presence across th
 - `Ementa` (the summary line) is unreliable — 0% present in the Seção 2 personnel section. Never depend on it.
 - `idMateria` looks like a primary key but **isn't unique** (374 of 400 in one section). The actual stable identifier is the `id` attribute.
 
-The flip side was a relief: the agency comes pre-structured as a clean `Ministério/.../Órgão` hierarchy, there's a ready PDF-page URL per article, and `artType` (Portaria, Decreto, Edital…) is a free pre-classification I can feed straight into the AI category step. The parser ended up simpler than the research had me fearing — the only real logic is a title fallback for articles that ship without one.
+On the other hand, the agency comes pre-structured as a clean `Ministério/.../Órgão` hierarchy, there's a ready PDF-page URL per article, and `artType` (Portaria, Decreto, Edital…) is a free pre-classification I can feed straight into the AI category step. The parser ended up simpler than I initially thought — the only real logic is a title fallback for articles that ship without one.
 
 ## What I learned
 

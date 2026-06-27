@@ -6,7 +6,7 @@ export async function GET(context: APIContext) {
   const updates = await getVisibleUpdates();
   return rss({
     title: 'Vagner Bessa — Building Publicly',
-    description: 'Dated progress updates from the projects I am building in public.',
+    description: 'Progress updates from the projects I am building in public.',
     site: context.site ?? 'https://bessavagner.com',
     items: updates.map((u) => {
       const { project, slug } = splitUpdateId(u.id);
