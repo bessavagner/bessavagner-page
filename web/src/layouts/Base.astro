@@ -9,6 +9,8 @@ export interface Props {
   description?: string;
   ogImage?: string;
   ogType?: string;
+  rssHref?: string;
+  rssTitle?: string;
 }
 
 const {
@@ -16,6 +18,8 @@ const {
   description = 'Senior full-stack and AI engineer building production-grade AI products and web platforms in Python and TypeScript. Available for remote roles and freelance work with US and European teams.',
   ogImage = '/images/og-default.png',
   ogType = 'website',
+  rssHref = '/rss.xml',
+  rssTitle = 'Vagner Bessa — Blog',
 } = Astro.props;
 
 const siteUrl = Astro.site?.href.replace(/\/$/, '') ?? 'https://bessavagner.com';
@@ -81,7 +85,7 @@ const fontHref =
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-    <link rel="alternate" type="application/rss+xml" title="Vagner Bessa — Blog" href="/rss.xml" />
+    <link rel="alternate" type="application/rss+xml" title={rssTitle} href={rssHref} />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
