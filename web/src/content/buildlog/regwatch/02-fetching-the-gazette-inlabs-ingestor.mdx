@@ -161,6 +161,31 @@ And there's no per-section `try/except` in that loop — I left it that way on p
 
 The reasoning: the fields I actually depend on are present in 100% of the 1,297 articles I measured, so a parse failure is unlikely; the spike notes XML completeness isn't *guaranteed*, but it's been reliable. And the pipeline is idempotent by construction (those unique constraints from [#1](/building/regwatch/01-starting-regwatch-clean-room-core/)), so a failed run is safe to simply re-run once fixed — fail-fast trades a one-article gap for a one-day gap, and the day is recoverable. Per-section isolation and skip-and-count for bad members are real improvements, but they belong with the scheduler, where observability and retry policy live. So I wrote it down as a tracked deferral rather than quietly shipping a half-measure.
 
+## Not all those who overflow are lost
+
+After all 38 tests returned green I did the one thing the tests can't: wrote a sample code and pointed it to a real edition and ran it all the way into the database. Login, download, parse. Result: 400 articles from a single day's *Seção 1*, exactly as expected. Then `ingest_edition` reached Postgres and Postgres said no:
+
+```
+DataError: value too long for type character varying(300)
+```
+
+The `agency` were to blame. Back in [#1](/building/regwatch/01-starting-regwatch-clean-room-core/) I sized the `Act` columns from the spike's tidy fixtures, and `CharField(max_length=300)` looked generous for a ministry name. But real DOU `artCategory` values are whole hierarchies, and they run long:
+
+> Ministério da Gestão e da Inovação em Serviços Públicos/Secretaria de Gestão de Pessoas/Diretoria de Serviços de Aposentados e de Pensionistas e Órgãos Extintos/Coordenação-Geral de Benefícios
+
+The fix is boring, which is the point: these fields are free text straight from the source, so they shouldn't carry a length cap at all. `CharField` → `TextField` (in Postgres both compile to the same `text` type, just without the ceiling):
+
+```python
+# before — sized from the spike's tidy fixtures
+title  = models.CharField(max_length=500)
+agency = models.CharField(max_length=300, blank=True, default="")
+# after — real ministries don't fit in 300 characters
+title  = models.TextField()
+agency = models.TextField(blank=True, default="")
+```
+
+One migration, the suite still **38 green**, and the run that had just crashed now ingests all 400 acts and answers a watch for *"ministério"* with 109 matches — real titles, real agencies, real `in.gov.br` links. The live run was the test I hadn't written: a fixture is clean by definition, and clean is exactly what real gazette data is not. That's the whole argument for build-in-public in one stack trace.
+
 ## What I learned
 
 A frozen-dataclass contract is what makes "test the core before the network exists" go from a slogan to something you actually do — the boundary is a real object you can build both sides against independently. `MockTransport` makes an HTTP client genuinely unit-testable without recording a single fixture from the live server; I'd reach for it on any client from now on. And mostly: choosing *where to put the seam* — which is the same as choosing what to defer — shaped this slice more than any line of the code did.
