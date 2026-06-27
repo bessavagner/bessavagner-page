@@ -1,0 +1,47 @@
+---
+import Base from '../../layouts/Base.astro';
+import BuildProjectCard from '../../components/building/BuildProjectCard.astro';
+import ShippedCard from '../../components/building/ShippedCard.astro';
+import { getIndexData } from '../../lib/buildlog';
+
+const { active, shipped } = await getIndexData();
+const siteHref = (Astro.site?.href ?? 'https://bessavagner.com/').replace(/\/$/, '');
+const pageSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'CollectionPage',
+  '@id': `${siteHref}/building/#building`,
+  name: 'Vagner Bessa — Building Publicly',
+  description: 'Dated progress updates from projects I am building in public.',
+  url: `${siteHref}/building/`,
+  author: { '@id': `${siteHref}/#vagner-bessa` },
+  inLanguage: 'en',
+};
+---
+<Base title="Building Publicly — Vagner Bessa" description="Dated progress updates from the projects I am building in public, grouped by project." rssHref="/building/rss.xml" rssTitle="Vagner Bessa — Building Publicly">
+  <script is:inline type="application/ld+json" set:html={JSON.stringify(pageSchema)} />
+  <section class="w-11/12 max-w-4xl mx-auto pt-28 pb-20">
+    <h1 class="font-header text-4xl md:text-5xl font-semibold">Building Publicly</h1>
+    <p class="font-base text-lg text-base-content/70 mt-3">Dated progress updates from the projects I'm building in the open — grouped by project. When one ships, it graduates to <a href="/#section-featured" class="text-primary hover:underline">Work</a>.</p>
+
+    {active.length === 0 && shipped.length === 0 ? (
+      <p class="font-base text-base-content/60 mt-10">No build logs yet — check back soon.</p>
+    ) : (
+      <div class="mt-12 space-y-16">
+        {active.length > 0 && (
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {active.map(({ project, latest, count }) => <BuildProjectCard project={project} latest={latest} count={count} />)}
+          </div>
+        )}
+        {shipped.length > 0 && (
+          <div>
+            <h2 class="font-header-5 font-bold">Shipped</h2>
+            <p class="font-base text-sm text-base-content/60 mt-1">Finished builds. Each links to its case study and its full build log.</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mt-6">
+              {shipped.map(({ project, count }) => <ShippedCard project={project} count={count} />)}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+  </section>
+</Base>
