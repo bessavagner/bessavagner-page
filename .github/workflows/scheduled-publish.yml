@@ -56,7 +56,9 @@ jobs:
 
       - name: Trigger the Cloud Run deploy workflow
         if: steps.gate.outputs.due == 'true'
-        run: gh workflow run deploy-web-cloudrun.yml --ref main
+        # --repo is required: this step runs before checkout, so gh has no local
+        # git context to infer the repository from and would otherwise exit 1.
+        run: gh workflow run deploy-web-cloudrun.yml --ref main --repo "$GITHUB_REPOSITORY"
 
       - name: Check out the repository (for the digest script)
         if: steps.gate.outputs.due == 'true'
