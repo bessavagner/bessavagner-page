@@ -1,0 +1,18 @@
+---
+import type { BuildUpdate } from '../../lib/buildlog';
+import { splitUpdateId } from '../../lib/buildlog';
+import { readingTime } from '../../lib/blog';
+import UpdateMeta from './UpdateMeta.astro';
+interface Props { update: BuildUpdate; }
+const { update } = Astro.props;
+const { project, slug } = splitUpdateId(update.id);
+const href = `/building/${project}/${slug}/`;
+const minutes = readingTime(update.body ?? '');
+---
+<article class="group relative py-6">
+  <h3 class="font-header text-xl md:text-2xl font-semibold leading-snug">
+    <a href={href} class="after:absolute after:inset-0 group-hover:text-primary transition-colors">{update.data.title}</a>
+  </h3>
+  <UpdateMeta pubDate={update.data.pubDate} minutes={minutes} update={update.data.update} class="mt-2" />
+  <p class="font-base text-sm text-base-content/70 mt-2 leading-relaxed line-clamp-2 max-w-[65ch]">{update.data.description}</p>
+</article>

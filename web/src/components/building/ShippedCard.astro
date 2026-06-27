@@ -1,0 +1,19 @@
+---
+import type { BuildProject } from '../../lib/buildlog';
+interface Props { project: BuildProject; count: number; }
+const { project, count } = Astro.props;
+const hubHref = `/building/${project.slug}/`;
+const workHref = `/projects/${project.slug}/`;
+---
+<article class="rounded-2xl border border-base-content/10 bg-base-200/40 p-5">
+  <div class="flex items-center gap-2">
+    <span class="badge badge-success badge-sm font-base">Shipped</span>
+    {count > 0 && <span class="ubuntu-mono-regular text-xs text-base-content/55">{count} update{count === 1 ? '' : 's'}</span>}
+  </div>
+  <h3 class="font-header text-xl font-bold leading-tight mt-3">{project.title}</h3>
+  <p class="font-base text-sm text-base-content/70 mt-1">{project.tagline}</p>
+  <div class="flex flex-wrap gap-3 mt-4">
+    <a href={workHref} class="btn btn-primary btn-xs font-base">Case study →</a>
+    <a href={hubHref} class="btn btn-ghost btn-xs font-base">Build log</a>
+  </div>
+</article>
