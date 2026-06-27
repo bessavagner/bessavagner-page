@@ -1,0 +1,55 @@
+---
+interface Props { class?: string; heading?: string; }
+const { class: className = '', heading = 'Get the next update by email' } = Astro.props;
+// Derive the embed handle from the public newsletter URL, e.g.
+// "https://buttondown.com/bessavagner" -> "bessavagner".
+const newsletterUrl = import.meta.env.PUBLIC_BUTTONDOWN_URL ?? '';
+const handle = newsletterUrl.replace(/\/+$/, '').split('/').pop() ?? '';
+const action = handle ? `https://buttondown.com/api/emails/embed-subscribe/${handle}` : '';
+---
+{action && (
+  <section class:list={["rounded-2xl border border-base-content/10 bg-base-200/40 p-6", className]}>
+    <h2 class="font-header-5 font-bold">{heading}</h2>
+    <p class="font-base text-sm text-base-content/60 mt-1">
+      Build-in-public updates and new posts, delivered as a digest. Double opt-in · no spam · unsubscribe anytime · handled by Buttondown.
+    </p>
+    <form
+      method="post"
+      action={action}
+      target="popupwindow"
+      class="embeddable-buttondown-form flex flex-col sm:flex-row gap-3 mt-4"
+      data-bd-form
+    >
+      <input
+        type="email" name="email" required placeholder="you@example.com"
+        aria-label="Email address"
+        class="input input-bordered flex-1 font-base"
+      />
+      <input type="hidden" name="embed" value="1" />
+      <button type="submit" class="btn btn-primary font-base">Subscribe</button>
+    </form>
+    <p data-bd-status class="font-base text-sm text-success mt-3 hidden">
+      Almost there — check your inbox to confirm.
+    </p>
+  </section>
+)}
+<script>
+  document.querySelectorAll('form[data-bd-form]').forEach((form) => {
+    form.addEventListener('submit', (event) => {
+      const f = event.currentTarget as HTMLFormElement;
+      const action = f.getAttribute('action');
+      if (!action) return;
+      try {
+        event.preventDefault();
+        // Fire-and-forget: no-cors means we can't read the response, but double
+        // opt-in makes "we sent a confirmation" the correct message regardless.
+        fetch(action, { method: 'POST', body: new FormData(f), mode: 'no-cors' });
+        const status = f.parentElement && f.parentElement.querySelector('[data-bd-status]');
+        if (status) status.classList.remove('hidden');
+        f.reset();
+      } catch {
+        f.submit(); // fall back to a native POST (opens Buttondown's confirm page)
+      }
+    });
+  });
+</script>
