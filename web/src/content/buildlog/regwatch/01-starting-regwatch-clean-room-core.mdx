@@ -1,0 +1,80 @@
+---
+title: "Starting RegWatch: a clean-room core and a research spike"
+description: "Kicking off a build-in-public log for RegWatch, a multi-client DOU watcher, with a TDD Postgres-FTS core and a research spike into how to fetch the gazette."
+project: "regwatch"
+update: 1
+pubDate: 2026-06-27
+tags: ["django", "postgres-fts", "building-in-public", "tdd", "govtech"]
+draft: false
+---
+
+I'm starting a new project in public, so this is update one of a log I'll keep as it grows. The project is **RegWatch**: think "Google Alerts for the Diário Oficial da União (DOU)" — Brazil's official federal gazette, the daily record where laws, appointments, fines, grants and public tenders get published. A law firm or accounting practice needs to know the moment a client's name, a program, or a law number shows up in it. Doing that by hand across dozens of clients is the kind of tedious, error-prone work software should eat. So far I have a tested core pipeline and one big question answered: where the data actually comes from.
+
+## What RegWatch is, concretely
+
+The shape is a multi-client watcher. A firm runs a workspace, each client has saved searches ("watches"), and every new gazette mention becomes a "match" with a one-line AI summary and a category, delivered through a dashboard and per-client email digests. The data model is small and deliberate: `Workspace → Client → Watch → Match`, with `Edition` and `Act` representing the gazette itself.
+
+The stack is Django 5 + DRF on Postgres, managed with `uv`, headed for Cloud Run, with a Svelte 5 dashboard. Matching runs as a daily batch over Postgres full-text search — no vector database, no streaming, no real-time anything in v1. That's a choice, not a gap: the job is "did these terms appear in today's editions," and Postgres FTS answers it directly.
+
+## Two constraints I set before writing code
+
+**Clean-room.** I've built a DOU scraper before, but it lives inside confidential work I can't reuse. So RegWatch is written fresh — no code, no naming carried over. Inspiration only. That rule shapes everything below.
+
+**TDD in every layer.** No production code without a failing test that fails for the right reason first. It sounds dogmatic, but for a pipeline with this many seams — ingest, parse, match, enrich, notify — having each unit nailed down in isolation is what lets me move fast later without breaking the run.
+
+Right now the suite is **19 passing tests** across the apps:
+
+```
+$ uv run pytest -q
+...................                          [100%]
+```
+
+Not a huge number, but every one of them earned its place by being written before the thing it tests.
+
+## The core that's already built
+
+The matcher is the heart, and it's the part I'm happiest with. A watch is a set of terms plus optional exclusions and a section filter; the matcher turns that into a Postgres FTS query:
+
+```python
+query = reduce(and_, (SearchQuery(t, config="simple", search_type="phrase") for t in terms))
+for ex in watch.exclude:
+    query &= ~SearchQuery(normalize_text(ex), config="simple", search_type="phrase")
+```
+
+Terms are accent- and whitespace-normalized first, so "São Paulo" and "Sao Paulo" land on the same hit — which matters a lot in Portuguese gazette text.
+
+The enricher (the AI summary step) is built around a provider-agnostic LLM client and one hard rule: it never breaks the pipeline. If the model call throws, the match is kept without a summary and the digests still go out.
+
+```python
+try:
+    result = client.summarize(match.act.raw_text, terms)
+except Exception:
+    logger.exception("enrichment failed for match %s", match.pk)
+    return
+```
+
+The whole pipeline is idempotent by construction — uniqueness on `Edition(date, section)`, `Act(edition, identifier)`, and `Match(watch, act)` means the daily job is safe to re-run with no duplicates. There's an integration test that runs the full pipeline over a sample edition and an idempotency test that runs it twice and asserts nothing doubles.
+
+## The part I deliberately left undecided: where the data comes from
+
+In the design spec I refused to pick the ingestion method up front. The official site, in.gov.br, has sat behind Cloudflare since early 2023 and ships a `robots.txt` that disallows everything — so scraping the friendly-looking HTML was a dead end before I started. Instead of guessing, I ran a throwaway spike in a gitignored sandbox to settle it against real data.
+
+The answer: **INlabs** (`inlabs.in.gov.br`), an official service that hands you each day's gazette as a ZIP of per-article XML after a free login. I validated the whole path end to end — login, list a date, download, parse — not just from docs.
+
+The useful surprise was in the data quality. I measured field presence across three editions and 1,297 real articles, and several "obvious" fields are traps:
+
+- `Titulo` is a **dead field** — 0% populated. Ignore it entirely.
+- `Ementa` (the summary line) is unreliable — 0% present in the Seção 2 personnel section. Never depend on it.
+- `idMateria` looks like a primary key but **isn't unique** (374 of 400 in one section). The actual stable identifier is the `id` attribute.
+
+The flip side was a relief: the agency comes pre-structured as a clean `Ministério/.../Órgão` hierarchy, there's a ready PDF-page URL per article, and `artType` (Portaria, Decreto, Edital…) is a free pre-classification I can feed straight into the AI category step. The parser ended up simpler than the research had me fearing — the only real logic is a title fallback for articles that ship without one.
+
+## What I learned
+
+Two things. First, a research spike against live data is worth more than any amount of reading docs — the field-presence numbers above are the kind of thing you only learn by counting. Second, picking the boring architecture on purpose (batch + Postgres FTS, no vector search) is what's letting me ship a tested core this early instead of yak-shaving infrastructure.
+
+## What's next
+
+The next slice is the real ingestor — turning that validated INlabs path into `fetch_editions(date)`, TDD'd against the fixtures the spike captured.
+
+If you want to follow along, the series will track each layer as it lands. I'm curious how others have approached matching at scale on Postgres FTS versus reaching for a vector store — if you've built something similar over a public registry or gazette, I'd like to compare notes.
