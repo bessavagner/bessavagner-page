@@ -6,6 +6,7 @@ const cv = asset(profile.links.cv);
 ---
 <section id="section-home" class="relative min-h-[100dvh] w-full px-6 lg:px-14 py-24 lg:py-28 flex items-center overflow-hidden">
   <div class="ambient-glow" aria-hidden="true"></div>
+  <canvas id="hero-wave" class="absolute inset-0 z-0 pointer-events-none" aria-hidden="true"></canvas>
   <div class="relative z-[1] flex flex-col lg:flex-row items-center gap-10 lg:gap-14 w-11/12 max-w-7xl mx-auto">
     <div class="w-full lg:w-3/5 text-center lg:text-left animate-fade-in">
       {profile.availability && (
@@ -39,3 +40,134 @@ const cv = asset(profile.links.cv);
     </div>
   </div>
 </section>
+
+<script>
+  // Dotted surface field behind the hero — organic (value-noise) displacement,
+  // subtle motion, theme-aware. Sits behind the content (dots may fall behind
+  // text; their low opacity keeps it readable). Honours reduced-motion and
+  // pauses when the hero is off-screen or the tab is hidden.
+  const section = document.getElementById('section-home');
+  const canvas = document.getElementById('hero-wave') as HTMLCanvasElement | null;
+  const ctx = canvas?.getContext('2d');
+  if (section && canvas && ctx) {
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+    let W = 0, H = 0, DPR = 1;
+
+    const css = (n: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    const hexToRgb = (h: string) => {
+      h = h.replace('#', '');
+      if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    };
+    let PRIMARY = [120, 125, 224], ACCENT = [218, 165, 32], BOOST = 1;
+    const isLight = () => (document.documentElement.getAttribute('data-theme') || '').indexOf('dark') === -1;
+    const refreshColors = () => {
+      PRIMARY = hexToRgb(css('--color-primary') || '#787de0');
+      ACCENT = hexToRgb(css('--color-accent') || '#daa520');
+      BOOST = isLight() ? 1.7 : 1;
+    };
+
+    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+    const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+    const fract = (v: number) => v - Math.floor(v);
+    const hash = (x: number, y: number, z: number) => fract(Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453);
+    const smooth = (t: number) => t * t * (3 - 2 * t);
+    const vnoise = (x: number, y: number, z: number) => {
+      const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z);
+      const u = smooth(x - xi), v = smooth(y - yi), w = smooth(z - zi);
+      const c000 = hash(xi, yi, zi), c100 = hash(xi + 1, yi, zi), c010 = hash(xi, yi + 1, zi), c110 = hash(xi + 1, yi + 1, zi);
+      const c001 = hash(xi, yi, zi + 1), c101 = hash(xi + 1, yi, zi + 1), c011 = hash(xi, yi + 1, zi + 1), c111 = hash(xi + 1, yi + 1, zi + 1);
+      const x00 = lerp(c000, c100, u), x10 = lerp(c010, c110, u), x01 = lerp(c001, c101, u), x11 = lerp(c011, c111, u);
+      return lerp(lerp(x00, x10, v), lerp(x01, x11, v), w) * 2 - 1;
+    };
+    const surface = (x: number, z: number, t: number) =>
+      vnoise(x * 0.55, z * 0.55, t) + vnoise(x * 1.3 + 5, z * 1.3 + 9, t * 1.4) * 0.45;
+
+    const P = { NX: 200, NZ: 130, zEase: 1.5, yaw: -0.42, tilt: 0.16, eye: 0.85, focal: 1.05,
+      cxFrac: 0.4, horizonFrac: 0.1, bandV: 0.2,
+      ampNear: 0.9, ampFar: 0.08, ampEase: 1.9, // "mountain": tall near edge, flat far
+      seed: 0.6, wobble: 0.5, // fixed base shape + bounded breathing
+      speed: 0.55, dotMin: 0.45, dotMax: 1.7 };
+    const setGrid = () => {
+      P.NX = innerWidth < 640 ? 140 : 200;
+      P.NZ = innerWidth < 640 ? 130 : 180;
+    };
+    const resize = () => {
+      DPR = Math.min(devicePixelRatio || 1, 2);
+      const r = section.getBoundingClientRect();
+      W = canvas.width = Math.max(1, Math.floor(r.width * DPR));
+      H = canvas.height = Math.max(1, Math.floor(r.height * DPR));
+      canvas.style.width = r.width + 'px';
+      canvas.style.height = r.height + 'px';
+    };
+
+    let t = 0, raf = 0, last = 0, running = false;
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H);
+      const cx = W * P.cxFrac, horizon = H * P.horizonFrac;
+      const cosY = Math.cos(P.yaw), sinY = Math.sin(P.yaw);
+      const cosT = Math.cos(P.tilt), sinT = Math.sin(P.tilt);
+      const rotCx = W * 0.5, rotCy = H * P.horizonFrac;
+      // Bounded, organic time offset: the noise sample only drifts within a
+      // small neighbourhood of `seed`, so the shape breathes instead of morphing.
+      const T = P.seed + P.wobble * (0.6 * Math.sin(t) + 0.4 * Math.sin(t * 0.37 + 1.3));
+      for (let j = P.NZ - 1; j >= 0; j--) {
+        // Bias rows toward the foreground so the near lines pack closer
+        // (perspective otherwise spreads them); far lines stay put.
+        const z0 = 0.7 + Math.pow(j / (P.NZ - 1), P.zEase) * 9.0;
+        // Mountain envelope: full amplitude near, tapering toward the horizon.
+        const near = Math.pow(clamp((9.7 - z0) / 9.0, 0, 1), P.ampEase);
+        const ampZ = P.ampFar + (P.ampNear - P.ampFar) * near;
+        for (let i = 0; i < P.NX; i++) {
+          const x0 = (i / (P.NX - 1) - 0.5) * 7.0;
+          const s = surface(x0, z0, T);
+          const y = s * ampZ;
+          const xr = x0 * cosY - z0 * sinY, zr = x0 * sinY + z0 * cosY;
+          if (zr < 0.25) continue;
+          const scale = P.focal / zr;
+          let sx = cx + xr * scale * (W * 0.46);
+          let sy = horizon - (y - P.eye) * scale * (H * P.bandV);
+          const dx = sx - rotCx, dy = sy - rotCy;
+          sx = rotCx + dx * cosT - dy * sinT;
+          sy = rotCy + dx * sinT + dy * cosT;
+          if (sx < -20 || sx > W + 20 || sy < -20 || sy > H + 20) continue;
+          const crest = clamp((s + 1) / 2, 0, 1);
+          const r = lerp(PRIMARY[0], ACCENT[0], crest * 0.5) | 0;
+          const g = lerp(PRIMARY[1], ACCENT[1], crest * 0.5) | 0;
+          const b = lerp(PRIMARY[2], ACCENT[2], crest * 0.5) | 0;
+          const size = clamp(scale * 1.4, P.dotMin, P.dotMax) * DPR;
+          const alpha = Math.min(clamp(scale * 0.85, 0.05, 0.85) * (0.5 + crest * 0.5) * BOOST, 0.9);
+          ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+          ctx.fillRect(sx, sy, size, size);
+        }
+      }
+    };
+    const loop = (ts: number) => {
+      if (!running) return;
+      raf = requestAnimationFrame(loop);
+      if (ts - last < 33) return; // ~30fps cap (battery)
+      last = ts;
+      t += 0.01 * P.speed;
+      draw();
+    };
+    const start = () => { if (running || reduce.matches) return; running = true; last = 0; raf = requestAnimationFrame(loop); };
+    const stop = () => { running = false; cancelAnimationFrame(raf); };
+
+    const init = () => {
+      refreshColors();
+      setGrid();
+      resize();
+      if (reduce.matches) { t = 0.6; draw(); } else start();
+    };
+
+    addEventListener('resize', () => { setGrid(); resize(); if (reduce.matches) draw(); }, { passive: true });
+    document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
+    new MutationObserver(() => { refreshColors(); if (reduce.matches) draw(); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((es) => (es[0].isIntersecting ? start() : stop()), { threshold: 0 }).observe(section);
+    }
+    reduce.addEventListener?.('change', init);
+    init();
+  }
+</script>
