@@ -1,0 +1,164 @@
+---
+title: "Fetching the gazette: a clean-room INlabs ingestor"
+description: "Update 2 of the RegWatch build log: turning the validated INlabs path into a tested fetch_editions(date), with an lxml parser, an httpx client tested via MockTransport, and an honest note on the resilience I deferred."
+project: "regwatch"
+update: 2
+pubDate: 2026-06-28T08:00:00-03:00
+tags: ["django", "tdd", "httpx", "lxml", "clean-room", "building-in-public", "govtech"]
+draft: false
+---
+
+In [update #1](/building/regwatch/01-starting-regwatch-clean-room-core/) I chose where RegWatch's data comes from — **INlabs**, the government's own service that hands you each day's Diário Oficial da União as a ZIP of per-article XML — and proved the whole path by hand: login, list a date, download, parse. I ended that post promising the next slice would be the real ingestor, turning that validated path into a tested `fetch_editions(date)`. It's now built, reviewed, and merged. This is that slice.
+
+## The whole job is one function
+
+The ingestor's entire public surface is a single function:
+
+```python
+def fetch_editions(date: datetime.date, *, client=None) -> list[RawEdition]:
+```
+
+That's the seam, and the seam is the story. Back in #1 I built and tested the matcher and enricher against a frozen contract before any network code existed:
+
+```python
+@dataclass(frozen=True)
+class RawItem:
+    identifier: str
+    title: str
+    agency: str
+    raw_text: str
+    source_anchor: str
+
+@dataclass(frozen=True)
+class RawEdition:
+    date: datetime.date
+    section: str
+    source_url: str
+    items: tuple[RawItem, ...]
+```
+
+`fetch_editions` sits *below* that pipeline and produces exactly this shape. Everything above it — matching, enrichment, digests — was already done and green, with the network deferred behind the contract. The ingestor just had to fill the boundary in. Picking that seam early is what let the core ship first.
+
+## Three modules, one job each
+
+I split the work along the obvious fault lines and kept each piece ignorant of the others:
+
+- `parser.py` — pure XML → `RawItem`/`RawEdition`. No HTTP, no idea where bytes come from.
+- `client.py` — httpx: login, per-section download, cookies, retries. No idea what a gazette is.
+- `fetch.py` — the orchestration that wires them together, plus a `content_hash` for later.
+
+`fetch.py` is small enough to read whole. It owns the section list, pairs each downloaded ZIP with its source URL, and is careful about who closes the client:
+
+```python
+SECTIONS = ("DO1", "DO2", "DO3", "DO1E", "DO2E", "DO3E")
+
+def fetch_editions(date, *, client=None) -> list[RawEdition]:
+    owns_client = client is None
+    client = client or InlabsClient.from_env()
+    try:
+        client.login()
+        editions: list[RawEdition] = []
+        for section in SECTIONS:
+            zip_bytes = client.download_section(date, section)
+            if zip_bytes is None:
+                continue                       # section not published — skip
+            editions.append(
+                parse_section_zip(
+                    zip_bytes, source_url=client.section_url(date, section)
+                )
+            )
+        return editions
+    finally:
+        if owns_client:
+            client.close()
+```
+
+## The parser, where the traps live
+
+In #1 I measured field presence across three editions and 1,297 real articles and found that several "obvious" fields are traps: `Titulo` is dead (0% populated), `Ementa` is unreliable (0% in the Seção 2 personnel section), and `idMateria` looks like a key but isn't unique. I said those numbers mattered. Here's where they cash out.
+
+The title comes from `Identifica`, but ~7% of Seção 1 articles and over half of some extra editions ship without one — so there's a fallback to `"{artType} {id}"`:
+
+```python
+art_type = article.get("artType", "").strip()
+
+identifica_el = article.find("body/Identifica")
+identifica = (identifica_el.text or "").strip() if identifica_el is not None else ""
+title = identifica or f"{art_type} {article_id}".strip()
+```
+
+The body lives in `Texto` as escaped HTML inside a CDATA block. lxml's `itertext()` flattens it to plain text; I wrap it in a synthetic root so multiple `<p>` siblings have one parent, and collapse whitespace:
+
+```python
+def _plain_text(texto_html: str) -> str:
+    # Texto holds escaped HTML; wrap so multiple <p> siblings have one root,
+    # join pieces with spaces so adjacent paragraphs don't glue together.
+    fragment = html.fragment_fromstring(texto_html, create_parent="div")
+    pieces = [t for t in fragment.itertext() if t.strip()]
+    return _collapse(" ".join(pieces))
+```
+
+The rest is a near-mechanical mapping: `identifier` ← `@id` (the stable key, not `idMateria`), `agency` ← `@artCategory` (already a clean `Ministério/.../Órgão` string, no parsing needed), `source_anchor` ← `@pdfPage`, and the edition's `date`/`section` from `@pubDate`/`@pubName`. The `pdfPage` URLs arrive with `&amp;` entities; I get the un-escaping for free because they're parsed as XML attributes, not handled as strings. The dead and unreliable fields I simply never read.
+
+## TDD-ing a scraper with no network
+
+The discipline from #1 holds: no production code without a failing test first. The catch is that the thing I'm building is a network client, and I refuse to hit a live government endpoint in a unit test. Two techniques solve it.
+
+The parser is pure, so it's tested directly against the real XML fixtures the spike captured — including the awkward retificação with an empty `Identifica` and self-closed `Ementa`.
+
+The HTTP client is tested with httpx's `MockTransport`: a fake transport you hand a request→response function. The client's *real* login, cookie, 404, and re-login logic runs; only the wire is faked. No recorded cassettes, no network, no flakiness. Here's the test that the client re-authenticates exactly once when the session cookie expires mid-download:
+
+```python
+def handler(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/logar.php":
+        calls["login"] += 1
+        return httpx.Response(200, headers={"set-cookie": LOGIN_COOKIE})
+    calls["download"] += 1
+    if calls["download"] == 1:
+        return httpx.Response(403, text="session expired")
+    return httpx.Response(200, content=b"PK\x03\x04ok")
+```
+
+That's my answer to "how do you TDD a scraper": make the parser pure and fake the transport, not the server. Nineteen tests cover the three modules this way; the whole suite is **38 tests, green on Postgres**. There's also a small runnable notebook that drives login→download→parse end to end against the live service when I want to eyeball real output — but nothing in the test path touches the network.
+
+## Operational reality
+
+The spike's operational notes are now code. `download_section` is where the gazette's quirks live:
+
+```python
+def download_section(self, date, section) -> bytes | None:
+    resp = self._get_zip(date, section)
+    if resp.status_code in (401, 403):
+        self.login()                       # one capped, non-recursive re-login
+        resp = self._get_zip(date, section)
+    if resp.status_code == 404:
+        return None                        # not published → skip and continue
+    resp.raise_for_status()
+    body = resp.content
+    return body if body.startswith(b"PK") else None
+```
+
+A `404` *or* a body that doesn't start with the `PK` ZIP magic both mean "this section wasn't published today" — return `None`, and the orchestrator skips it. Each day has up to six sections: `DO1`–`DO3` plus the extras `DO1E`–`DO3E`. And `fetch.py` exposes a `content_hash`:
+
+```python
+def content_hash(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+```
+
+It's unused for now, but it's there on purpose. INlabs stamps a fresh `Last-Modified` on every ZIP roughly every 30 minutes whether the content changed or not, so timestamps are useless for "did this actually change." The scheduler will hash bytes instead.
+
+## The thing I deliberately didn't build
+
+A build log is only worth reading if it's honest about the corners cut, so: **`fetch_editions` is currently all-or-nothing.** One malformed article, or one non-404 HTTP error on any section, aborts the entire day's run for *every* section — there's no per-section `try/except` in that loop. The final review flagged exactly this, and I left it in on purpose.
+
+The reasoning: the fields I actually depend on are present in 100% of the 1,297 articles I measured, so a parse failure is unlikely; the spike notes XML completeness isn't *guaranteed*, but it's been reliable. And the pipeline is idempotent by construction (those unique constraints from #1), so a failed run is safe to simply re-run once fixed — fail-fast trades a one-article gap for a one-day gap, and the day is recoverable. Per-section isolation and skip-and-count for bad members are real improvements, but they belong with the scheduler, where observability and retry policy live. So I wrote it down as a tracked deferral rather than quietly shipping a half-measure.
+
+## What I learned
+
+A frozen-dataclass contract is what makes "test the core before the network exists" go from a slogan to something you actually do — the boundary is a real object you can build both sides against independently. `MockTransport` makes an HTTP client genuinely unit-testable without recording a single fixture from the live server; I'd reach for it on any client from now on. And mostly: choosing *where to put the seam* — which is the same as choosing what to defer — shaped this slice more than any line of the code did.
+
+## What's next
+
+The **scheduler**: a management command wiring `fetch_editions → run_pipeline` on a daily cadence, headed for Cloud Run + Cloud Scheduler. That's also where the all-or-nothing resilience gets fixed for real and where `content_hash` finally gets persisted to skip unchanged ZIPs.
+
+One open thread stays open: the DOU **license question**. The INlabs portal shows CC BY-ND (NoDerivatives) in one place while the same content is public under Brazil's access-to-information law and open-data policy — and "NoDerivatives" could bear on summarizing acts for a paid product. That's the gate before any of this goes public or commercial, and I'd rather resolve it in writing than assume. If you've navigated a similar open-data-vs-license tension on a public registry, I'd genuinely like to hear how it landed.
