@@ -1,0 +1,134 @@
+---
+title: "Starting ReplayGate: recording an agent before I can replay it"
+description: "Update 1 of a new build log. ReplayGate records a multi-turn AI agent's LLM and tool calls into a deterministic fixture so I can replay them offline and catch regressions. This first slice is the trace contract, a DuckDB span store, the record/replay wrappers, and a CLI that writes a fixture — 20 tests, no network."
+project: "replaygate"
+update: 1
+pubDate: 2026-06-30T08:00:00-03:00
+tags: ["python", "pydantic", "duckdb", "typer", "tdd", "llm-agents", "testing", "building-in-public"]
+draft: false
+---
+
+I'm starting a second project in public, so this is update one of a fresh log. It's **ReplayGate**: a regression-testing harness for multi-turn AI agents. The problem it chews on is one anyone who has shipped an LLM agent knows — the thing is non-deterministic, it talks to a model and calls tools, and a prompt tweak that looks harmless can quietly break a conversation three turns deep. Unit tests don't catch that, and you can't diff two runs that never produce the same bytes.
+
+ReplayGate's bet is the same one a flight recorder makes: capture the run once, exactly, then replay it as many times as you want. This first slice is the *record* half plus the foundation everything else hangs on. Replay, divergence detection, and the CI gate are the next plan — I'll get to why I split it that way.
+
+## The one contract everything depends on
+
+Before any capture code, I wrote the trace contract: a small tree of Pydantic v2 models — `Message`, `ToolCall`, `Turn`, `Conversation` — that every other module imports and nothing gets to bypass. A `Conversation` is just turns, and it carries the query helpers I'll need when I start asserting things about agent behavior:
+
+```python
+class Conversation(BaseModel):
+    id: str
+    scenario: str
+    channel: Literal["direct", "whatsapp"]
+    session_meta: SessionMeta
+    turns: list[Turn] = Field(default_factory=list)
+    agent_version: str = ""
+    model: str = ""
+
+    def all_tool_calls(self) -> list[ToolCall]:
+        return [tc for turn in self.turns for tc in turn.tool_calls]
+
+    def user_confirmed_before(self, turn_index: int) -> bool:
+        ...
+```
+
+`user_confirmed_before` is the tell for where this is going. The agent I'm testing is a booking assistant, and the invariant I care about is *"never book before the user confirms."* That's a cross-turn property — exactly the kind of thing that's invisible to a single assertion and obvious to a recording you can walk start to finish.
+
+## Record the model, not the wire
+
+The interesting design decision is *where* to capture. The obvious move is to record HTTP — `vcrpy` cassettes, fake the server. I deliberately didn't. ReplayGate records at the **application seam**: it wraps the agent's LLM client and its tool registry, and logs calls there.
+
+The whole reason that works is a one-method protocol the agent depends on instead of a concrete SDK — the same provider-agnostic [`LLMClient` abstraction](/blog/provider-agnostic-llm-abstraction/) I keep reaching for:
+
+```python
+class LLMClient(Protocol):
+    def create(self, model, system, messages, tools) -> LLMResponse: ...
+```
+
+Because the agent only knows that protocol, I can slot a recorder in front of the real client. In record mode it calls through and logs the exchange under a stable key; in replay mode it answers from the log and never touches the network:
+
+```python
+def create(self, model, system, messages, tools) -> LLMResponse:
+    key = request_key(model, system, messages, tools)
+    if self._mode == "replay":
+        for entry in self._recording:
+            if entry["request_key"] == key:
+                return LLMResponse.model_validate(entry["response"])
+        raise KeyError(f"no recorded LLM response for request_key {key[:12]}…")
+    response = self._inner.create(model, system, messages, tools)
+    self._recording.append({"request_key": key, "request": {...}, "response": response.model_dump()})
+    return response
+```
+
+The key is a sha256 over the model, system prompt, messages, and tools, serialized with `sort_keys=True` so it's stable across runs. Tools get the same treatment in a `ToolRecorder` keyed on `(name, args)`. Recording at this layer means the fixture is readable JSON about *what the agent actually did* — not opaque HTTP bodies — and the replay matching keys on meaning, not byte order. That's the payoff for not faking the wire.
+
+This is the same lesson RegWatch's ingestor taught me from the other direction — [fake the client, not the server](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) — and it's why the entire ReplayGate test suite runs with zero network calls. The Anthropic SDK is a dependency; it is never imported in a test.
+
+## A black box needs somewhere to write
+
+Capture without storage is a stunt, so the other half of this slice is persistence. Each recorded conversation becomes a fixture *directory*, not a blob:
+
+```
+conversation.json     # the trace contract, serialized
+llm_recording.json    # every LLM exchange, keyed
+tool_recording.json   # every tool call + result
+spans.jsonl           # OpenTelemetry-aligned timing spans
+meta.json             # scenario, agent version, model, recorded_at
+```
+
+The spans go to a DuckDB store, with attributes aligned to OpenTelemetry's GenAI semantic conventions (`gen_ai.request.model`, `gen_ai.agent.name`, and friends) so the timing data speaks a standard vocabulary instead of one I invented. `write` then `read` round-trips through real DuckDB in a test — no mock — because a store you can't read back is just a delete with extra steps.
+
+## The honest part: I record spans I don't write yet
+
+Here's the deferral I want to name out loud rather than bury. The record orchestrator builds a full fixture — turns, LLM log, tool log, metadata — and sets `spans=[]`. The span store is built and tested; the *wiring* that emits spans during a record run isn't.
+
+That's on purpose. Nothing consumes spans until the replay-and-compare work in the next plan, and threading OTel instrumentation through the capture loop before there's a consumer is how you ship a half-feature that drifts out of sync with its only user. So the store lands now with its own tests, and the instrumentation lands next to the thing that reads it. A `[TODO]` in code is a smell; a tracked deferral with a reason is a decision. This is the second kind.
+
+## Where the boring code bit me
+
+I built this strictly test-first — one machine-readable plan, twelve tasks, each a failing test before a line of implementation, in the [plan format I've written about before](/blog/machine-readable-plan-format/). Eleven tasks went green without drama. The twelfth, the CLI, did not.
+
+I'd wired the recorder behind a single Typer command and the test invoked it as a subcommand: `record booking_happy ./out`. It blew up:
+
+```
+Usage: record [OPTIONS] SCENARIO_NAME OUT_DIR
+╭─ Error ─────────────────────────────────────────────╮
+│ Got unexpected extra argument(s) (./out)            │
+╰─────────────────────────────────────────────────────╯
+SystemExit: 2
+```
+
+The cause is a Typer sharp edge: when an app has exactly one command, Typer collapses it into a single-command app, so `record` is parsed as the *first positional argument*, not a subcommand name. `record` landed in `scenario_name`, `booking_happy` in `out_dir`, and the real path fell off the end. The fix is one no-op callback that forces Typer back into multi-command mode:
+
+```python
+@app.callback()
+def main() -> None:
+    """ReplayGate CLI."""
+```
+
+Mildly maddening, completely undramatic, and exactly the kind of thing a test-first loop surfaces in seconds instead of in a demo. With that in place:
+
+```
+$ replaygate record booking_happy ./fx
+recorded booking_happy → ./fx
+$ python -m pytest -q
+....................                          [100%]
+20 passed
+```
+
+Twenty tests, ruff clean, fully offline.
+
+## The bug I planted on purpose
+
+The reference booking agent ships with an `inject_regression` flag. Flip it on and the agent books an appointment even when the model never signaled a confirmation step — the precise cross-turn failure `user_confirmed_before` exists to catch. Right now it's just a seed: the recorder will happily capture both the good run and the broken one. Catching the difference is what the *replay* half is for, and wiring that payoff is the whole reason I built the detector's vocabulary into the contract first.
+
+## What I learned
+
+Two things worth keeping. First, choosing the capture seam is the entire design — recording at the application layer instead of HTTP is what makes the fixture mean something and the replay deterministic, and it cost nothing because the agent already talked to a protocol, not a vendor. Second, a deferral you can defend in a sentence ("the store has no consumer until the next plan") is a feature of build-in-public; a deferral you can't is just a gap you're hiding.
+
+## What's next
+
+The *replay* half: feed `llm_recording`/`tool_recording` back in replay mode, run the recorded conversation against the current agent, and diff the two into a `ConversationDiff`. That's where `inject_regression` finally gets caught, where the OTel spans get wired in, and where a `replaygate regress` command and a CI gate turn this from a recorder into an actual regression test.
+
+ReplayGate is open source from day one — the contract, the record/replay wrappers, and the CLI above live at [**github.com/bessavagner/replaygate**](https://github.com/bessavagner/replaygate). I'm genuinely unsure I've picked the best snapshot strategy here: if you've regression-tested an LLM agent, did you record at the app layer like this, fall back to HTTP cassettes, or go the eval-dataset route instead? I'd like to compare notes before I commit to the replay design.

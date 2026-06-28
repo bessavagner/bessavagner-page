@@ -10,6 +10,16 @@
       "startDate": "2026-06-20",
       "status": "active",
       "stack": ["Django", "PostgreSQL", "Postgres FTS", "LLM summarization"]
+    },
+    {
+      "slug": "replaygate",
+      "title": "ReplayGate",
+      "tagline": "Record/replay regression testing for multi-turn AI agents",
+      "blurb": "A harness that records a conversation with an AI agent — its LLM calls and tool calls — into a deterministic fixture, then replays it offline to catch cross-turn regressions before they ship.",
+      "repo": "https://github.com/bessavagner/replaygate",
+      "startDate": "2026-06-28",
+      "status": "active",
+      "stack": ["Python", "Pydantic v2", "DuckDB", "Typer", "pytest"]
     }
   ]
 }
