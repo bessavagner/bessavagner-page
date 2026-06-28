@@ -44,6 +44,10 @@ const analyticsSrc = import.meta.env.PUBLIC_ANALYTICS_SRC ?? 'https://plausible.
 // verification is an alternative that needs no code.)
 const gscVerification = import.meta.env.PUBLIC_GSC_VERIFICATION;
 
+// Google Analytics 4 (gtag.js). Set PUBLIC_GA4_MEASUREMENT_ID=G-XXXXXXXXXX.
+// Loaded only in production builds so dev traffic never reaches GA4.
+const ga4Id = import.meta.env.PROD ? import.meta.env.PUBLIC_GA4_MEASUREMENT_ID : undefined;
+
 // Display: Space Grotesk (400–700). Body: Plus Jakarta Sans (300–700). Mono: JetBrains Mono (400).
 const fontHref =
   'https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400&display=swap';
@@ -141,6 +145,18 @@ const fontHref =
       <script is:inline defer src={analyticsSrc} data-website-id={analyticsWebsiteId}></script>
     ) : analyticsDomain && (
       <script is:inline defer data-domain={analyticsDomain} src={analyticsSrc}></script>
+    )}
+
+    {ga4Id && (
+      <>
+        <script is:inline async src={`https://www.googletagmanager.com/gtag/js?id=${ga4Id}`}></script>
+        <script is:inline define:vars={{ ga4Id }}>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', ga4Id);
+        </script>
+      </>
     )}
   </head>
   <body class="relative flex flex-col min-h-[100dvh] bg-base-100">
