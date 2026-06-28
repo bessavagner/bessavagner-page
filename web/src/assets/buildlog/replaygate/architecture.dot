@@ -1,0 +1,54 @@
+digraph replaygate {
+  rankdir=TB;
+  bgcolor="#0e121b";
+  pad=0.35;
+  nodesep=0.34;
+  ranksep=0.6;
+  fontname="Helvetica,Arial,sans-serif";
+  fontcolor="#e6e8eb";
+  fontsize=15;
+  labelloc="t";
+  label=<<b>ReplayGate &#8212; the full product</b><br/><font point-size="11" color="#9aa3b2">solid = shipped in v0 (record half)&#160;&#160;&#183;&#160;&#160;dashed = roadmap</font><br/> >;
+
+  node [shape=box, style="rounded,filled", fontname="Helvetica,Arial,sans-serif", fontsize=11,
+        fillcolor="#1b2230", color="#34d399", fontcolor="#e7f6ef", penwidth=1.5, margin="0.20,0.12"];
+  edge [color="#8b93a7", penwidth=1.3, arrowsize=0.8,
+        fontname="Helvetica,Arial,sans-serif", fontsize=9, fontcolor="#9aa3b2"];
+
+  subgraph cluster_record {
+    label=<<font color="#34d399"><b>RECORD &#183; shipped</b></font>>;
+    labeljust="l"; color="#243042"; style="rounded"; fontsize=11; penwidth=1; margin=16;
+    agent [label="AI agent\n(booking assistant)"];
+    chan  [label="Channel adapter\ndirect (shipped) · WhatsApp (roadmap)"];
+    rec   [label="RecordingLLMClient\nwraps the LLMClient protocol"];
+    tools [label="ToolRecorder\nwraps the tool registry"];
+    fix   [label="Fixture directory\nconversation · llm · tool · spans · meta", shape=folder, fillcolor="#16203a", color="#3a4a63"];
+    store [label="DuckDB span store\nOTel gen_ai.* conventions"];
+  }
+
+  subgraph cluster_replay {
+    label=<<font color="#8794aa"><b>REPLAY &#8594; DIFF &#8594; ASSERT &#8594; GATE &#183; roadmap</b></font>>;
+    labeljust="l"; color="#2a3142"; style="rounded,dashed"; fontsize=11; penwidth=1; margin=16;
+    node [color="#64748b", fontcolor="#aab2c0", fillcolor="#141a24", style="rounded,filled,dashed"];
+    replay [label="Replayer\nLLM in replay mode, tools mocked\nrun vs new model / prompt"];
+    diff   [label="ConversationDiff\nbaseline vs current path"];
+    inv    [label="Cross-turn invariants\nuser_confirmed_before(...)\n\"never books before confirm\""];
+    gate   [label="replaygate regress\nCI gate — pass / fail"];
+  }
+
+  // shipped edges (solid)
+  agent -> chan [label="runs on"];
+  chan  -> rec;
+  chan  -> tools;
+  rec   -> fix [label="record"];
+  tools -> fix [label="record"];
+
+  // roadmap / deferred edges (dashed)
+  edge [style=dashed, color="#5b6472"];
+  rec  -> store [label="spans (wiring: next)"];
+  fix  -> replay [label="feed back"];
+  replay -> diff;
+  diff -> inv;
+  inv  -> gate;
+  store -> diff [label="timing"];
+}

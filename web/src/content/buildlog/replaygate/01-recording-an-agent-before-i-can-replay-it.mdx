@@ -8,9 +8,16 @@ tags: ["python", "pydantic", "duckdb", "typer", "tdd", "llm-agents", "testing", 
 draft: false
 ---
 
+import { Image } from 'astro:assets';
+import architecture from '../../../assets/buildlog/replaygate/architecture.svg';
+
 I'm starting a second project in public, so this is update one of a fresh log. It's **ReplayGate**: conversation-level regression testing for multi-turn, channel-native AI agents. The problem it chews on is one anyone who has shipped an LLM agent knows, and the regressions that bite hardest aren't in any single reply. The agent books before the user confirmed — three turns back. It re-asks for something it was already told. It forgets a constraint the user set earlier in the session. A prompt tweak that looks harmless trips one of these, and *per-turn* assertions sail right past it, because they only ever look at one reply at a time. You can't diff two runs that never produce the same bytes, either.
 
 ReplayGate's bet is the same one a flight recorder makes: capture the whole conversation once, exactly — on the channel it actually ran on — then replay it as many times as you want and assert the cross-turn properties that matter. This first slice is the *record* half plus the foundation everything else hangs on. Replay, the cross-turn divergence detection, and the CI gate are the next plan — I'll get to why I split it that way.
+
+Here's the whole machine I'm building toward — and, honestly, how little of it exists yet. This update is the green half on top; everything dashed is the next plan.
+
+<Image src={architecture} alt="ReplayGate's full architecture as two stages. The shipped 'record' half (top): an AI agent runs behind a channel adapter (direct shipped, WhatsApp on the roadmap); a RecordingLLMClient wraps the LLMClient protocol and a ToolRecorder wraps the tool registry, both writing to a fixture directory (conversation, llm, tool, spans, meta) and a DuckDB span store using OpenTelemetry gen_ai conventions; the span-wiring edge is dashed because it's deferred. The roadmap 'replay → diff → assert → gate' half (bottom): the fixture feeds a Replayer that runs it against a new model with tools mocked, a ConversationDiff compares baseline versus current path, cross-turn invariants like user_confirmed_before assert 'never books before confirm', and a replaygate regress command gates CI on pass or fail." />
 
 ## The one contract everything depends on
 
