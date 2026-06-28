@@ -46,6 +46,7 @@ const action = handle ? `https://buttondown.com/api/emails/embed-subscribe/${han
         fetch(action, { method: 'POST', body: new FormData(f), mode: 'no-cors' });
         const status = f.parentElement && f.parentElement.querySelector('[data-bd-status]');
         if (status) status.classList.remove('hidden');
+        (window as any).gtag?.('event', 'newsletter_signup', { method: 'buttondown' });
         f.reset();
       } catch {
         f.submit(); // fall back to a native POST (opens Buttondown's confirm page)

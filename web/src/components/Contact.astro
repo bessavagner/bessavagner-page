@@ -71,6 +71,7 @@ const accessKey = import.meta.env.PUBLIC_WEB3FORMS_KEY ?? '';
           status.textContent = "Thanks! I'll get back to you soon.";
           status.className = 'text-sm text-center mt-3 text-success';
           if (window.umami) window.umami.track('contact-form-submit');
+          if (window.gtag) window.gtag('event', 'generate_lead', { method: 'contact_form' });
         } else {
           status.textContent = json.message || 'Something went wrong. Please email me directly.';
           status.className = 'text-sm text-center mt-3 text-error';

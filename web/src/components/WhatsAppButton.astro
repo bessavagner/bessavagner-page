@@ -9,6 +9,7 @@ const href = whatsapp ? `${whatsapp}?text=${encodeURIComponent(greeting)}` : '';
 {href && (
   <a
     href={href}
+    id="whatsapp-fab"
     target="_blank"
     rel="noopener"
     aria-label="Chat on WhatsApp"
@@ -20,3 +21,8 @@ const href = whatsapp ? `${whatsapp}?text=${encodeURIComponent(greeting)}` : '';
     </svg>
   </a>
 )}
+<script is:inline>
+  document.getElementById('whatsapp-fab')?.addEventListener('click', function () {
+    if (window.gtag) window.gtag('event', 'whatsapp_click', { location: 'floating_button' });
+  });
+</script>
