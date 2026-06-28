@@ -14,8 +14,8 @@
     {
       "slug": "replaygate",
       "title": "ReplayGate",
-      "tagline": "Record/replay regression testing for multi-turn AI agents",
-      "blurb": "A harness that records a conversation with an AI agent — its LLM calls and tool calls — into a deterministic fixture, then replays it offline to catch cross-turn regressions before they ship.",
+      "tagline": "Cross-turn regression testing for multi-turn, channel-native AI agents",
+      "blurb": "A harness that records a real agent conversation — its LLM and tool calls — into a deterministic fixture, then replays it to assert cross-turn invariants like \"never books before the user confirms\": the whole-conversation bugs that per-turn tests miss, on the channel the agent actually runs on.",
       "repo": "https://github.com/bessavagner/replaygate",
       "startDate": "2026-06-28",
       "status": "active",
