@@ -193,3 +193,5 @@ A frozen-dataclass contract is what makes "test the core before the network exis
 ## What's next
 
 The **scheduler**: a management command wiring `fetch_editions → run_pipeline` on a daily cadence, headed for Cloud Run + Cloud Scheduler. That's also where the all-or-nothing resilience gets fixed for real and where `content_hash` finally gets persisted to skip unchanged ZIPs.
+
+RegWatch is now open source: the ingestor above, clean-room and TDD'd, lives at [**github.com/bessavagner/regwatch**](https://github.com/bessavagner/regwatch). Follow the repo if you want to watch the scheduler land in the next update.
