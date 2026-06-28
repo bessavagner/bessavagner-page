@@ -1,6 +1,6 @@
 name: Scheduled publish (rebuild on release dates)
 
-# Surfaces scheduled blog posts without any manual step.
+# Surfaces scheduled blog AND buildlog posts without any manual step.
 #
 # How it works:
 #   * Visibility is gated in code by `isPublic()` in web/src/lib/blog.ts: in a
@@ -8,16 +8,20 @@ name: Scheduled publish (rebuild on release dates)
 #     has arrived. So "publishing" a post = rebuilding the site on/after its date.
 #   * This job runs daily but only triggers the Cloud Run deploy on the dates
 #     listed in RELEASE_DATES below. On every other day it exits early, so the
-#     site is rebuilt (and a new post becomes visible) only every other day —
+#     site is rebuilt (and a new post becomes visible) only on release days —
 #     the actual cadence lives in each post's `pubDate`, mirrored here.
+#   * Timing: the cron fires at 12:05 UTC so it runs AFTER any morning-BRT
+#     pubDate (e.g. 08:00 -03:00 = 11:00 UTC). A cron earlier than a post's
+#     pubDate would rebuild before the post is due and silently hide it.
 #
 # To change the schedule: edit a post's `pubDate` and add/adjust the matching
-# date in RELEASE_DATES. To publish ad hoc: trigger this workflow manually
+# UTC date in RELEASE_DATES (mind that a `-03:00` timestamp can roll into the
+# next UTC day). To publish ad hoc: trigger this workflow manually
 # (workflow_dispatch) — the manual run skips the date check and always deploys.
 
 on:
   schedule:
-    - cron: '5 9 * * *' # 09:05 UTC daily; the date check below gates actual deploys
+    - cron: '5 12 * * *' # 12:05 UTC daily, after morning-BRT pubDates; date check below gates deploys
   workflow_dispatch: {}
 
 permissions:
@@ -29,12 +33,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Release calendar (every other day). Each date must match a post's
-      # pubDate in web/src/content/blog/*.mdx; isPublic() in src/lib/blog.ts
+      # Release calendar. Each date must match the UTC date of a post's pubDate
+      # in web/src/content/{blog,buildlog}/**.mdx; isPublic() in src/lib/blog.ts
       # surfaces a post once its pubDate has arrived and this job rebuilds.
+      # Blog lands on odd days; buildlog updates fill in gap days (e.g. 06-28).
       RELEASE_DATES: >-
-        2026-06-25 2026-06-27 2026-06-29 2026-07-01 2026-07-03 2026-07-05
-        2026-07-07 2026-07-09 2026-07-11 2026-07-13 2026-07-15
+        2026-06-25 2026-06-27 2026-06-28 2026-06-29 2026-07-01 2026-07-03
+        2026-07-05 2026-07-07 2026-07-09 2026-07-11 2026-07-13 2026-07-15
         2026-07-17 2026-07-19 2026-07-21 2026-07-23 2026-07-25
     steps:
       - name: Decide whether today is a release day
