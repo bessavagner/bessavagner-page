@@ -1,6 +1,6 @@
 ---
 title: "Starting ReplayGate: recording an agent before I can replay it"
-description: "Update 1 of a new build log. ReplayGate records a multi-turn AI agent's LLM and tool calls into a deterministic fixture so I can replay them offline and catch regressions. This first slice is the trace contract, a DuckDB span store, the record/replay wrappers, and a CLI that writes a fixture — 20 tests, no network."
+description: "Update 1 of a new build log. ReplayGate does conversation-level regression testing for multi-turn, channel-native AI agents — it records an agent's LLM and tool calls into a deterministic fixture, then replays them offline to catch the cross-turn bugs (like 'booked before the user confirmed') that per-turn tests miss. This first slice is the record half: the trace contract, a DuckDB span store, the record/replay wrappers, and a CLI — 20 tests, no network."
 project: "replaygate"
 update: 1
 pubDate: 2026-06-30T08:00:00-03:00
@@ -8,9 +8,9 @@ tags: ["python", "pydantic", "duckdb", "typer", "tdd", "llm-agents", "testing", 
 draft: false
 ---
 
-I'm starting a second project in public, so this is update one of a fresh log. It's **ReplayGate**: a regression-testing harness for multi-turn AI agents. The problem it chews on is one anyone who has shipped an LLM agent knows — the thing is non-deterministic, it talks to a model and calls tools, and a prompt tweak that looks harmless can quietly break a conversation three turns deep. Unit tests don't catch that, and you can't diff two runs that never produce the same bytes.
+I'm starting a second project in public, so this is update one of a fresh log. It's **ReplayGate**: conversation-level regression testing for multi-turn, channel-native AI agents. The problem it chews on is one anyone who has shipped an LLM agent knows, and the regressions that bite hardest aren't in any single reply. The agent books before the user confirmed — three turns back. It re-asks for something it was already told. It forgets a constraint the user set earlier in the session. A prompt tweak that looks harmless trips one of these, and *per-turn* assertions sail right past it, because they only ever look at one reply at a time. You can't diff two runs that never produce the same bytes, either.
 
-ReplayGate's bet is the same one a flight recorder makes: capture the run once, exactly, then replay it as many times as you want. This first slice is the *record* half plus the foundation everything else hangs on. Replay, divergence detection, and the CI gate are the next plan — I'll get to why I split it that way.
+ReplayGate's bet is the same one a flight recorder makes: capture the whole conversation once, exactly — on the channel it actually ran on — then replay it as many times as you want and assert the cross-turn properties that matter. This first slice is the *record* half plus the foundation everything else hangs on. Replay, the cross-turn divergence detection, and the CI gate are the next plan — I'll get to why I split it that way.
 
 ## The one contract everything depends on
 
@@ -34,6 +34,8 @@ class Conversation(BaseModel):
 ```
 
 `user_confirmed_before` is the tell for where this is going. The agent I'm testing is a booking assistant, and the invariant I care about is *"never book before the user confirms."* That's a cross-turn property — exactly the kind of thing that's invisible to a single assertion and obvious to a recording you can walk start to finish.
+
+The `channel` field on the model is there for the same reason. Agents don't run as tidy Python calls; they run on WhatsApp, on voice, on a webhook — where message ordering, chunking, and a session window quietly expiring mid-flow can break a conversation that passed every unit test. Modeling the channel as part of the trace means the same recording can be replayed as it actually happened, not as an idealized function call. The `direct` adapter ships in this slice; WhatsApp is on the roadmap, next to the agents I'd actually want to regression-test.
 
 ## Record the model, not the wire
 
@@ -131,4 +133,4 @@ Two things worth keeping. First, choosing the capture seam is the entire design 
 
 The *replay* half: feed `llm_recording`/`tool_recording` back in replay mode, run the recorded conversation against the current agent, and diff the two into a `ConversationDiff`. That's where `inject_regression` finally gets caught, where the OTel spans get wired in, and where a `replaygate regress` command and a CI gate turn this from a recorder into an actual regression test.
 
-ReplayGate is open source from day one — the contract, the record/replay wrappers, and the CLI above live at [**github.com/bessavagner/replaygate**](https://github.com/bessavagner/replaygate). I'm genuinely unsure I've picked the best snapshot strategy here: if you've regression-tested an LLM agent, did you record at the app layer like this, fall back to HTTP cassettes, or go the eval-dataset route instead? I'd like to compare notes before I commit to the replay design.
+ReplayGate is open source from day one — the contract, the record/replay wrappers, and the CLI above live at [**github.com/bessavagner/replaygate**](https://github.com/bessavagner/replaygate). The open question I keep circling: for *multi-turn* agents, is recording-and-replaying a real conversation the right regression primitive — or have you had better luck with per-turn LLM-judge evals, or with generated user-simulations? If you've ever tried to catch a cross-turn bug — the "it acted before the user confirmed" kind, three turns deep — I'd genuinely like to compare notes before I commit to the replay design.
