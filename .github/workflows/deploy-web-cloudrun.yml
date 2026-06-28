@@ -27,6 +27,9 @@ env:
   PUBLIC_ANALYTICS_WEBSITE_ID: d5bfb9cb-9af4-4245-9c52-abf95f0d82a1
   PUBLIC_ANALYTICS_SRC: https://cloud.umami.is/script.js
   PUBLIC_BUTTONDOWN_URL: https://buttondown.com/bessavagner
+  # Google Analytics 4 Measurement ID. Public (it ships in the page source), so
+  # it lives here rather than in a secret.
+  PUBLIC_GA4_MEASUREMENT_ID: G-0X4F4KLDSB
 
 jobs:
   check:
@@ -91,6 +94,7 @@ jobs:
             --build-arg PUBLIC_ANALYTICS_WEBSITE_ID="${PUBLIC_ANALYTICS_WEBSITE_ID}" \
             --build-arg PUBLIC_ANALYTICS_SRC="${PUBLIC_ANALYTICS_SRC}" \
             --build-arg PUBLIC_BUTTONDOWN_URL="${PUBLIC_BUTTONDOWN_URL}" \
+            --build-arg PUBLIC_GA4_MEASUREMENT_ID="${PUBLIC_GA4_MEASUREMENT_ID}" \
             -t "$IMG" \
             -t "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE}:latest" \
             web
