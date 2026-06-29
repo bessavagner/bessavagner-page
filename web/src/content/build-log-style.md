@@ -78,6 +78,18 @@ These are habits the early posts already show; lean into them, don't sand them o
   defer. That candor is what makes the log credible — don't bury it.
 - **Clean-room framing when it applies.** Reference techniques/tools as references
   only; never imply reuse of confidential or prior proprietary code.
+- **Avoid the em-dash.** An editing pass on the fingerprinting post stripped nearly
+  every `—`. Replace it with the punctuation that *names* the relationship: a colon
+  when it introduces (`patch the executable: find the byte sequences`), a comma or
+  paired commas for an aside (`and, crucially, cookies`), parentheses for a true
+  aside, or a full stop that starts a new sentence (`…the remote driver doesn't. So
+  if you run a grid…`). Em-dash pile-ups read as generated prose; splitting the
+  sentence usually reads better than spanning it with dashes.
+- **Don't announce honesty — show it.** The same pass cut self-conscious
+  throat-clearing: `Honest answer: …` became the claim itself, `One honest caveat
+  about dates:` became `A caveat:`, and `measured it instead of hand-waving` became
+  `measured it`. The candor belongs in the facts, not in adverbs about them. (A
+  corollary of "Show, don't announce" above.)
 
 ## Publishing mechanics (so a post doesn't go live early)
 `pubDate` is enforced in production: a post whose `pubDate` is in the future is
