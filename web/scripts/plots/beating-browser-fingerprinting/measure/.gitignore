@@ -1,0 +1,7 @@
+# Fetched at runtime / generated — not part of the harness source.
+.venv/
+node_modules/
+package.json
+package-lock.json
+creepjs/
+results/

@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>tells-running</title></head>
+<body>
+<h1 id="status">running</h1>
+<script>
+// Transparent panel of the automation/fingerprint signals the post discusses,
+// each evaluated individually. true = "looks like a real browser" (passed).
+(async () => {
+  const checks = {};
+  const safe = (name, fn) => { try { checks[name] = !!fn(); } catch (e) { checks[name] = null; } };
+
+  safe("webdriver_false", () => navigator.webdriver === false || navigator.webdriver === undefined);
+  safe("no_cdc_document_props", () => !Object.keys(document).some(k => /^[$]?[cw]dc_|^[$]?cdc_/.test(k)));
+  safe("no_cdc_window_props", () => !Object.keys(window).some(k => /cdc_|\$wdc_/.test(k)));
+  safe("chrome_object_present", () => !!window.chrome);
+  safe("plugins_nonzero", () => navigator.plugins && navigator.plugins.length > 0);
+  safe("mimetypes_nonzero", () => navigator.mimeTypes && navigator.mimeTypes.length > 0);
+  safe("languages_nonempty", () => Array.isArray(navigator.languages) && navigator.languages.length > 0);
+  safe("ua_no_headless", () => !/Headless/i.test(navigator.userAgent));
+  safe("productsub_ok", () => navigator.productSub === "20030107");
+  safe("window_outer_nonzero", () => window.outerWidth > 0 && window.outerHeight > 0);
+  safe("function_bind_native", () => /\{\s*\[native code\]\s*\}/.test(Function.prototype.bind.toString()));
+  safe("eval_length_33", () => eval.toString().length === 33);
+  safe("error_stack_clean", () => { try { null[0](); } catch (e) { return !/cdc_|selenium|webdriver|puppeteer/i.test(e.stack || ""); } return true; });
+  safe("connection_rtt_ok", () => { const c = navigator.connection; return !c || c.rtt === undefined || c.rtt > 0; });
+
+  // WebGL renderer: software rasterizer (SwiftShader/llvmpipe) is a headless tell.
+  safe("webgl_hardware", () => {
+    const gl = document.createElement("canvas").getContext("webgl");
+    if (!gl) return false;
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    const r = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "";
+    return !!r && !/SwiftShader|llvmpipe|Software|Mesa OffScreen/i.test(r);
+  });
+  safe("webgl_vendor_present", () => {
+    const gl = document.createElement("canvas").getContext("webgl");
+    if (!gl) return false;
+    const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+    return dbg ? !!gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL) : false;
+  });
+
+  // Permissions consistency: the classic "Notification denied but query says prompt" mismatch.
+  try {
+    const st = await navigator.permissions.query({ name: "notifications" });
+    checks["permissions_consistent"] = !(Notification.permission === "denied" && st.state === "prompt");
+  } catch (e) { checks["permissions_consistent"] = null; }
+
+  const vals = Object.values(checks).filter(v => v !== null);
+  const passed = vals.filter(Boolean).length;
+  window.__TELLS__ = { checks, passed, total: vals.length };
+  document.getElementById("status").textContent = "TELLS_DONE";
+  document.title = "TELLS_DONE";
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>botd-running</title></head>
+<body>
+<h1 id="status">running</h1>
+<script type="module">
+  import { load } from './node_modules/@fingerprintjs/botd/dist/botd.esm.js';
+  (async () => {
+    try {
+      const botd = await load();
+      // detect() returns {bot:false} or {bot:true, botKind:'<which detector fired>'}
+      const res = botd.detect();
+      // Also collect the raw component sources so we can score per-signal.
+      let components = null;
+      try { components = await botd.collect?.(); } catch (e) {}
+      window.__BOTD__ = { result: res, componentKeys: components ? Object.keys(components) : null };
+      document.getElementById('status').textContent = 'BOTD_DONE';
+      document.title = 'BOTD_DONE';
+    } catch (e) {
+      window.__BOTD__ = { error: String(e) };
+      document.title = 'BOTD_ERR';
+    }
+  })();
+</script>
+</body>
+</html>
