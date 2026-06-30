@@ -1,0 +1,73 @@
+---
+title: "Now I can replay it: offline regression testing for multi-turn AI agents"
+description: "Update 2 of the ReplayGate build log: the record half from #1 now replays. A recorded conversation re-runs offline with zero network (no provider SDK imported, no API key read), and the same capture seam records against five providers (Anthropic, OpenAI, OpenRouter, Ollama, Gemini) through one provider-agnostic client. With an honest note on the cross-turn detector that's still ahead."
+project: "replaygate"
+update: 2
+pubDate: 2026-06-30T12:00:00-03:00
+tags: ["python", "pydantic", "typer", "llm-agents", "testing", "building-in-public", "anthropic", "openai", "ollama"]
+draft: false
+---
+
+ReplayGate is conversation-level regression testing for multi-turn AI agents. The regressions it hunts live *between* turns: the agent books before the user confirmed, re-asks for something it was already told, forgets a constraint set three turns back.
+
+Per-turn assertions look at one reply at a time and sail right past those. So ReplayGate makes a flight recorder's bet: capture a real conversation once, exactly, then replay it offline and assert the cross-turn properties that matter.
+
+In [update #1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) I built the record half: capture an agent's LLM and tool calls into a deterministic fixture, and deliberately defer the part that pays it off. This update is that payoff. I can now replay those recorded conversations offline.
+
+## Replaying the recording
+
+Replay re-runs the agent over the fixture's user turns, but the LLM client answers from the recording instead of the network. The match is the same `sha256` over `(model, system, messages, tools)` from #1, so the agent runs its real logic and only the model and tool results are served from the log:
+
+```python
+def replay_conversation(fixture, agent_factory, tools):
+    rec_llm = RecordingLLMClient(inner=None, mode="replay", recording=fixture.llm_recording)
+    rec_tools = ToolRecorder(tools, mode="replay", recording=fixture.tool_recording)
+    agent = agent_factory(rec_llm, rec_tools)
+    # ...walk the recorded user turns, calling agent.respond, with no network
+```
+
+A `diff_conversations` then compares the recorded conversation against its replay, turn by turn, on assistant text and tool calls. The CLI wraps both:
+
+```
+$ replaygate replay ./fx
+replay OK — 2 turns reproduced offline, zero network
+```
+
+"Zero network" is literal: the replay path imports no provider SDK and reads no API key. To prove that rather than assert it, I replayed real recordings with every key unset (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and the rest), and they reproduced with an empty diff. A recorder you can't replay blind is just a logger.
+
+## Five providers, one seam
+
+The recorder generalized for almost nothing because of the decision in #1: the agent depends on a one-method [`LLMClient` protocol](/blog/provider-agnostic-llm-abstraction/), `create(model, system, messages, tools)`, not a vendor SDK. A recorder slots in front of the real client, and "the real client" can be anything that satisfies the protocol. So I wrote five. Anthropic goes through its official SDK; OpenAI, OpenRouter, Ollama, and Google Gemini go through one OpenAI-compatible client (the last three are just different base URLs and keys). The SDK imports are lazy, so the core package stays offline and dependency-free, and the test suite still never opens a socket.
+
+A `record-live` command points the booking agent at any of them:
+
+```
+$ replaygate record-live booking_happy ./fx --provider ollama --model qwen2.5:7b
+recorded booking_happy live via ollama → ./fx
+```
+
+Here's the part I didn't expect. I recorded the *same* two-turn scenario, where the user asks for slots and then says "yes, book 3pm", six times each against Anthropic's `claude-opus-4-6`, OpenAI's `gpt-5.4`, and a local `qwen2.5:7b`. Every run calls `search_slots` on turn one. Turn two is where they split:
+
+| provider / model | turn 2, over 6 runs |
+|---|---|
+| Anthropic `claude-opus-4-6` | re-asked for confirmation 6, never booked |
+| OpenAI `gpt-5.4` | booked all 6 |
+| Ollama `qwen2.5:7b` | booked 5, searched again 1 |
+
+Two things fall out of that. Two frontier models read the identical `yes, book 3pm` and reach opposite decisions: `gpt-5.4` books on every run, `claude-opus-4-6` re-asks for confirmation on every run, the same two user turns. And the small local model, `qwen2.5:7b`, disagrees with *itself*, booking five times and searching again on the sixth. That table is a single batch, not a fixed property: swap one model for another, or just run the same one twice, and the trajectory moves. That is the whole reason to record instead of re-run. As I put it in [update #1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/), you can't diff two runs that never produce the same bytes, so you capture one and replay *that*. The recording is the fixed point; the live model isn't.
+
+To be clear about what this is and isn't: these are recordings, not the diff catching a regression yet. But it's the exact signal the cross-turn checks exist for. Pin the trajectory you want, change the model or the prompt, replay, and a divergence is a regression you'd otherwise meet in production.
+
+## TODO
+
+The deferral to name plainly: replay today proves *faithful reproduction*. `diff_conversations` compares a recording against its own replay and confirms they match. What it does not yet do is assert cross-turn invariants across a *changed* agent, run `user_confirmed_before` over the replayed conversation and fail when the agent books before the user confirmed. That assertion, a `replaygate regress` command, and the OpenTelemetry span wiring I deferred in [update #1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) are the line between a faithful recorder and an actual regression test. It's the next update, and it's the entire point of the project.
+
+## What I learned
+
+Two things worth keeping. The provider-agnostic seam from [update #1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) paid a dividend I didn't have to work for: deterministic replay and a five-provider recorder both fell out of the same one-method protocol, at nearly zero cost. The seam was the whole design, again. And an independent review earns its keep precisely when you treat its findings as claims to test rather than edits to merge, the one I rejected would have regressed the very thing it flagged.
+
+## What's next
+
+The detector: wire the cross-turn invariants into a `replaygate regress` command, run them over the replayed conversation, and fail CI when the agent trips one. That's where the deliberately broken agent I planted in [update #1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/), its `inject_regression` seed, finally gets caught, and where the deferred OpenTelemetry timing spans get their first consumer.
+
+ReplayGate is open source at [**github.com/bessavagner/replaygate**](https://github.com/bessavagner/replaygate).
