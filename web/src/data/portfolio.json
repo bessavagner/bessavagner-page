@@ -271,43 +271,40 @@
       "ogImage": "images/og/aigents.png"
     },
     {
-      "id": "rhia",
-      "name": "RHIA",
-      "tagline": "AI-assisted HR platform — technical lead & coordination",
-      "summary": "An EMBRAPII/IFCE initiative in partnership with Jubilato: an AI-assisted human-resources platform. Role focused on technical leadership, architecture and coordination across backend, frontend and modeling teams.",
-      "body": "RHIA is an AI-assisted human-resources platform built as an EMBRAPII/IFCE initiative in partnership with Jubilato. Here the role centers on technical leadership and coordination rather than a single codebase: aligning backend, frontend and modeling teams across separate repositories, establishing AI-document and reporting conventions, and shaping a multi-tenant, LGPD-aware architecture on a Spring Boot and Angular stack. It is representative of senior, cross-functional delivery — owning architecture decisions and team coordination on a real institutional product. (Private / under NDA.)",
-      "kind": "leadership",
-      "role": "Lead developer & coordination",
+      "id": "replaygate",
+      "name": "ReplayGate",
+      "tagline": "Cross-turn regression testing for multi-turn AI agents",
+      "summary": "A harness that records a real agent conversation — its LLM and tool calls — into a deterministic fixture, then replays it to assert cross-turn invariants like \"never books before the user confirms\": the whole-conversation bugs that per-turn tests miss, on the channel the agent actually runs on.",
+      "body": "ReplayGate is a regression-testing harness for multi-turn AI agents that run on real channels like WhatsApp. It records a live conversation — every LLM call and tool call — into a deterministic fixture, then replays that fixture offline to assert cross-turn invariants: properties that span the whole conversation, such as \"never book an appointment before the user has confirmed\". These are the bugs per-turn unit tests miss, because they only emerge from the sequence of turns. It is built in Python with Pydantic v2 for typed fixtures, DuckDB for storage, a Typer CLI and a pytest integration — and it is being built in public.",
+      "kind": "dev-tooling",
+      "role": "Creator & maintainer",
       "featured": false,
       "order": 6,
       "year": 2026,
       "status": "active",
-      "private": true,
+      "private": false,
       "stack": [
-        "Spring Boot",
-        "Angular",
-        "AI pipelines",
-        "Multi-tenant",
-        "LGPD"
+        "Python",
+        "Pydantic v2",
+        "DuckDB",
+        "Typer",
+        "pytest"
       ],
       "highlights": [
-        "Technical coordination across backend / frontend / modeling repositories",
-        "AI-document and reporting conventions for the team",
-        "Multi-tenant and LGPD-aware architecture"
+        "Records a live agent conversation — LLM and tool calls — into a deterministic fixture",
+        "Replays fixtures offline to assert cross-turn invariants (e.g. \"never book before the user confirms\")",
+        "Catches whole-conversation bugs that per-turn unit tests miss",
+        "Built in public — follow the build log for ongoing updates"
       ],
-      "metrics": [
-        {
-          "label": "Context",
-          "value": "EMBRAPII · IFCE · Jubilato"
-        }
-      ],
+      "metrics": [],
       "links": {
-        "repo": "",
+        "repo": "https://github.com/bessavagner/replaygate",
         "live": "",
-        "case_study": ""
+        "case_study": "",
+        "buildlog": "/building/replaygate/"
       },
       "image": "",
-      "ogImage": "images/og/rhia.png"
+      "ogImage": ""
     },
     {
       "id": "rumo-ao-zero",
@@ -376,42 +373,39 @@
       "ogImage": "images/og/sample-chat.png"
     },
     {
-      "id": "meta-agent",
-      "name": "Meta Agent",
-      "tagline": "An AI that builds AI agents",
-      "summary": "A meta-agent system that creates custom Mastra-based AI agents from natural language — researching best practices, interviewing for requirements, designing a plan and generating the implementation.",
-      "body": "Meta Agent is an AI system that builds other AI agents. Given a goal in natural language, it researches best practices, interviews the user to pin down requirements, designs a structured plan in JSON, and then generates a working Mastra-based agent implementation. Built in TypeScript with Mastra, PostgreSQL and OpenAI models, it includes an agent mock system for fast, zero-cost testing without live API calls and is backed by a substantial suite of 308 tests. It is an exploration of meta-programming for agentic AI — compressing the repetitive scaffolding of agent creation into an automated, testable pipeline.",
-      "kind": "ai-tooling",
+      "id": "regwatch",
+      "name": "RegWatch",
+      "tagline": "Google Alerts for the Diário Oficial da União (DOU)",
+      "summary": "A monitoring service that watches Brazil's federal gazette (the DOU) and alerts professional-services firms when their clients or topics are mentioned.",
+      "body": "RegWatch is a monitoring service for Brazil's federal gazette, the Diário Oficial da União (DOU). It watches each new edition and alerts professional-services firms — law and accounting practices and the like — whenever their clients or tracked topics are mentioned, so they no longer have to scan the gazette by hand. Built on Django and PostgreSQL, it uses Postgres full-text search to match mentions and LLM summarization to turn dense official-language passages into a short, readable digest. It is being built in public.",
+      "kind": "saas",
       "role": "Creator",
       "featured": false,
       "order": 9,
-      "year": 2025,
+      "year": 2026,
       "status": "active",
       "private": false,
       "stack": [
-        "TypeScript",
-        "Mastra",
+        "Django",
         "PostgreSQL",
-        "OpenAI"
+        "Postgres FTS",
+        "LLM summarization"
       ],
       "highlights": [
-        "Researches, interviews, designs and generates Mastra agents",
-        "Structured plan generation in JSON",
-        "Agent mock system for fast, zero-cost testing"
+        "Watches each new DOU edition and matches client names and tracked topics",
+        "Postgres full-text search for mention detection",
+        "LLM summarization condenses dense gazette passages into readable alerts",
+        "Built in public — follow the build log for ongoing updates"
       ],
-      "metrics": [
-        {
-          "label": "Tests",
-          "value": "308"
-        }
-      ],
+      "metrics": [],
       "links": {
-        "repo": "https://github.com/bessavagner/meta-agent",
+        "repo": "",
         "live": "",
-        "case_study": ""
+        "case_study": "",
+        "buildlog": "/building/regwatch/"
       },
       "image": "",
-      "ogImage": "images/og/meta-agent.png"
+      "ogImage": ""
     }
   ]
 }

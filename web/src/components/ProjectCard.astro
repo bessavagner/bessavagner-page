@@ -11,10 +11,8 @@ const extra = p.stack.length - tags.length;
   href={href}
   aria-label={`View ${p.name} project details`}
 >
-  <div class="flex items-center justify-between">
-    <h4 class="font-header-5 text-2xl font-bold text-base-content">{p.name}</h4>
-    {p.year && <span class="ubuntu-mono-regular text-xs text-base-content/60">{p.year}</span>}
-  </div>
+  {p.year && <span class="absolute top-6 right-6 ubuntu-mono-regular text-xs text-base-content/60">{p.year}</span>}
+  <h4 class="font-header-5 !text-3xl font-bold text-base-content pr-14">{p.name}</h4>
   <p class="font-base text-sm text-base-content/70 mt-2 flex-1">{p.tagline}</p>
   <ul class="flex flex-wrap gap-2 mt-4">
     {tags.map((t) => (
