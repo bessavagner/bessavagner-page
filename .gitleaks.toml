@@ -1,0 +1,20 @@
+# gitleaks configuration for bessavagner-page.
+# Extends gitleaks' bundled ruleset and carves out the values that are public
+# by design, so the secret scan flags only genuine leaks.
+title = "bessavagner-page gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentionally public or placeholder values (not secrets)."
+# The committed template carries empty keys / example placeholders only.
+paths = [
+  '''web/\.env\.example''',
+]
+# Identifiers that already ship in the page source (analytics website id, GA4
+# Measurement ID) and live in the deploy workflow env, not in secret storage.
+regexes = [
+  '''G-0X4F4KLDSB''',
+  '''d5bfb9cb-9af4-4245-9c52-abf95f0d82a1''',
+]

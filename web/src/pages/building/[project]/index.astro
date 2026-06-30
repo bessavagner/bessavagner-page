@@ -2,6 +2,7 @@
 import Base from '../../../layouts/Base.astro';
 import UpdateCard from '../../../components/building/UpdateCard.astro';
 import { getHubProjects, getVisibleUpdates } from '../../../lib/buildlog';
+import { jsonLd } from '../../../lib/jsonld';
 
 export async function getStaticPaths() {
   const projects = await getHubProjects();
@@ -39,8 +40,8 @@ const breadcrumb = {
 const isShipped = project.status === 'shipped';
 ---
 <Base title={`${project.title} — Building Publicly — Vagner Bessa`} description={project.blurb} ogType="article" rssHref="/building/rss.xml" rssTitle="Vagner Bessa — Building Publicly" spotlightGrid>
-  <script is:inline type="application/ld+json" set:html={JSON.stringify(blogSchema)} />
-  <script is:inline type="application/ld+json" set:html={JSON.stringify(breadcrumb)} />
+  <script is:inline type="application/ld+json" set:html={jsonLd(blogSchema)} />
+  <script is:inline type="application/ld+json" set:html={jsonLd(breadcrumb)} />
   <section class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
     <a href="/building/" class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← Building</a>
     <header class="mt-6">

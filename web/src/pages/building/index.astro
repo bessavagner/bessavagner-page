@@ -4,6 +4,7 @@ import BuildProjectCard from '../../components/building/BuildProjectCard.astro';
 import ShippedCard from '../../components/building/ShippedCard.astro';
 import SubscribeForm from '../../components/SubscribeForm.astro';
 import { getIndexData } from '../../lib/buildlog';
+import { jsonLd } from '../../lib/jsonld';
 
 const { active, shipped } = await getIndexData();
 const siteHref = (Astro.site?.href ?? 'https://bessavagner.com/').replace(/\/$/, '');
@@ -19,7 +20,7 @@ const pageSchema = {
 };
 ---
 <Base title="Building Publicly — Vagner Bessa" description="Updates from the projects I am building in public, grouped by project." rssHref="/building/rss.xml" rssTitle="Vagner Bessa — Building Publicly" spotlightGrid>
-  <script is:inline type="application/ld+json" set:html={JSON.stringify(pageSchema)} />
+  <script is:inline type="application/ld+json" set:html={jsonLd(pageSchema)} />
   <section class="w-11/12 max-w-4xl mx-auto pt-28 pb-20">
     <h1 class="font-header text-4xl md:text-5xl font-semibold">Building Publicly</h1>
     <p class="font-base text-lg text-base-content/70 mt-3">Progress updates from the projects I'm building in the open. Finished projects can be found under <a href="/#section-featured" class="text-primary hover:underline">Work</a>.</p>

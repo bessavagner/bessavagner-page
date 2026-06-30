@@ -8,12 +8,13 @@ import ProjectSection from '../components/ProjectSection.astro';
 import ProjectCard from '../components/ProjectCard.astro';
 import Contact from '../components/Contact.astro';
 import { portfolio } from '../lib/portfolio';
+import { jsonLd } from '../lib/jsonld';
 
 const { profile, featured, cards } = portfolio;
 const siteUrl = (Astro.site?.href ?? 'https://bessavagner.com/').replace(/\/$/, '');
 ---
 <Base>
-  <script is:inline type="application/ld+json" set:html={JSON.stringify({
+  <script is:inline type="application/ld+json" set:html={jsonLd({
     '@context': 'https://schema.org',
     '@type': 'ProfilePage',
     '@id': `${siteUrl}/#profile`,

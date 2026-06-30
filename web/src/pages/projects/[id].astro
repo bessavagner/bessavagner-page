@@ -3,6 +3,7 @@ import { Image } from 'astro:assets';
 import type { ImageMetadata } from 'astro';
 import Base from '../../layouts/Base.astro';
 import { asset, portfolio, type Project } from '../../lib/portfolio';
+import { jsonLd } from '../../lib/jsonld';
 
 export function getStaticPaths() {
   const all = [...portfolio.featured, ...portfolio.cards];
@@ -66,7 +67,7 @@ const creativeWork = {
   <script
     is:inline
     type="application/ld+json"
-    set:html={JSON.stringify({
+    set:html={jsonLd({
       '@context': 'https://schema.org',
       '@type': 'BreadcrumbList',
       itemListElement: [
@@ -75,7 +76,7 @@ const creativeWork = {
       ],
     })}
   />
-  <script is:inline type="application/ld+json" set:html={JSON.stringify(creativeWork)} />
+  <script is:inline type="application/ld+json" set:html={jsonLd(creativeWork)} />
 
   <article class="w-11/12 max-w-4xl mx-auto pt-28 pb-20">
     <a href="/#section-featured" class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">

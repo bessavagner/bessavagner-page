@@ -1,0 +1,31 @@
+name: Secret scan (gitleaks)
+
+# Tripwire against committing credentials (e.g. the Buttondown API key that
+# currently lives only in the git-ignored web/.env). Scans the diff on every
+# push/PR and the full history on demand. gitleaks-action v2 is free for
+# personal/individual repositories; no license key is required here.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history so pushes/PRs are scanned end to end
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml

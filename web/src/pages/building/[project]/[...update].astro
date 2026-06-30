@@ -7,6 +7,7 @@ import TableOfContents from '../../../components/blog/TableOfContents.astro';
 import { readingTime } from '../../../lib/blog';
 import { isVisible, splitUpdateId, getBuildProject } from '../../../lib/buildlog';
 import SubscribeForm from '../../../components/SubscribeForm.astro';
+import { jsonLd } from '../../../lib/jsonld';
 
 export async function getStaticPaths() {
   const updates = await getCollection('buildlog', isVisible);
@@ -54,8 +55,8 @@ const breadcrumb = {
 };
 ---
 <Base title={`${update.data.title} — Vagner Bessa`} description={update.data.description} ogImage={ogImage} ogType="article" rssHref="/building/rss.xml" rssTitle="Vagner Bessa — Building Publicly" spotlightGrid>
-  <script is:inline type="application/ld+json" set:html={JSON.stringify(blogPosting)} />
-  <script is:inline type="application/ld+json" set:html={JSON.stringify(breadcrumb)} />
+  <script is:inline type="application/ld+json" set:html={jsonLd(blogPosting)} />
+  <script is:inline type="application/ld+json" set:html={jsonLd(breadcrumb)} />
 
   <article class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
     <a href={`/building/${projectSlug}/`} class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← {project?.title ?? 'Build log'}</a>

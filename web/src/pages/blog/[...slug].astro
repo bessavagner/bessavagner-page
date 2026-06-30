@@ -6,6 +6,7 @@ import PostMeta from '../../components/blog/PostMeta.astro';
 import TableOfContents from '../../components/blog/TableOfContents.astro';
 import { readingTime, isPublic } from '../../lib/blog';
 import SubscribeForm from '../../components/SubscribeForm.astro';
+import { jsonLd } from '../../lib/jsonld';
 
 export async function getStaticPaths() {
   const posts = await getCollection('blog', isPublic);
@@ -45,8 +46,8 @@ const breadcrumb = {
 };
 ---
 <Base title={`${post.data.title} — Vagner Bessa`} description={post.data.description} ogImage={ogImage} ogType="article" spotlightGrid>
-  <script is:inline type="application/ld+json" set:html={JSON.stringify(blogPosting)} />
-  <script is:inline type="application/ld+json" set:html={JSON.stringify(breadcrumb)} />
+  <script is:inline type="application/ld+json" set:html={jsonLd(blogPosting)} />
+  <script is:inline type="application/ld+json" set:html={jsonLd(breadcrumb)} />
 
   <article class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
     <a href="/blog/" class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← All posts</a>
