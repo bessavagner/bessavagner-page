@@ -1,0 +1,108 @@
+---
+title: "Caught in the act: a regress gate that fails CI when an agent books before you confirm"
+description: "Update 3 of the ReplayGate build log: the record-and-replay from #1 and #2 becomes an actual regression test. A pure-function invariant suite judges a whole replayed conversation (booked-before-confirm, re-asked order id, forgotten dietary constraint), a replaygate regress command turns a violation into an exit code, and a GitHub Actions gate fails the build on a cross-turn bug. Plus the punctuation bug hiding in the flagship invariant's own happy path, and a review finding that made the CI gate honest."
+project: "replaygate"
+update: 3
+pubDate: 2026-07-02T12:00:00-03:00
+tags: ["python", "pydantic", "typer", "llm-agents", "testing", "ci", "tdd", "github-actions", "building-in-public"]
+draft: false
+---
+
+ReplayGate is conversation-level regression testing for multi-turn AI agents. A *cross-turn* regression is a bug that lives between turns, not inside any single reply: the agent books before the user confirmed, re-asks for an order number it was already given, forgets a "no dairy" constraint set two turns back. Per-turn assertions look at one reply at a time and miss every one of them.
+
+The bet since [#1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) has been a flight recorder's: capture a real conversation once, replay it offline, and assert the properties that span the whole thing. [#1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) built the record half. [#2](/building/replaygate/02-offline-regression-testing-for-ai-agents/) made those recordings replay with zero network. Both updates closed on the same confession: I could record and I could replay, but I could not yet *fail* on a cross-turn bug. This update is that failure, made deliberate. ReplayGate now has an invariant suite and a `regress` gate that turns a red result into a non-zero exit code.
+
+## Judging a whole conversation
+
+The new `invariants.py` is the layer that per-turn checks structurally can't reach. Each invariant is a pure function, `Conversation -> InvariantResult`, with no IO and no network. The flagship one is the property [#1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) built the vocabulary for, *never book before the user confirms*:
+
+```python
+def booked_only_after_confirmation(conv: Conversation) -> InvariantResult:
+    name = "booked_only_after_confirmation"
+    for turn in conv.turns:
+        booked = any(tc.name == "book_appointment" for tc in turn.tool_calls)
+        if booked and not conv.user_confirmed_before(turn.index + 1):
+            return InvariantResult(name=name, passed=False,
+                detail=f"turn {turn.index}: booked before the user confirmed")
+    return InvariantResult(name=name, passed=True,
+        detail="every booking followed a confirmation")
+```
+
+`InvariantResult` carries three fields: `name`, `passed` (True means the invariant *held*), and a human `detail` that names the offending turn. Two more ship alongside it: `order_id_never_reasked` catches an assistant asking for an order id the user already gave (regex over the earlier turns), and `dietary_constraint_honored` reads the recorded tool-call *result* and flags a dish that contains dairy after the user said no dairy. Three agents, three cross-turn properties, one shape.
+
+## The bug hiding in the happy path
+
+Before any of that could work, I had to fix the helper underneath it. `user_confirmed_before` scans earlier turns for an affirmation (`yes`, `sure`, `confirm`). The booking scenario's happy path confirms with `"yes, book 3pm"`, and the old token check was `a in text.split()`. That splits on whitespace, so it saw `"yes,"` with the comma attached and never matched `"yes"`. The flagship invariant would have false-positived on its own happy path: reported a booking-before-confirm on the exact conversation where the user *did* confirm.
+
+The fix strips punctuation off each token before comparing:
+
+```python
+tokens = [t.strip(string.punctuation) for t in text.split()]
+if any(text == a or text.startswith(a + " ") or a in tokens for a in _AFFIRMATIONS):
+    return True
+```
+
+I built this whole slice test-first from [one machine-readable plan](/blog/machine-readable-plan-format/), so this surfaced the honest way: a failing test asserted `user_confirmed_before(2)` on `"yes, book 3pm"`, came back `False`, then the one-line fix. A detector that misfires on the good case is worse than no detector, because you learn to ignore it. Better to meet that in a red test than in a review of a real agent.
+
+## From invariant to gate
+
+A scenario-to-invariants registry maps each reference agent to the properties that must hold for it, and `run_regress` is the thin orchestrator that ties replay to judgment. It reuses the exact `replay_conversation` from [#2](/building/replaygate/02-offline-regression-testing-for-ai-agents/), so the whole thing runs offline, then checks the invariants over the *replayed* conversation:
+
+```python
+def run_regress(fixture, build_agent, tools) -> RegressReport:
+    replayed = replay_conversation(fixture, build_agent, tools)   # zero network
+    scenario = fixture.conversation.scenario
+    results = check_conversation(replayed, invariants_for(scenario))
+    return RegressReport(scenario=scenario, results=results)
+```
+
+That is the line [#2](/building/replaygate/02-offline-regression-testing-for-ai-agents/) said was still ahead: not "does the replay match its own recording," but "does the replayed conversation still satisfy the properties I care about." The `replaygate regress` command wraps it with exit codes, `0` when every invariant held, `1` on a violation, `2` for an unreadable or unknown fixture:
+
+```
+$ replaygate regress ./_fx_happy
+  [PASS] booked_only_after_confirmation: every booking followed a confirmation
+regress OK (booking_happy): 1 invariant(s) held      # exit 0
+
+$ replaygate regress ./_fx_bad
+  [FAIL] booked_only_after_confirmation: turn 1: booked before the user confirmed
+regress FAILED (booking_books_without_confirm_regression): 1 invariant(s) violated   # exit 1
+```
+
+## The bug I planted in #1, finally caught
+
+That `_fx_bad` fixture is the payoff I set up two updates ago. Back in [#1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) I gave the reference booking agent an `inject_regression` flag: flip it on and it books even when the model never signaled a confirmation. This update adds the scenario that exercises it, `booking_books_without_confirm_regression`, where the user's second turn is only *"hmm, let me think about it"* and the agent books anyway. Record it, replay it offline, run the invariant, and the gate goes red on turn 1. The seed from [#1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) is now a caught bug.
+
+## The gate, and the review that made it honest
+
+The end-to-end version lives in a GitHub Actions workflow: lint, run the offline suite, then record both a clean fixture and the regressed one and assert the gate's verdict on each. My first pass at the negative test was the obvious shape:
+
+```yaml
+if replaygate regress ./_fx_bad; then
+  echo "expected the regressed fixture to FAIL, but it passed"; exit 1
+fi
+```
+
+I keep the authoring and the review in separate lanes, so a fresh code review pass ran over the diff, and it flagged this. The `if` treats *any* non-zero exit as success. If `regress` had exited `2` (a broken or unreadable fixture) instead of `1` (a real invariant violation), CI would go green as though it had caught the bug, when actually it had caught nothing. A gate that passes on the wrong kind of failure is worse than no gate. The fix asserts the exact code:
+
+```yaml
+replaygate regress ./_fx_bad && rc=0 || rc=$?
+if [ "$rc" -ne 1 ]; then
+  echo "expected exit 1 (invariant violation), got exit $rc"; exit 1
+fi
+```
+
+This is the same lesson [#2](/building/replaygate/02-offline-regression-testing-for-ai-agents/) landed from the other side: a review earns its keep when you treat its findings as claims to test, not edits to rubber-stamp. Last time the useful move was *rejecting* a finding that would have regressed the thing it flagged. This time it was accepting a small one that turned a gate I trusted into one I'd verified.
+
+## What I learned
+
+The contract-first bet from [#1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) paid its last installment here. Because `user_confirmed_before` was baked into the `Conversation` model in the very first slice, the invariant layer was mostly assembly: the hard shape was already decided, and the three checks are a few pure functions over a tree that already knew how to answer cross-turn questions. Designing the query vocabulary before I had a consumer looked premature at the time. It was the opposite.
+
+And the un-glamorous one: a gate is only worth as much as the failures it can prove. Writing a green gate is easy. The work is making it go red for the right reason and *only* the right reason, which is why the punctuation false-positive and the exit-code review mattered more than the feature they sit under.
+
+The suite is **56 tests now, up from 42**, and not one of them imports a provider SDK, reads an API key, or opens a socket. The invariants and the gate run on a laptop with everything unplugged.
+
+## What's next
+
+**Cross-version regress.** Today the gate replays a fixture against the same scenario's own agent, so it catches a broken agent against a pinned trajectory. The real prize is recording a conversation from agent version A and replaying a *different* candidate B against it, which is where a prompt tweak or a model swap that quietly changes behavior gets caught before production. After that, the channel adapters beyond `direct` (WhatsApp first) and finally wiring the OpenTelemetry timing spans I've deferred since [#1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) through the capture loop, now that the gate is a real consumer for them.
+
+The invariant suite, `run_regress`, the `regress` command, and the CI workflow above are on `main` at [**github.com/bessavagner/replaygate**](https://github.com/bessavagner/replaygate). The question I'm sitting with before I build cross-version regress: when you regression-test an agent across a model or prompt change, do you pin *behavioral invariants* like these, or do you compare full trajectories and eyeball the diff? I've now built the invariant side. I'd like to hear from anyone who has lived with the trajectory-diff side long enough to know where it hurts.
