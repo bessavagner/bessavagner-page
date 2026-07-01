@@ -399,7 +399,7 @@
       ],
       "metrics": [],
       "links": {
-        "repo": "",
+        "repo": "https://github.com/bessavagner/regwatch",
         "live": "",
         "case_study": "",
         "buildlog": "/building/regwatch/"
