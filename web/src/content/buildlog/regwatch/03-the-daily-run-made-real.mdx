@@ -1,0 +1,192 @@
+---
+title: "From mocking to knocking: a real AI that builds the digest and knocks on the inbox"
+description: "Update 3 of the RegWatch build log: turning a pipeline that was tested against fakes into a real daily run that can run unattended. A single command, real Anthropic and Resend integrations behind the existing interfaces, per-section resilience so one bad article can't sink the day, a run logbook, and an honest account of a feature I promised in #2 and chose to drop."
+project: "regwatch"
+update: 3
+pubDate: 2026-07-01T06:00:00-03:00
+tags: ["django", "tdd", "httpx", "anthropic", "resilience", "clean-room", "building-in-public", "govtech"]
+draft: true
+---
+
+*Diário Oficial da União* (DOU) is Brazil's official federal gazette. RegWatch is like a "Google Alerts for the DOU".
+
+DOU is a daily government record where laws, fines, appointments, grants and public tenders get published. RegWatch is the product I'm building in public, and this post is the third update in that log.
+
+Think of a law or accounting firm that needs to know the moment a client's name shows up in it; checking by hand across dozens of clients is tedious, error-prone work. RegWatch is intended to watch the gazette for them and email a short, categorized digest of every hit.
+
+The first two updates built the machinery and tested it. By the end of [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) the whole pipeline existed: 
+
+1. fetch the day's gazette;
+2. find the articles a client cares about;
+3. summarize each with an LLM and email the digest.
+
+The next step: plug in an LLM and an email sender. That was the plan I closed [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) with.
+
+The present update brings you **the scheduler**: fetch today's gazette and run the pipeline end to end, once a day, unattended.
+
+The scheduler is way more than a cron job. Think "AI summarizer that emails you".
+
+## The seam from [#1](/building/regwatch/01-starting-regwatch-clean-room-core/) finally earns its keep
+
+Back in [#1](/building/regwatch/01-starting-regwatch-clean-room-core/) I drew two seams with Python `Protocol`s: one for something that can summarize an act, one for something that can send an email:
+
+```python
+class LLMClient(Protocol):
+    def summarize(self, act_text: str, terms: list[str]) -> Summary: ...
+
+class EmailSender(Protocol):
+    def send(self, to: str, subject: str, body: str) -> None: ...
+```
+
+The whole core was tested against *fake* versions of those, mocking both the LLM call and the email. That let me focus on the core pipeline and lock in a test suite for `LLMClient` and `EmailSender` long before either had a real implementation. This is the **Ports and Adapters** pattern (also called Hexagonal Architecture), resting on the Dependency Inversion Principle: the core depends only on the abstract *ports* (the `Protocol`s), and concrete *adapters* get plugged in from the outside, so the business logic never knows whether it's wired to a fake or the real thing.
+
+## One command to run them all
+
+The entrypoint is a single management command, `run_daily`. It defaults to *today in São Paulo time* (the gazette is a Brasília thing), fetches the day, runs the pipeline with whatever adapters the settings name, and wraps the whole thing in a `RunLog`:
+
+```python
+def handle(self, *args, **options):
+    run_date = (
+        datetime.date.fromisoformat(options["date"])
+        if options["date"]
+        else datetime.datetime.now(SAO_PAULO).date()
+    )
+    log = RunLog.objects.create(date=run_date, status="running")
+    try:
+        editions = fetch_editions(run_date)
+        run_pipeline(
+            editions, get_llm_client(), get_email_sender(),
+            max_enrich=settings.REGWATCH_MAX_ENRICH_PER_RUN,
+        )
+        # counts derived from the DB for this date, then status="success"
+    except Exception:
+        log.status = "failed"
+        log.errors = traceback.format_exc()
+        log.finished_at = timezone.now()
+        log.save()
+        raise          # exit non-zero so the scheduler notices
+```
+
+A great advantage: the pipeline is agnostic about which model and email provider it uses. Also, in case of failure, it re-raises instead of swallowing; this is what will let Cloud Scheduler page me when a run dies (that's next update stuff).
+
+## Real faces behind the masks
+
+`get_llm_client()` and `get_email_sender()` are a four-line factory: each reads a class name from settings (a dotted Python path like `enrichment.anthropic_client.AnthropicLLMClient`) and builds it with `.from_env()`, so *which* implementation runs is a config value, not a code change:
+
+```python
+def get_llm_client():
+    return import_string(settings.REGWATCH_LLM_CLIENT).from_env()
+
+def get_email_sender():
+    return import_string(settings.REGWATCH_EMAIL_SENDER).from_env()
+```
+
+```python
+REGWATCH_LLM_CLIENT = os.environ.get(
+    "REGWATCH_LLM_CLIENT", "enrichment.anthropic_client.AnthropicLLMClient")
+REGWATCH_EMAIL_SENDER = os.environ.get(
+    "REGWATCH_EMAIL_SENDER", "digests.resend.ResendEmailSender")
+```
+
+That indirection means tests run the fake pair, production runs the real pair, and neither the command nor the pipeline has an `if testing:` branch anywhere. The defaults point at the two real implementations (the *adapters*, each a class that fits one of the seams from [#1](/building/regwatch/01-starting-regwatch-clean-room-core/)) this update adds:
+
+- **`AnthropicLLMClient`** — posts to the Messages API with a system prompt that demands *JSON only*: a one-line PT-BR summary, a `category` from the fixed taxonomy (`grant, penalty, appointment, tender, regulation, other`), and a `confidence`. It defends against the model misbehaving — an unknown category is coerced to `other`, confidence is clamped to `[0, 1]`, and an unparseable reply raises `ValueError` (which the enricher already swallows, leaving the match un-enriched rather than crashing the run). The model is `claude-haiku-4-5` — cheap and fast, because this runs over hundreds of acts a day.
+
+- **`ResendEmailSender`** — a thin `POST https://api.resend.com/emails` with bearer auth and a `{from, to, subject, text}` body.
+
+Here's the part I care about most for testability: **both are HTTP clients, and neither touches the network in the test suite.** They're exercised entirely through httpx's `MockTransport`, exactly the technique from [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) — the client's real auth, headers, JSON shaping, and error handling all run; only the wire is faked. The test asserts the request the model *would* send:
+
+```python
+client = AnthropicLLMClient("sk-test", transport=httpx.MockTransport(handler))
+result = client.summarize("Licença concedida à BETA CORP.", ["beta corp"])
+assert result.category == "grant"
+assert captured["headers"]["x-api-key"] == "sk-test"
+assert captured["body"]["model"] == "claude-haiku-4-5-20251001"
+```
+
+No recorded cassettes, no live LLM, no API key in CI. That's the same answer as last time: **fake the transport, not the server.**
+
+There's also a small but real product gap closed here: a `Client` now has an `email`. The notifier builds a digest for every client, but only *sends* when there's a recipient — an email-less client still gets a persisted digest, just marked `sent=False`:
+
+```python
+if not digest.sent and client.email:
+    sender.send(to=client.email, subject=f"RegWatch — {date}", body=body)
+    digest.sent = True
+```
+
+## The bad section that no longer sinks the day
+
+The gazette comes out in several sections each day (laws and decrees in one, appointments in another, and so on), and RegWatch downloads all of them. In [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) I wrote down a deferral honestly and left it: the fetch was **all-or-nothing**. One malformed article, or one unexpected error on any of the six sections, aborted the entire day for *every* section. I argued at the time that failing fast was acceptable because a run is idempotent and re-runnable (you can just run it again and get the same result), but I also said per-section isolation *"belongs with the scheduler, where observability and retry policy live."* This is that scheduler, so I paid the debt.
+
+Two `try/except`s, exactly where [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) said they'd go. Each section is now isolated:
+
+```python
+for section in SECTIONS:
+    try:
+        zip_bytes = client.download_section(date, section)
+        if zip_bytes is None:
+            continue
+        editions.append(parse_section_zip(
+            zip_bytes, source_url=client.section_url(date, section)))
+    except Exception:
+        logger.exception("section %s failed for %s — skipping", section, date)
+        continue
+```
+
+And inside a section, one unparseable XML member is skipped rather than killing its five thousand well-formed siblings:
+
+```python
+try:
+    parsed = parse_article(zf.read(name))
+except Exception:
+    logger.warning("skipping unparseable member %s in %s", name, source_url)
+    continue
+```
+
+The trade [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) worried about — a one-article gap vs. a one-day gap — is now a one-article gap, logged, with the rest of the day intact. The fields I depend on are present in 100% of the articles I measured, so this should rarely fire; but "rarely" is exactly the case you don't want taking down an unattended job.
+
+## A logbook for every run
+
+You can't operate something you can't see, so every run now writes a `RunLog`: `status` (`running → success | partial | failed`), per-stage counts (`editions, acts, matches, enriched, digests`), a captured error blob, and start/finish timestamps. The command fills the counts from the database for the run date after the pipeline returns, so the numbers reflect what actually landed, not what the code intended.
+
+Paired with it is a cheap insurance policy: a per-run **enrichment cap**. `run_pipeline` grew one keyword-only argument — `max_enrich` — that bounds how many new matches get sent to the (paid) LLM in a single run:
+
+```python
+for match in match_edition(edition):
+    if max_enrich is not None and enriched >= max_enrich:
+        continue
+    enrich_match(match, llm)
+    enriched += 1
+```
+
+The default is `200`. On a normal day with a handful of watched firms it never trips; on the day a watch term accidentally matches half the gazette, it's the difference between a surprising-but-bounded bill and an unbounded one. The argument is keyword-only with a `None` default, so every existing call site from [#1](/building/regwatch/01-starting-regwatch-clean-room-core/) and [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) is untouched.
+
+## What I said I'd do and didn't: `content_hash`
+
+On update [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) I shipped a `content_hash(data)` then, unused, and wrote: *"INlabs stamps a fresh Last-Modified on every ZIP… so timestamps are useless. The scheduler will hash bytes instead."*
+
+The scheduler is here, and it **does not** hash bytes. I dropped the idea on purpose.
+
+The reasoning that survived contact with the actual scheduler: the cost that hashing was meant to save is already bounded three other ways. The cadence is once a day, so re-parsing is cheap and infrequent. The pipeline is idempotent by construction — those unique constraints from [#1](/building/regwatch/01-starting-regwatch-clean-room-core/) mean re-ingesting the same edition is a no-op, not a duplicate. And the expensive step, LLM enrichment, only ever runs on *new* matches, never on re-seen acts. Persisting a content hash to skip a re-parse would add a piece of stateful bookkeeping to save CPU I'm not spending. So it stays a deferral with a reason, not a feature.
+
+I didn't delete `content_hash`, though — it's a four-line pure function with a test, and it's the right primitive *if* DO2/DO3 volume ever makes re-parse CPU actually hurt. Keeping a tested primitive on the shelf is cheap; building state I don't need is not. The honest version of "I'll hash bytes later" was "I measured the cost and it isn't worth it" — and saying so out loud is the whole point of writing these in public.
+
+## Not yet in the clouds
+
+The other thing [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/) promised was "headed for Cloud Run + Cloud Scheduler." This update gets the run *real and unattended-ready*, but it still runs from a management command. There's no GCP in it yet. And that's ok. Small steps are better than stumbling.
+
+"Make the run real" and "deploy the run" are different risk surfaces, so different steps. The first is about correctness: real adapters, resilience, observability, cost control — all testable on my machine against Postgres with no cloud account in the loop. The second is about operations: production settings (`DEBUG=False`, locked `ALLOWED_HOSTS`, security headers), secrets in Secret Manager instead of a `.env`, a Dockerfile, Cloud SQL, the pipeline as a Cloud Run Job, Cloud Scheduler triggers, and an alert when a `RunLog` ends `failed`. Bundling them would have meant debugging a JSON parse error and an IAM policy in the same sitting. So deployment is its own update.
+
+## What I learned
+
+The protocol-and-contract seam from [#1](/building/regwatch/01-starting-regwatch-clean-room-core/) did exactly what it was supposed to: I added a real LLM, a real email provider, a recipient field, resilience, a cost guard, and a logbook, and the matcher/enricher/notifier diff is essentially zero. When the cost of swapping a fake for a real thing is "write a class and point a setting at it," you designed the boundary in the right place.
+
+And the un-glamorous lesson: a promise in a build log is a hypothesis, not a commitment. `content_hash` looked obviously worth it when I wrote [#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/). Measured against the real scheduler, it wasn't. Writing that down — instead of quietly shipping it to look consistent — is the part that makes "building in public" mean something.
+
+The suite is now **56 tests, green on Postgres** (38 before this slice); not one of them touches the live gazette, a real LLM, or a real inbox.
+
+## What's next
+
+**Deploy & operate.** Production settings split, secrets in Secret Manager, a Dockerfile, Cloud SQL, the pipeline as a Cloud Run Job, Cloud Scheduler firing it on weekday mornings, and an alert the moment a `RunLog` ends `failed`. The run is real now; next it runs without me.
+
+The code above — `run_daily`, the real adapters, the resilience, the `RunLog` — is on `main` at [**github.com/bessavagner/regwatch**](https://github.com/bessavagner/regwatch). Follow the repo to watch it leave my laptop.
