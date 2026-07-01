@@ -1,6 +1,6 @@
 ---
 title: "Pulling structured data out of unstructured documents"
-description: "Résumés, recipes, invoices and receipts all hide structured facts in free-form layouts. Pulling them out reliably means combining a few well-known techniques — layout parsing, heuristics, NER, document-AI models, and a grounded LLM — rather than reaching for one hammer."
+description: "Résumés, recipes, invoices and receipts all hide structured facts in free-form layouts. Pulling them out reliably means combining a few well-known techniques (layout parsing, heuristics, NER, document-AI models, and a grounded LLM) rather than reaching for one hammer."
 pubDate: 2026-07-01
 heroImage: ../../assets/blog/pulling-structured-data-from-unstructured-documents/f1-by-field.svg
 tags: ["nlp", "information-extraction", "document-parsing", "llm", "python"]
@@ -10,27 +10,27 @@ draft: false
 import { Image } from 'astro:assets';
 import f1 from '../../assets/blog/pulling-structured-data-from-unstructured-documents/f1-by-field.svg';
 
-A résumé is a database row wearing a costume. Somewhere in that two-page PDF there's a name, an email, a phone number, a list of jobs with start and end dates, and a stack of skills — all the fields you'd want in a clean table. The trouble is that they're scattered across columns, headers, bullet lists, and tables, formatted however the author felt like that day. The same is true of a recipe (a title, a yield, an ingredient list with quantities, a sequence of steps), an invoice (a number, a date, line items, a total), or a receipt.
+A résumé is a database row wearing a costume. Somewhere in that two-page PDF there's a name, an email, a phone number, a list of jobs with start and end dates, and a stack of skills: all the fields you'd want in a clean table. The trouble is that they're scattered across columns, headers, bullet lists, and tables, formatted however the author felt like that day. The same is true of a recipe (a title, a yield, an ingredient list with quantities, a sequence of steps), an invoice (a number, a date, line items, a total), or a receipt.
 
-The facts are *structured*. The document isn't. Pulling one out of the other is the whole game, and the reliable way to do it is almost never a single technique. It's a small pipeline: parse the layout, apply deterministic rules where they're strong, and fall back to a language model only for the genuinely fuzzy fields — with a check that what the model gave you actually appears in the source.
+The facts are *structured*. The document isn't. Pulling one out of the other is the whole game, and the reliable way to do it is almost never a single technique. It's a small pipeline: parse the layout, apply deterministic rules where they're strong, and fall back to a language model only for the genuinely fuzzy fields, with a check that what the model gave you actually appears in the source.
 
-This post walks through that toolbox and, more importantly, *when to reach for each piece*. The code is fresh and generic, built on a couple of invented sample documents; nothing here is tied to a particular product or dataset.
+I keep meeting this problem in real work. [RegWatch](/building/regwatch/03-the-daily-run-made-real/), a regulatory-monitoring tool I'm building in public, reads the *Diário Oficial* (Brazil's official government gazette, published as long stretches of free-form text) and has to wrestle discrete, monitorable facts out of it. So this post walks through that toolbox and, more importantly, *when to reach for each piece*. The code here is fresh and generic, built on a couple of invented sample documents; nothing is tied to a particular product or dataset.
 
 ## The toolbox
 
 There's a temptation, especially now, to throw every document at an LLM and ask for JSON. Sometimes that's the right call. Often it's the expensive, slow, and least reliable option for fields a five-line regex would nail. It helps to know the full menu:
 
-- **Regex and heuristics** — fast, free, fully deterministic, and trivially auditable. Brilliant for fields with a regular surface form (emails, phone numbers, ISO dates, currency amounts). Brittle the moment the format wanders.
-- **Layout-aware parsing** — tools like [PyMuPDF](https://pymupdf.readthedocs.io/) and [pdfplumber](https://github.com/jsvine/pdfplumber) recover the *geometry* of a page: text blocks, lines, words, and tables, each with a bounding box. That spatial information is often the missing key — "the value to the right of the label `Total`" is a layout fact, not a text fact.
-- **Named-entity recognition (NER)** — a model like [spaCy](https://spacy.io/usage/linguistic-features#named-entities) tags spans as `PERSON`, `ORG`, `DATE`, `MONEY`, and so on. It generalises past fixed patterns without the cost of a large model, and it's the natural tool for "find the names and dates" when you can't predict their exact form.
-- **Document-AI models** — purpose-built transformers that read text *and* layout (and sometimes pixels). [LayoutLM](https://arxiv.org/abs/1912.13318) jointly pre-trains text and layout for document understanding; [Donut](https://arxiv.org/abs/2111.15664) goes OCR-free and decodes a document image straight into a structured sequence. These shine on scanned forms and receipts where pure-text approaches lose the spatial signal.
-- **LLM extraction** — the most flexible option. Hand the model some text and a schema, get structured output back. It handles messy, varied, semantically-loaded fields that defeat rules. The costs are real, though: latency, money, and a tendency to invent plausible values that aren't in the document. That last one is the whole reason for grounding, which we'll get to.
+- **Regex and heuristics**: fast, free, fully deterministic, and trivially auditable. Brilliant for fields with a regular surface form (emails, phone numbers, ISO dates, currency amounts). Brittle the moment the format wanders.
+- **Layout-aware parsing**: tools like [PyMuPDF](https://pymupdf.readthedocs.io/) and [pdfplumber](https://github.com/jsvine/pdfplumber) recover the *geometry* of a page: text blocks, lines, words, and tables, each with a bounding box. That spatial information is often the missing key: "the value to the right of the label `Total`" is a layout fact, not a text fact.
+- **Named-entity recognition (NER)**: a model like [spaCy](https://spacy.io/usage/linguistic-features#named-entities) tags spans as `PERSON`, `ORG`, `DATE`, `MONEY`, and so on. It generalises past fixed patterns without the cost of a large model, and it's the natural tool for "find the names and dates" when you can't predict their exact form.
+- **Document-AI models**: purpose-built transformers that read text *and* layout (and sometimes pixels). [LayoutLM](https://arxiv.org/abs/1912.13318) jointly pre-trains text and layout for document understanding; [Donut](https://arxiv.org/abs/2111.15664) goes OCR-free and decodes a document image straight into a structured sequence. These shine on scanned forms and receipts where pure-text approaches lose the spatial signal.
+- **LLM extraction**: the most flexible option. Hand the model some text and a schema, get structured output back. It handles messy, varied, semantically-loaded fields that defeat rules. The costs are real, though: latency, money, and a tendency to invent plausible values that aren't in the document. That last one is the whole reason for grounding, below.
 
-The skill isn't picking one. It's routing each *field* to the cheapest technique that handles it well, and only escalating when you have to.
+The skill isn't picking one. It's a routing problem, a tiered fallback: send each *field* to the cheapest technique that handles it well, and only escalate when you have to.
 
 ## Structure first
 
-Before you extract anything, get the document into a representation that preserves where things are. Flattening a PDF to a single string throws away the column structure, the table boundaries, and the label–value adjacency that make extraction tractable. Layout-aware parsers keep all of that.
+Before you extract anything, get the document into a representation that preserves where things are. Flattening a PDF to a single string throws away the column structure, the table boundaries, and the label-value adjacency that make extraction tractable. Layout-aware parsers keep all of that.
 
 PyMuPDF's `get_text("dict")` returns a nested structure of blocks → lines → spans, each carrying a bounding box. That's enough to reconstruct reading order, detect columns, or find the text physically next to a label:
 
@@ -60,11 +60,11 @@ for b in layout_blocks("sample_cv.pdf"):
     print(f"[{x0:6.0f},{y0:6.0f}] {b['text'][:60]}")
 ```
 
-Now you have positioned text. For tabular documents — invoices, receipts — pdfplumber's `extract_tables()` and `extract_words()` go further, recovering cells and word boxes directly. The point is the same either way: extraction gets dramatically easier once you can ask *where* something is, not just *whether* a string appears.
+Now you have positioned text. For tabular documents (invoices, receipts), pdfplumber's `extract_tables()` and `extract_words()` go further, recovering cells and word boxes directly. The point is the same either way: extraction gets dramatically easier once you can ask *where* something is, not just *whether* a string appears.
 
 ## Heuristics where they're strong
 
-With the text in hand, knock out the easy fields with deterministic rules. Emails, phone numbers, and amounts have regular enough surface forms that a regex is both faster and more trustworthy than any model — and when it's wrong, you can see exactly why.
+With the text in hand, knock out the easy fields with deterministic rules. Emails, phone numbers, and amounts have regular enough surface forms that a regex is both faster and more trustworthy than any model. When it's wrong, you can see exactly why.
 
 ```python
 import re
@@ -88,7 +88,7 @@ print(heuristic_fields(sample))
 #  'iso_date': []}
 ```
 
-For fields that are *named entities* rather than *fixed patterns* — a person's name, an organisation, a free-text date like "March 2021" — reach for NER instead. spaCy gives you typed spans without any pattern engineering:
+For fields that are *named entities* rather than *fixed patterns* (a person's name, an organisation, a free-text date like "March 2021"), reach for NER instead. spaCy gives you typed spans without any pattern engineering:
 
 ```python
 import spacy
@@ -114,14 +114,14 @@ This is the layer that does most of the work for free. Anything regex or NER res
 
 ## An LLM for the fuzzy fields (and grounding it)
 
-Some fields resist all of the above. "What is this candidate's most senior role?" or "Summarise the dietary tags for this recipe" require reading and judgement, not pattern matching. This is where an LLM earns its cost — but you have to constrain it and verify it.
+Some fields resist all of the above. "What is this candidate's most senior role?" or "Summarise the dietary tags for this recipe" require reading and judgement, not pattern matching. This is where an LLM earns its cost, but only if you constrain it and verify it.
 
 Two things make LLM extraction trustworthy:
 
-1. **Force the shape.** Give the model a JSON schema and require the output to conform to it, so you get a key for every field and nothing extra. Modern APIs support this directly — see OpenAI's [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs), which guarantees the response matches a supplied JSON Schema, and Anthropic's [tool use](https://docs.anthropic.com/en/docs/build-with-claude/tool-use), where a tool's `input_schema` plays the same role.
+1. **Force the shape.** Give the model a JSON schema and require the output to conform to it, so you get a key for every field and nothing extra. Modern APIs support this directly: OpenAI's [Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs) guarantees the response matches a supplied JSON Schema, and Anthropic's [tool use](https://docs.anthropic.com/en/docs/build-with-claude/tool-use) does the same job through a tool's `input_schema`. (I wrote about hiding those provider differences behind one interface in [a provider-agnostic LLM abstraction](/blog/provider-agnostic-llm-abstraction/).)
 2. **Ground every value.** A schema stops the model from omitting keys; it does *not* stop it from inventing a plausible email or a job title that's nowhere in the document. So after extraction, check that each value actually occurs in the source text. Anything that doesn't is flagged, not trusted.
 
-Here's the shape of it — provider-agnostic, with the grounding check as a hard gate:
+Here's the shape of it, provider-agnostic, with the grounding check as a hard gate:
 
 ```python
 import json
@@ -159,17 +159,17 @@ def ground(fields: dict, source: str) -> dict:
     return {"verified": verified, "flagged": flagged}
 ```
 
-The grounding step is deliberately strict — exact-substring is a starting point, and in practice you'll relax it (normalise whitespace, allow fuzzy matches for reformatted dates or amounts). But the principle holds: *an extracted value you can't trace back to the document is a claim, not a fact.* Treat it accordingly.
+The grounding step is deliberately strict: exact-substring is a starting point, and in practice you'll relax it (normalise whitespace, allow fuzzy matches for reformatted dates or amounts). But the principle holds: *an extracted value you can't trace back to the document is a claim, not a fact.* Treat it accordingly. That instinct, verify the model against a source of truth rather than take its word, is the same one behind [ReplayGate](/building/replaygate/03-the-regress-gate-catching-cross-turn-bugs/), where I judge a replayed agent conversation against invariants instead of trusting it ran clean.
 
 ## Measuring it
 
-You can't tune a pipeline you don't measure. Build a small benchmark of documents with hand-labelled answers, then score each field — precision, recall, F1 — for each technique. The per-field view is what tells you where to spend effort.
+You can't tune a pipeline you don't measure. Build a small benchmark of documents with hand-labelled answers, then score each field (precision, recall, F1) for each technique. The per-field view is what tells you where to spend effort.
 
-The chart below is from a **synthetic, illustrative** mini-benchmark (a handful of invented sample CVs and recipes), comparing heuristics alone against heuristics with a grounded-LLM fallback. The numbers aren't measured on any real corpus — they encode a pattern that shows up repeatedly in practice:
+The chart below is from a **synthetic, illustrative** mini-benchmark (a handful of invented sample CVs and recipes), comparing heuristics alone against heuristics with a grounded-LLM fallback. The numbers aren't measured on any real corpus: they encode a pattern that shows up repeatedly in practice.
 
 <Image src={f1} alt="Grouped bar chart of synthetic per-field F1: heuristics alone are near-perfect on email and phone but weaker on name, date and amount, where a grounded LLM fallback closes most of the gap." />
 
-The story it tells is the thesis of this whole post. Heuristics are essentially solved on regular fields (`email`, `phone`) — adding an LLM there buys you almost nothing and costs you latency and money. On the irregular fields (`name`, free-text `date`, locale-varying `amount`), the deterministic layer leaves real gaps, and that's exactly where the LLM fallback pays for itself. Routing per field — cheap rules first, model only for the hard parts — gets you most of the accuracy at a fraction of the cost of sending everything to the model.
+The story it tells is the thesis of this whole post. Heuristics are essentially solved on regular fields (`email`, `phone`). Adding an LLM there buys you almost nothing and costs you latency and money. On the irregular fields (`name`, free-text `date`, locale-varying `amount`), the deterministic layer leaves real gaps, and that's exactly where the LLM fallback pays for itself. Routing per field (cheap rules first, model only for the hard parts) gets you most of the accuracy at a fraction of the cost of sending everything to the model.
 
 ## A note on personal data
 
@@ -181,14 +181,14 @@ A few things that follow directly for an extraction pipeline:
 - **Be careful where the text goes.** Sending documents to a third-party LLM API means personal data leaves your premises. Know your provider's data-retention and training policies, and consider redacting obvious identifiers before the call, or running extraction locally for sensitive corpora.
 - **Log results, not raw documents.** Retain the structured output you need; avoid keeping copies of source documents you no longer require.
 
-None of this is legal advice — but building these habits into the pipeline from the start is far cheaper than retrofitting them.
+None of this is legal advice, but building these habits into the pipeline from the start is far cheaper than retrofitting them.
 
 ## References and further reading
 
-- [PyMuPDF — text extraction as a structured dictionary](https://pymupdf.readthedocs.io/en/latest/recipes-text.html) — `get_text("dict")` blocks, lines, spans and their bounding boxes
-- [pdfplumber](https://github.com/jsvine/pdfplumber) — word boxes, `extract_words()` and `extract_tables()` for layout-aware parsing
-- [spaCy — named entities](https://spacy.io/usage/linguistic-features#named-entities) — `doc.ents` with `PERSON` / `ORG` / `DATE` / `MONEY` labels
-- [LayoutLM (arXiv:1912.13318)](https://arxiv.org/abs/1912.13318) — pre-training text and layout for document image understanding
-- [Donut (arXiv:2111.15664)](https://arxiv.org/abs/2111.15664) — OCR-free document understanding · [Transformers model docs](https://huggingface.co/docs/transformers/en/model_doc/donut) showing JSON output via `token2json`
-- [OpenAI Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs) and [Anthropic tool use](https://docs.anthropic.com/en/docs/build-with-claude/tool-use) — constrain LLM output to a JSON schema
-- [GDPR](https://gdpr-info.eu/) (Regulation (EU) 2016/679) and [LGPD — Lei nº 13.709/2018](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm) — handling personal data in extracted documents
+- [PyMuPDF: text extraction as a structured dictionary](https://pymupdf.readthedocs.io/en/latest/recipes-text.html): `get_text("dict")` blocks, lines, spans and their bounding boxes
+- [pdfplumber](https://github.com/jsvine/pdfplumber): word boxes, `extract_words()` and `extract_tables()` for layout-aware parsing
+- [spaCy: named entities](https://spacy.io/usage/linguistic-features#named-entities): `doc.ents` with `PERSON` / `ORG` / `DATE` / `MONEY` labels
+- [LayoutLM (arXiv:1912.13318)](https://arxiv.org/abs/1912.13318): pre-training text and layout for document image understanding
+- [Donut (arXiv:2111.15664)](https://arxiv.org/abs/2111.15664): OCR-free document understanding · [Transformers model docs](https://huggingface.co/docs/transformers/en/model_doc/donut) showing JSON output via `token2json`
+- [OpenAI Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs) and [Anthropic tool use](https://docs.anthropic.com/en/docs/build-with-claude/tool-use): constrain LLM output to a JSON schema
+- [GDPR](https://gdpr-info.eu/) (Regulation (EU) 2016/679) and [LGPD (Lei nº 13.709/2018)](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm): handling personal data in extracted documents
