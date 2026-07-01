@@ -22,7 +22,7 @@ I keep meeting this problem in real work. [RegWatch](/building/regwatch/03-the-d
 
 ## The toolbox
 
-Now, I think that you'd agree that for a field a five-line regex would nail, handing it to an LLM is the slow, expensive, least reliable path. Knowing the full menu is what lets you tell those cases apart:
+And for a field a five-line regex would nail, handing it to an LLM is the slow, expensive, least reliable path. Knowing the full menu is what lets you tell those cases apart:
 
 - **Regex and heuristics**: fast, free, fully deterministic, and trivially auditable. Brilliant for fields with a regular surface form (emails, phone numbers, ISO dates, currency amounts). Brittle the moment the format wanders.
 - **Layout-aware parsing**: tools like [PyMuPDF](https://pymupdf.readthedocs.io/) and [pdfplumber](https://github.com/jsvine/pdfplumber) recover the *geometry* of a page: text blocks, lines, words, and tables, each with a bounding box. That spatial information is often the missing key: "the value to the right of the label `Total`" is a layout fact, not a text fact.
