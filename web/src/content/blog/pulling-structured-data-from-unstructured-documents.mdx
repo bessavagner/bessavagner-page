@@ -10,7 +10,11 @@ draft: false
 import { Image } from 'astro:assets';
 import f1 from '../../assets/blog/pulling-structured-data-from-unstructured-documents/f1-by-field.svg';
 
+Are you one of those who sends every document to an AI to pull out structured data? Sometimes it's the fastest call. Sometimes it's not the best solution.
+
 A résumé is a database row wearing a costume. Somewhere in that two-page PDF there's a name, an email, a phone number, a list of jobs with start and end dates, and a stack of skills: all the fields you'd want in a clean table. The trouble is that they're scattered across columns, headers, bullet lists, and tables, formatted however the author felt like that day. The same is true of a recipe (a title, a yield, an ingredient list with quantities, a sequence of steps), an invoice (a number, a date, line items, a total), or a receipt.
+
+Now think of processing thousands of résumés, recipes or receipts. Not practical at all, right? So you automate it, and that's where the real problem starts.
 
 The facts are *structured*. The document isn't. Pulling one out of the other is the whole game, and the reliable way to do it is almost never a single technique. It's a small pipeline: parse the layout, apply deterministic rules where they're strong, and fall back to a language model only for the genuinely fuzzy fields, with a check that what the model gave you actually appears in the source.
 
@@ -18,7 +22,7 @@ I keep meeting this problem in real work. [RegWatch](/building/regwatch/03-the-d
 
 ## The toolbox
 
-There's a temptation, especially now, to throw every document at an LLM and ask for JSON. Sometimes that's the right call. Often it's the expensive, slow, and least reliable option for fields a five-line regex would nail. It helps to know the full menu:
+Now, I think that you'd agree that for a field a five-line regex would nail, handing it to an LLM is the slow, expensive, least reliable path. Knowing the full menu is what lets you tell those cases apart:
 
 - **Regex and heuristics**: fast, free, fully deterministic, and trivially auditable. Brilliant for fields with a regular surface form (emails, phone numbers, ISO dates, currency amounts). Brittle the moment the format wanders.
 - **Layout-aware parsing**: tools like [PyMuPDF](https://pymupdf.readthedocs.io/) and [pdfplumber](https://github.com/jsvine/pdfplumber) recover the *geometry* of a page: text blocks, lines, words, and tables, each with a bounding box. That spatial information is often the missing key: "the value to the right of the label `Total`" is a layout fact, not a text fact.
