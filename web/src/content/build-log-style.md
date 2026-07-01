@@ -97,6 +97,17 @@ These are habits the early posts already show; lean into them, don't sand them o
   and recruiters the log is for. Definitions first, then the story. (Observed: an
   edit pass on #3 split the flowing hook into atomic "X is Y" sentences and led
   with them.)
+- **A direct question can open a post.** Aiming an honest question straight at the
+  reader ("Are you one of those who sends every document to an AI?") or dropping a
+  quick "right?" into a setup ("Not practical at all, right?") pulls a peer in
+  faster than a flat declarative lede, and it suits the "explaining to a sharp
+  friend" voice. Keep it a real question they might actually answer, not
+  manufactured engagement bait, and keep it tight: don't pad it with throat-clearing
+  ("I think you'd agree that…"), which is the same self-conscious hedge the "show,
+  don't announce" note warns against. One or two per post at most; the paragraphs
+  under it still carry the substance. (Observed: an edit pass on the
+  document-extraction post opened with the reader, then landed the concrete "a
+  résumé is a database row wearing a costume.")
 - **Name the pattern.** When an established pattern or principle is carrying the
   work, name it: Ports and Adapters / Hexagonal Architecture, Dependency Inversion,
   idempotency, test doubles. The recognized term is a keyword that signals
