@@ -85,15 +85,21 @@ const cv = asset(profile.links.cv);
 
     const P = { NX: 200, NZ: 130, zEase: 1.5, yaw: -0.42, tilt: 0.16, eye: 0.85, focal: 1.05,
       cxFrac: 0.4, horizonFrac: 0.1, bandV: 0.2,
-      ampNear: 0.9, ampFar: 0.08, ampEase: 1.9, // "mountain": tall near edge, flat far
-      seed: 0.6, wobble: 0.5, // fixed base shape + bounded breathing
-      speed: 0.55, dotMin: 0.45, dotMax: 1.7 };
+      ampNear: 2.4, ampFar: 0.05, ampEase: 2.0, // "mountain": tall near edge, flat far
+      seed: 0.6, wobble: 0.7, // fixed base shape + bounded breathing
+      speed: 0.95, dotMin: 0.45, dotMax: 1.7 };
     const setGrid = () => {
       P.NX = innerWidth < 640 ? 140 : 200;
       P.NZ = innerWidth < 640 ? 130 : 180;
       // Desktop (wide two-column hero) drops the band ~half a viewport lower so
       // it doesn't crowd the heading. Mobile placement is left untouched.
-      P.horizonFrac = innerWidth >= 1024 ? 0.30 : 0.1;
+      const desktop = innerWidth >= 1024;
+      P.horizonFrac = desktop ? 0.30 : 0.1;
+      // Tall, peaky mountains read well in the wide desktop band but overflow the
+      // narrow mobile hero, so mobile keeps the gentler, lower-amplitude envelope.
+      P.ampNear = desktop ? 2.4 : 0.72;
+      P.ampEase = desktop ? 2.0 : 2.4;
+      P.wobble = desktop ? 0.7 : 0.5;
     };
     const resize = () => {
       DPR = Math.min(devicePixelRatio || 1, 2);
