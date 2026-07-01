@@ -90,6 +90,36 @@ These are habits the early posts already show; lean into them, don't sand them o
   about dates:` became `A caveat:`, and `measured it instead of hand-waving` became
   `measured it`. The candor belongs in the facts, not in adverbs about them. (A
   corollary of "Show, don't announce" above.)
+- **Ground a cold reader before the recap.** Open by defining the domain and the
+  product in their own short, standalone sentences (what the *Diário Oficial* is,
+  what RegWatch does) *before* any "in #2 I…". A recap that buries the definition
+  inside a subordinate clause loses everyone who arrives cold, exactly the peers
+  and recruiters the log is for. Definitions first, then the story. (Observed: an
+  edit pass on #3 split the flowing hook into atomic "X is Y" sentences and led
+  with them.)
+- **Name the pattern.** When an established pattern or principle is carrying the
+  work, name it: Ports and Adapters / Hexagonal Architecture, Dependency Inversion,
+  idempotency, test doubles. The recognized term is a keyword that signals
+  competence and lets a reader map the idea onto something they already know. Gloss
+  it in the same breath, but say the name.
+- **Lists for sequences, prose for arguments.** A pipeline or any ordered process
+  reads better as a numbered list than as a comma-spliced sentence. Reserve flowing
+  prose for the reasoning; break the steps out.
+- **Anchor with a plain analogy before the code.** "Think of it as an AI summarizer
+  that emails you" lands before any snippet does. Lead with the everyday framing,
+  then earn it with the technical detail underneath.
+- **Be precise with AI vocabulary.** Don't inflate a single model call into an
+  "agent" or call a fixed pipeline "autonomous." Use the honest word (an LLM call, a
+  model, "AI" as the umbrella term). Overclaiming reads as hype to the exact
+  technical readers you most want to convince, and it collides with the
+  never-fabricate rule.
+- **Titles: wordplay plus famous keywords, still specific.** A little play in the
+  title is welcome (e.g. #3's "From mocking to knocking" rhyme, where "mocking" is
+  also the literal testing term for the fakes being replaced), but pair it with
+  recognizable, searchable terms (AI, LLM, Django, production, the pattern name) and
+  let the colon-subtitle carry the concrete specifics. The play is the hook; the
+  subtitle is the substance. Titles don't drive the URL (the slug comes from the
+  `NN-slug` filename), so retitling a draft is free.
 
 ## Publishing mechanics (so a post doesn't go live early)
 `pubDate` is enforced in production: a post whose `pubDate` is in the future is
