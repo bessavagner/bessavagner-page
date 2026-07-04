@@ -1,0 +1,114 @@
+---
+title: "Pass, fail, or diverged: cross-version regression testing for AI agents"
+description: "Update 4 of the ReplayGate build log: the regress gate from #3 grows the headline feature, replaying a fixture recorded from one agent against a different candidate. The catch is that a key-miss isn't a pass or a fail, it's a third outcome (the candidate left the recorded trajectory), resolved by a pinned/live policy and a distinct exit code 3. Three support-agent candidates demonstrate OK, DIVERGED, and FAILED against one recording. Plus the fixture-mutation bug a live fallback introduced, and finally wiring the OpenTelemetry spans I'd deferred since #1 through the capture loop."
+project: "replaygate"
+update: 4
+pubDate: 2026-07-04T05:00:00-03:00
+tags: ["python", "pydantic", "typer", "llm-agents", "testing", "opentelemetry", "observability", "tdd", "building-in-public"]
+draft: false
+---
+
+import { Image } from 'astro:assets';
+import verdictsLight from '../../../assets/buildlog/replaygate/regress-verdicts.light.png';
+import verdictsDark from '../../../assets/buildlog/replaygate/regress-verdicts.dark.png';
+
+ReplayGate is conversation-level regression testing for multi-turn AI agents. It records a real conversation once (every model call, every tool call) into a deterministic fixture, then replays it offline and checks the properties that span the whole conversation, the ones a single-reply assertion can't see.
+
+You reword your agent's system prompt. The replies still look fine. Did the behavior actually change? That question is the reason this update exists.
+
+[#3](/building/replaygate/03-the-regress-gate-catching-cross-turn-bugs/) built the gate: replay a recorded fixture, run a suite of cross-turn invariants over it, and turn a violation into a non-zero exit code. But that gate had a quiet limit. It replayed each fixture against the *same* agent that recorded it, so the trajectory always matched byte-for-byte and every check ran. That catches a broken agent against a pinned trajectory. It does not answer the prompt-tweak question, which is the whole point of a flight recorder: record a conversation from agent version A, then replay a *different* candidate B against it and see if your invariants still hold before B ships.
+
+## Why a different agent breaks the replay
+
+Recording is content-keyed. A recorded LLM exchange is stored under a `sha256` over `(model, system, messages, tools)`, and a tool call matches on its exact `(name, args)`. Replay a candidate that reproduces those calls and every key hits the recording, zero network. Replay a candidate that changes *anything* upstream (a reworded system prompt, a different model, a tool it decides to call one turn earlier) and it asks for a key that was never recorded.
+
+The old code answered that miss with a bare `KeyError`. A crash. Not a pass, not a fail, just a stack trace. Deciding what that miss actually *means* turned out to be the core of the whole feature.
+
+## Divergence is a third verdict, not a failure
+
+Here is the fork I had to resolve. A key-miss is not inherently a pass or a fail. It is an orthogonal fact: the candidate left the recorded trajectory. So I made it a first-class outcome instead of an exception. The bare `KeyError` became a typed `DivergenceError(kind, summary)` (`kind` is `"llm"` or `"tool"`), and the report grew a `Divergence(turn_index, kind, summary)` alongside the invariant results it already carried.
+
+That splits into a policy the caller picks, and it's a genuine tradeoff:
+
+1. **`pinned`** (the default, keeps the zero-network story): a key-miss short-circuits to a DIVERGED outcome. Replay stops at the diverging turn, and invariants past it are reported as *not evaluated*, because offline I genuinely cannot know what the candidate would have said next. Honest by construction.
+2. **`live`**: a key-miss falls back to the real provider, records the new exchange, and continues. The invariants then run over the candidate's *actual* trajectory. It costs a provider call and credentials, exactly like recording live does.
+
+`pinned` pins the trajectory, so a behavior-preserving reword still diverges. That is the honest face of content-keying, not a bug. `live` is the mode for "did the invariants survive a real change." The two policies land on three real exit codes (plus `2` for a bad or unknown fixture): `0` invariants held, `1` an invariant was violated, `3` diverged under `pinned`. Code `3` is only reachable under `pinned`, because `live` resolves every miss over the network.
+
+`run_regress` stays a thin orchestrator over the replay engine from [#2](/building/replaygate/02-offline-regression-testing-for-ai-agents/):
+
+```python
+def run_regress(fixture, build_agent, tools, *, policy="pinned", inner_llm=None):
+    try:
+        replayed = replay_conversation(fixture, build_agent, tools,
+                                       policy=policy, inner_llm=inner_llm)
+    except DivergenceError as e:
+        div = Divergence(turn_index=e.turn_index, kind=e.kind, summary=e.summary)
+        return RegressReport(scenario=..., policy=policy, divergences=[div])
+    results = check_conversation(replayed, invariants_for(fixture.conversation.scenario))
+    return RegressReport(scenario=..., policy=policy, results=results)
+```
+
+The invariants stay keyed on the *fixture's* scenario, never the candidate's. The candidate is being judged against agent A's contract, not its own.
+
+## Three candidates, three verdicts, one recording
+
+<Image src={verdictsLight} alt="Flow diagram titled 'cross-version regress'. On the left, two boxes, 'recording (A)' and 'candidate (B)', both feed arrows into a central amber diamond labelled 'regress' and annotated 'replay + invariants' and 'policy: pinned'. From the diamond, three colored arrows branch to three outcome boxes on the right, each tagged with the candidate that triggers it and its exit code: a blue 'OK' box via 'control' at exit 0, an amber 'DIVERGED' box via 'reworded' at exit 3, and a red 'FAILED' box via 'regressed' at exit 1. One recording replayed against a candidate agent yields one of three verdicts under the pinned policy." class="rg-fig-light rounded-xl border border-base-content/15" />
+<Image src={verdictsDark} alt="Flow diagram titled 'cross-version regress'. On the left, two boxes, 'recording (A)' and 'candidate (B)', both feed arrows into a central amber diamond labelled 'regress' and annotated 'replay + invariants' and 'policy: pinned'. From the diamond, three colored arrows branch to three outcome boxes on the right, each tagged with the candidate that triggers it and its exit code: a blue 'OK' box via 'control' at exit 0, an amber 'DIVERGED' box via 'reworded' at exit 3, and a red 'FAILED' box via 'regressed' at exit 1. One recording replayed against a candidate agent yields one of three verdicts under the pinned policy." class="rg-fig-dark rounded-xl border border-base-content/15" />
+
+<style>{`
+  .rg-fig-dark { display: none; }
+  [data-theme="custom-dark"] .rg-fig-light { display: none; }
+  [data-theme="custom-dark"] .rg-fig-dark { display: block; }
+`}</style>
+
+To keep every path real and testable I seeded a small `CANDIDATES` registry with three variants of the support agent, then recorded one `support_happy` fixture and ran each candidate against it under `pinned`:
+
+```
+$ replaygate regress ./fx --candidate support_control
+  [PASS] order_id_never_reasked: order id carried forward, never re-asked
+regress OK (support_happy): 1 invariant(s) held                 # exit 0
+
+$ replaygate regress ./fx --candidate support_reworded
+regress DIVERGED (support_happy): candidate left the recorded trajectory
+  - turn 0 [llm]: no recorded LLM response for request_key 2f7872ce4e7e…
+  invariants not evaluated (candidate left recorded trajectory)  # exit 3
+
+$ replaygate regress ./fx --candidate support_regressed
+  [FAIL] order_id_never_reasked: turn 1: re-asked for an order id already given on turn 0
+regress FAILED (support_happy): 1 invariant(s) violated          # exit 1
+```
+
+`support_control` is the recorded agent itself, so it reproduces every key and the invariant runs. `support_reworded` behaves identically but ships a different system prompt, so its first LLM call misses on turn 0 and the gate diverges (under `--policy live` the provider fills that miss, the invariant holds, and it comes back OK). `support_regressed` re-asks for an order id it was already given: its calls still key into the recording, so it doesn't diverge, it fails the invariant it violates. Three exit codes, one recording, no mocks.
+
+## The bug the live fallback smuggled in
+
+The `live` path had a subtle defect I'm glad a review caught before it caught me. When a miss falls back to the provider, the new exchange gets appended to the recording so replay can continue. But the recorder was appending to the fixture's *own* recording lists, the ones loaded straight off disk. So a single `live` run quietly mutated the fixture in memory: replay it twice in one process and the second run would find the first run's live calls already "recorded." A fixture that changes when you read it is not a fixture. The fix (commit `3b7dfcf`) is one line of defensiveness, copy the recording lists before replay so the loaded fixture stays pristine. Shared mutable state handed across a boundary is exactly where these hide.
+
+## The spans I'd been deferring since #1
+
+Since [#1](/building/replaygate/01-recording-an-agent-before-i-can-replay-it/) every fixture directory has advertised a `spans.jsonl` file, OpenTelemetry-aligned timing spans, right there in the documented layout. It was a lie of omission: `record.py` ended with `spans=[]`. The file was always empty. This update finally makes the capture loop emit them, provider-agnostic, no OpenTelemetry SDK dependency, still fully offline.
+
+A recording is now one trace: a `conversation` root span, with an `llm.create` or `tool.call` child timed around each real call as it happens.
+
+```python
+with spans.span("conversation", root_attributes):
+    for user_msgs in adapter.user_turns(scenario):
+        step = agent.respond(history)   # each llm.create / tool.call nests a child span
+```
+
+Timing comes from an injectable nanosecond clock (real in production, a deterministic counter in tests), so the structure stays testable. Recording `booking_happy` now writes five real spans (one root, two model calls, two tool calls) carrying GenAI convention attributes like `gen_ai.request.model` and `tool.name`. The fixture format finally tells the truth.
+
+## What I learned
+
+The useful idea here was refusing a binary. I spent the design stuck on "is a key-miss a pass or a fail," and both answers were wrong. Naming divergence as a third, orthogonal outcome dissolved the problem: the report carries *did it stay on the trajectory* separately from *did the invariants hold*, and the CLI reads a three-way status off that. When two questions keep fighting inside one boolean, the fix is usually a second axis, not a cleverer boolean.
+
+The un-glamorous one: the fixture-mutation bug was invisible in every single-run test, and only bit on a second `live` replay in the same process. Copying state at a boundary is boring, and boring is what keeps a fixture deterministic.
+
+The suite is **78 tests now, up from 56 in #3**, and not one of them imports a provider SDK, reads a key, or opens a socket. Cross-version replay, the divergence policy, and the new spans all run on a laptop with everything unplugged.
+
+## What's next
+
+Two of the three things I promised at the end of [#3](/building/replaygate/03-the-regress-gate-catching-cross-turn-bugs/) are now done: cross-version regress and the deferred spans. That leaves the one I've been circling since the start, **channel adapters beyond `direct`**, with WhatsApp first, because an agent that's correct in a unit test can still break on the channel from message ordering or session windows. After that, the surfaces: a semantic judge for the dimensions a deterministic predicate can't score, and a read-only dashboard that renders the baseline-versus-candidate diff those spans and divergences are already carrying.
+
+Everything above is on `main` at [**github.com/bessavagner/replaygate**](https://github.com/bessavagner/replaygate), now cut as `v0.1.0` under an MIT license. The question I keep turning over: `pinned` is honest but noisy (every harmless reword diverges), while `live` is truthful but spends a real provider call on every run. If you gate agent changes in CI, which would you make the default, and would you ever let a divergence alone fail a build? I've built both sides of that switch and I'm still not sure which way it should point by default.
