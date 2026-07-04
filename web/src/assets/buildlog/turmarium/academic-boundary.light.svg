@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" font-family="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="tm-arrow-blue-l" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5b63e6"/>
+    </marker>
+    <marker id="tm-arrow-red-l" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="675" fill="#ffffff"/>
+
+  <!-- academic module -->
+  <rect x="440" y="70" width="320" height="80" rx="14" fill="none" stroke="#5b63e6" stroke-width="2"/>
+  <text x="600" y="118" text-anchor="middle" font-size="27" fill="#20242e">academic module</text>
+
+  <!-- edges -->
+  <line x1="545" y1="150" x2="365" y2="316" stroke="#5b63e6" stroke-width="2.5" marker-end="url(#tm-arrow-blue-l)"/>
+  <line x1="655" y1="150" x2="835" y2="316" stroke="#dc2626" stroke-width="2.5" stroke-dasharray="8 7" marker-end="url(#tm-arrow-red-l)"/>
+
+  <text x="352" y="238" text-anchor="middle" font-size="25" fill="#5b63e6">imports</text>
+  <text x="852" y="238" text-anchor="middle" font-size="25" fill="#dc2626">forbidden</text>
+
+  <!-- core · public seam -->
+  <rect x="190" y="320" width="300" height="80" rx="14" fill="none" stroke="#3f4653" stroke-width="2"/>
+  <text x="340" y="368" text-anchor="middle" font-size="26" fill="#20242e">core · public seam</text>
+  <text x="340" y="432" text-anchor="middle" font-size="22" fill="#6b7280">api · models · permissions</text>
+
+  <!-- core · internals -->
+  <rect x="710" y="320" width="300" height="80" rx="14" fill="none" stroke="#b1b6c2" stroke-width="2"/>
+  <text x="860" y="368" text-anchor="middle" font-size="26" fill="#3a3f4a">core · internals</text>
+  <text x="860" y="432" text-anchor="middle" font-size="22" fill="#6b7280">auth · jwt · tenancy</text>
+
+  <!-- caption -->
+  <text x="600" y="548" text-anchor="middle" font-size="26" fill="#363b45">core never imports academic; the module wires itself onto the shared api</text>
+</svg>
