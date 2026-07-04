@@ -20,6 +20,16 @@
       "startDate": "2026-06-28",
       "status": "active",
       "stack": ["Python", "Pydantic v2", "DuckDB", "Typer", "pytest"]
+    },
+    {
+      "slug": "turmarium",
+      "title": "Turmarium",
+      "tagline": "Multi-tenant school-management SaaS with tenant isolation enforced in the database",
+      "blurb": "A B2B SaaS where a school registers its people and academic structure (disciplines, syllabi, terms, offerings/turmas, sessions, grades, attendance). Built English-first with pt-BR first-class as a Django modular monolith: the academic core is the stable spine, and every future capability (gamification, AI, exams) plugs in as a module through published contracts and domain events, never by importing the core. Tenant isolation is enforced at the database with Postgres row-level security.",
+      "repo": "",
+      "startDate": "2026-07-02",
+      "status": "active",
+      "stack": ["Django", "django-ninja", "PostgreSQL", "Postgres RLS", "JWT"]
     }
   ]
 }

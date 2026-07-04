@@ -1,0 +1,127 @@
+---
+title: "Starting Turmarium: proving one school can't read another's data"
+description: "Update 1 of a new build log. Turmarium is a multi-tenant B2B school-management SaaS, built English-first with pt-BR first-class, where the academic core is a stable spine and every future capability plugs in as a module through contracts and domain events, never by importing the core. This first slice is the foundation: a Django 6 + Ninja modular monolith, JWT auth with org/role claims, and tenant isolation proven at the database with Postgres row-level security. 19 tests, coverage 82%, and zero tenant-data endpoints yet, on purpose."
+project: "turmarium"
+update: 1
+pubDate: 2026-07-08T05:00:00-03:00
+tags: ["django", "django-ninja", "postgresql", "row-level-security", "multi-tenancy", "jwt", "tdd", "building-in-public"]
+draft: true
+---
+
+I'm starting a new project in public. It's **Turmarium**: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure (disciplines, syllabi, terms, offerings, sessions, grades, attendance), and runs a real term on it. The name is *turma* (Portuguese for a class or cohort) plus *-arium*, a place for them. It's built English-first because I'm building it in public, with Brazilian Portuguese as a first-class locale because that's who I want to sell it to.
+
+Turmarium is a rewrite. I built a single-tenant school system before, and it taught me one lesson the hard way: a satellite feature grew until it was most of the backend and dragged the academic core down with it when it broke. So this time the architecture is designed around one rule, and update one is about proving the part of that rule you can't retrofit later, tenant isolation, before I build anything on top of it.
+
+## The one rule
+
+The academic core is the stable spine. Every other capability, gamification, an AI assistant, exam grading, is a **module** that reads the core through published contracts and listens to its domain events (`EnrollmentCreated`, `AssessmentGraded`), and never imports the core's internals. The core does not know those modules exist.
+
+That's easy to say and easy to erode one convenient import at a time, so it's enforced in CI with [import-linter](https://import-linter.readthedocs.io/), not in a style guide:
+
+```toml
+[[tool.importlinter.contracts]]
+name = "core is independent of feature modules"
+type = "forbidden"
+source_modules = ["turmarium.core"]
+forbidden_modules = ["turmarium.academic", "turmarium.gamification", "turmarium.ai", "turmarium.exams"]
+```
+
+The shape is a **modular monolith**: one Django deployable, internally partitioned into bounded contexts, with an in-process event bus between them. Any module can be pulled into its own service later if real scaling pressure shows up, but that's a transport swap, not a rewrite, because the seams are already there.
+
+This first slice ships the seams (a module registry, an event bus, the boundary contract) but none of the school features. It's the foundation: Django 6 + django-ninja booting, JWT auth carrying the active org and role, the `TenantScoped` base every tenant-owned table extends, the Postgres row-level-security backstop, a CI gate, and Cloud Run deploy manifests. Ten tasks, each built strictly test-first from a [machine-readable plan](/blog/machine-readable-plan-format/): a failing test, then the smallest code that turns it green, then a review before the next task starts.
+
+## What makes tenant isolation the thing to prove first
+
+In a shared-schema multi-tenant app, every tenant's rows live in the same tables. One forgotten `WHERE organization_id = …` and school A is reading school B's roster. App-layer scoping (a tenant-aware manager on every query) is the first line of defense, but it's the kind of guarantee that holds until the one query that forgets. So the real backstop is at the database.
+
+Every tenant-owned model extends one abstract base:
+
+```python
+class TenantScoped(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = TenantManager()
+
+    class Meta:
+        abstract = True
+        indexes = [models.Index(fields=["organization"])]
+```
+
+Then a migration turns on Postgres row-level security and forces it, keyed off a per-request session variable (a GUC, in Postgres terms):
+
+```sql
+ALTER TABLE core_membership ENABLE ROW LEVEL SECURITY;
+ALTER TABLE core_membership FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON core_membership
+    USING (
+        current_setting('turmarium.org_id', true) IS NULL
+        OR organization_id = current_setting('turmarium.org_id', true)::bigint
+    );
+```
+
+The proof is a test that deliberately reaches under the app layer. It creates two orgs with one membership each, then counts rows with **raw SQL**, so no Django manager is doing the filtering. Only the database policy can:
+
+```python
+def _rls_count():
+    # Raw SQL bypasses the app-layer manager; only RLS can filter this.
+    with connection.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM core_membership")
+        return cur.fetchone()[0]
+
+def test_rls_blocks_cross_tenant_raw_sql(two_orgs):
+    a, b = two_orgs
+    with connection.cursor() as cur:
+        cur.execute("SET LOCAL turmarium.org_id = %s", [a.id])
+        assert _rls_count() == 1  # sees only org A's membership, not B's
+```
+
+## The test that lies if you run it wrong
+
+Here's the part I did not expect to matter as much as it did. This test passed the first time I wrote the policy. It also would have passed with **no policy at all**, because I was running it as the database owner, and a Postgres superuser (or any role with `BYPASSRLS`) bypasses even `FORCE ROW LEVEL SECURITY`. A green isolation test under a superuser proves nothing. It's a smoke detector wired to a light switch.
+
+The fix is to run migrations and the whole test suite as a deliberately unprivileged role, and to make that non-negotiable in CI so nobody quietly "simplifies" it back later:
+
+```yaml
+# NOTE: migrate/pytest run as turmarium_app, NOT the turmarium bootstrap
+# user. Postgres superusers (and any BYPASSRLS role) bypass even
+# FORCE ROW LEVEL SECURITY, so running the RLS isolation test as the
+# superuser would silently pass/fail for the wrong reason. Do not
+# "simplify" this back to the bootstrap user.
+```
+
+The role gets provisioned `NOSUPERUSER NOBYPASSRLS`, and I verified live that the app connects as exactly that (`rolsuper=False`, `rolbypassrls=False`). Now the raw `COUNT(*)` can only be filtered by the policy itself, which is the entire point.
+
+## Where the plan was wrong, and what I shipped instead
+
+The plan called for a strict fail-closed policy: no session variable set, no rows. That turns out to be self-contradictory for this particular table. `core_membership` is how you *discover* which org a user belongs to, and you have to read it at login, **before** any tenant context exists to set the variable. Fail-closed returns zero rows and blocks the context-free insert, so login breaks and every membership test with it.
+
+So the shipped policy is the one in the migration above: permit access when the variable is unset, filter when it's set. Isolation still holds where it counts (the moment a request is scoped to an org, cross-org rows vanish), and the residual is honest and written down: a context-free read of the identity table sees all of it. That's acceptable for an identity lookup table and gets tightened in a later slice with a `SECURITY DEFINER` lookup. Naming that tradeoff is cheaper than pretending the strict version worked.
+
+## The deferral I want to say out loud
+
+This slice ships **zero tenant-data endpoints**. The only live surface is `/auth` (login, refresh, me, switch-org), all of it context-free and scoped by the user's own id. That's deliberate, because the middleware that's supposed to set the per-request GUC for live traffic is currently a **no-op**, and I'd rather say so than let it read as finished:
+
+```python
+def process_view(self, request, view_func, view_args, view_kwargs):
+    org_id = tenancy.get_current_org_id()
+    if org_id is not None:
+        with connection.cursor() as cur:
+            cur.execute("SET LOCAL turmarium.org_id = %s", [org_id])
+    return None
+```
+
+Django runs `process_view` *before* Ninja's JWT auth has set the org context, so `get_current_org_id()` is still empty and the `SET LOCAL` never fires. RLS is proven at the database, but it is not yet engaged on a real HTTP request. There's no exposure today because nothing tenant-scoped is reachable, and there's a hard gate written into the plan: no tenant-data endpoint ships until the GUC is set inside `JWTAuth.authenticate()`, the context variable is reset per request, and a regression test drives it over real HTTP. A `[TODO]` in the code is a smell. A tracked gate with a reason is a decision.
+
+Where it landed: 19 tests green against real Postgres, coverage 82%, ruff clean, and import-linter reporting *1 kept, 0 broken*. The spine stands and it's honestly labeled.
+
+## What I learned
+
+Two things. First, an isolation test can pass for the wrong reason, and the wrong reason is invisible until you check what role you're connected as. If RLS is your backstop, running the proof under a non-superuser role is part of the proof, not a detail. Second, the interesting tenant-isolation decisions live on the identity tables you have to read before you know who the tenant is. Fail-closed everywhere is a slogan; the login path is where it meets reality.
+
+## What's next
+
+The web foundation and the first real feature: `apps/web` (React, Vite, Tailwind, `react-i18next` with `en` and `pt-br` catalogs from the first screen), a generated API client off the OpenAPI schema, and the org and membership admin so a super-admin can create a school and its people in the browser. Somewhere in there the middleware no-op gets closed, because the first tenant-data endpoint can't ship until it is.
+
+There's no public repo yet, and that's the open question I'm sitting on: how much of the design spec to put in the open on day one. Building in public argues for all of it. The part of me that might sell this to schools wants to hold a little back. If you've built in public on something you also intend to charge for, where did you draw that line, the whole spec, or just the build log and the code? I'd like to hear how you decided before I do.

@@ -1,0 +1,84 @@
+---
+title: "Good fences: the academic catalog, and the import boundary that broke once a module used it"
+description: "Update 3 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1 and 2 proved and then switched on tenant isolation with Postgres row-level security. Update 3 builds the first real feature on top of it: the academic catalog (disciplines, syllabi with ordered units, terms with one current at a time), each a new tenant-scoped table with forced RLS, a django-ninja CRUD API, and browser screens driven off the generated OpenAPI client. It is also the first module to live behind the import boundary from update 1, and the boundary broke the moment the module imported anything real. The fix is a one-word import-linter flag, plus a probe test to prove the contract still catches a real violation. Along the way, a route that shadowed itself into a 405, and a syllabus you can create but can't navigate back to, both shipped honestly. 96 backend tests, import-linter at two contracts kept and zero broken, coverage above the gate on both sides."
+project: "turmarium"
+update: 3
+pubDate: 2026-08-05T05:00:00-03:00
+tags: ["django", "django-ninja", "postgresql", "row-level-security", "multi-tenancy", "import-linter", "modular-monolith", "react", "tdd", "building-in-public"]
+draft: true
+---
+
+import { Image } from 'astro:assets';
+import academicBoundaryLight from '../../../assets/buildlog/turmarium/academic-boundary.light.png';
+import academicBoundaryDark from '../../../assets/buildlog/turmarium/academic-boundary.dark.png';
+
+I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it. It's English-first because I build in the open, with Brazilian Portuguese as a first-class locale because that's who I want to sell it to.
+
+Two updates went to tenant isolation, the part you can't retrofit. [Update 1](/building/turmarium/01-proving-tenant-isolation-at-the-database/) proved it at the database with Postgres row-level security. [Update 2](/building/turmarium/02-green-tests-red-browser/) switched it on for real traffic and shipped the first tenant-data endpoints. This update finally builds a feature: the academic catalog. A discipline is a subject a school teaches (Math, unique per school by its code). A syllabus is the ordered list of units under a discipline. A term is a school period, with exactly one marked current at a time.
+
+Four new tables, each extending the same `TenantScoped` base from update 1, each with forced row-level security using the policy form update 2 landed on: compare `organization_id::text` against the per-request session variable, and never cast that variable to an integer, or the Postgres planner folds the cast and crashes on the reset value. Same isolation drill as before, four more times. Boring on purpose, and boring is what you want from a security backstop.
+
+## The module that wires itself in
+
+Update 1's one rule: the academic core is the spine, and every other capability is a module that reads the core through a published seam and never imports its internals. The core does not know its modules exist. That last clause is the awkward one, because the web API is a single django-ninja instance living in `core`, and academic has to hang its routes on it. If core can't import academic, who wires them up?
+
+The module wires itself. On startup, `academic`'s `AppConfig.ready()` imports the shared api object and mounts its own routers onto it. The dependency points one way: academic reaches into core's public seam, never the other way around. Django's app-ready hook runs at `django.setup()`, so the routes are present for both live requests and the OpenAPI schema export, without a single line in core mentioning academic.
+
+The guard is an [import-linter](https://import-linter.readthedocs.io/) contract that forbids academic from importing core's private plumbing or any sibling module:
+
+```toml
+[[tool.importlinter.contracts]]
+name = "academic imports only core's public seam"
+type = "forbidden"
+source_modules = ["turmarium.academic"]
+forbidden_modules = [
+  "turmarium.core.auth", "turmarium.core.jwt",
+  "turmarium.core.tenancy", "turmarium.core.managers",
+  "turmarium.gamification", "turmarium.ai", "turmarium.exams",
+]
+```
+
+It passed while academic was an empty package. It broke the first time academic imported anything real.
+
+## Using a door versus picking a lock
+
+The break is a detail of how import-linter reads a `forbidden` contract. By default it follows the whole import graph, not just the imports written in your files. Academic imports `core.api`, which is allowed: that's the seam. But `core.api` imports `core.auth` to build the JWT authenticator. So the graph has a path from academic to auth (academic to core.api to core.auth), and the contract counts that transitive path as academic reaching into auth. Same story for academic to core.models to core.managers. Both are the module using the public seam exactly as designed, reported as violations.
+
+The one-word fix is `allow_indirect_imports = true`, which tells that one contract to check only direct imports. That matches what I actually mean by the rule. Academic must not name core's internals in its own code. What the public seam imports underneath is the seam's business, not the module's.
+
+Flipping a flag to turn a red check green is the exact move that quietly guts a control, so I didn't take it on faith. I proved the contract still bites. I added a direct `from turmarium.core import tenancy` to an academic file, ran the linter, and watched the contract break. Then I deleted the probe and watched it go green. Direct reach into the plumbing is still caught. Only the transitive path through the sanctioned door is allowed. A boundary contract is worth having only if it can tell the difference between using a door and picking a lock, and now I've seen mine do both.
+
+<Image src={academicBoundaryLight} alt="Diagram of the academic module's import boundary. A box labelled 'academic module' sits at the top with two arrows leaving it. A solid blue arrow labelled 'imports' points down-left to a box 'core · public seam' annotated 'api · models · permissions'. A dashed red arrow labelled 'forbidden' points down-right to a box 'core · internals' annotated 'auth · jwt · tenancy'. A caption underneath reads: core never imports academic; the module wires itself onto the shared api." class="tm-fig-light rounded-xl border border-base-content/15" />
+<Image src={academicBoundaryDark} alt="Diagram of the academic module's import boundary. A box labelled 'academic module' sits at the top with two arrows leaving it. A solid blue arrow labelled 'imports' points down-left to a box 'core · public seam' annotated 'api · models · permissions'. A dashed red arrow labelled 'forbidden' points down-right to a box 'core · internals' annotated 'auth · jwt · tenancy'. A caption underneath reads: core never imports academic; the module wires itself onto the shared api." class="tm-fig-dark rounded-xl border border-base-content/15" />
+
+<style>{`
+  .tm-fig-dark { display: none; }
+  [data-theme="custom-dark"] .tm-fig-light { display: none; }
+  [data-theme="custom-dark"] .tm-fig-dark { display: block; }
+`}</style>
+
+## The route that shadowed itself
+
+I write these features from a machine-readable plan, test-first, one task at a time. The plan got the genuinely fiddly part right: reordering a syllabus's units without tripping the unique `(syllabus, order)` constraint, which fires mid-statement, so a naive one-pass renumber collides on a swap and you have to move the rows out of the way first. The bugs it shipped were all in the boring parts.
+
+The best one was a routing shadow. Reordering units posts to `/syllabi/{id}/units/reorder`. Editing a unit patches `/syllabi/{id}/units/{unit_id}`. The reorder route was declared after the `{unit_id}` route, and Django matches URL patterns by shape, first match wins, before it ever looks at the HTTP method. So a POST to `.../units/reorder` matched `{unit_id} = "reorder"`, found only PATCH and DELETE registered there, and returned a 405. The fix is to declare the literal `/reorder` route ahead of the `{unit_id}` one. A one-line swap, invisible on the page, red the instant a test hit it.
+
+Two smaller ones rode along, both in code that read as correct until it ran: a React test that sliced a header off a table that had none, and a TypeScript constant used only as a type, which tripped the unused-variable lint.
+
+## What I left half-built on purpose
+
+One flow works only inside a single session, and I shipped it that way with my eyes open. When you create a discipline's syllabus in the browser, the screen keeps its id in local state and everything works: add units, reorder them, edit. But the discipline record the API returns doesn't carry the syllabus id, and there's no "get the syllabus for this discipline" endpoint yet. Navigate away and come back, and the detail screen sees no syllabus, offers to create one, and the create hits the one-syllabus-per-discipline rule with a 409.
+
+The data is safe on the server. It's just unreachable from the UI across sessions. No leak, no corruption, and the user sees it the moment it happens, so it's a fast-follow, not a blocker: add the syllabus id to the discipline response (or a lookup endpoint), regenerate the client, read it on load. A separate review of the isolation on the four new tables came back clean, with one note for the same list: the patch endpoints copy request fields onto the row by name, which is safe today because the update schemas expose only harmless fields, but would let a carelessly widened schema reassign a row's owner. Naming both is cheaper than pretending the feature is done.
+
+## What I learned
+
+import-linter's default, follow every transitive path, sounds stricter than checking direct imports, but for a module built to use a public seam it flags the intended usage and buries the real question: does my own code name the internals directly? Direct-import checking, plus a probe that proves the check still catches a real violation, is the version I trust. And the pattern from the last two updates held again: the plan was careful and test-first, and the defects that survived it, a route that shadowed itself and a syllabus you can't get back to, were the ones only a running test or a real click could surface.
+
+Where it landed: 96 backend tests and a green web suite, import-linter reporting two contracts kept and zero broken, coverage above its 80% floor on both the API and the browser app.
+
+## What's next
+
+The catalog is the vocabulary; next is using it. Offerings (a discipline taught in a term to a class), enrollments, and the domain events the whole modular design exists for: `EnrollmentCreated` and its siblings, emitted by the core and consumed by a module the core still knows nothing about. That's the first time the event bus from update 1 carries real traffic, and the first module that reacts to the core instead of only reading it.
+
+So here's the question I'll leave with, for anyone who runs an enforced module boundary (import-linter, ArchUnit, eslint boundaries, whatever yours is). Do you check direct imports or the full transitive graph, and once you start adding exceptions for the legitimate crossings, how do you keep that list from quietly becoming the hole in the wall? Mine has exactly one exception now and a probe test standing guard over it. I'd like to know how you keep yours honest.
