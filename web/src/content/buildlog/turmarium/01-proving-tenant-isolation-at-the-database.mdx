@@ -5,16 +5,18 @@ project: "turmarium"
 update: 1
 pubDate: 2026-07-06T05:00:00-03:00
 tags: ["django", "django-ninja", "postgresql", "row-level-security", "multi-tenancy", "jwt", "tdd", "building-in-public"]
-draft: true
+draft: false
 ---
 
-I'm starting a new project in public. It's **Turmarium**: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure (disciplines, syllabi, terms, offerings, sessions, grades, attendance), and runs a real term on it. The name is *turma* (Portuguese for a class or cohort) plus *-arium*, a place for them. It's built English-first because I'm building it in public, with Brazilian Portuguese as a first-class locale because that's who I want to sell it to.
+I'm starting a new project in public. It's **Turmarium**: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure (disciplines, syllabi, terms, offerings, sessions, grades, attendance), and runs a real term on it.
 
-Turmarium is a rewrite. I built a single-tenant school system before, and it taught me one lesson the hard way: a satellite feature grew until it was most of the backend and dragged the academic core down with it when it broke. So this time the architecture is designed around one rule, and update one is about proving the part of that rule you can't retrofit later, tenant isolation, before I build anything on top of it.
+I got the name by joining *turma* (Portuguese for a class or cohort) and *-arium*, a place for them.
+
+I've tried to build a single-tenant school system before, and it taught me one lesson the hard way: a satellite feature grew until it was most of the backend and dragged the academic core down with it when it broke. So this time the architecture is designed around one rule, and update one is about proving the part of that rule you can't retrofit later, tenant isolation, before I build anything on top of it.
 
 ## The one rule
 
-The academic core is the stable spine. Every other capability, gamification, an AI assistant, exam grading, is a **module** that reads the core through published contracts and listens to its domain events (`EnrollmentCreated`, `AssessmentGraded`), and never imports the core's internals. The core does not know those modules exist.
+The academic core is the stable spine. Every other capability I intent to plug in in future, e.g., gamification, AI assistant, exam grading, is a **module** that reads the core through published contracts and listens to its domain events (`EnrollmentCreated`, `AssessmentGraded`), and never imports the core's internals. The core does not know those modules exist.
 
 That's easy to say and easy to erode one convenient import at a time, so it's enforced in CI with [import-linter](https://import-linter.readthedocs.io/), not in a style guide:
 
