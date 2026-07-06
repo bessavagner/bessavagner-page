@@ -16,7 +16,7 @@ Manage the background server with `astro dev stop`, `astro dev status`, and `ast
 
 ## Writing content (blog + build log)
 
-Follow the writing guide at `web/src/content/build-log-style.md` before drafting any
+Follow the writing guide at `web/src/content/writing-style.md` before drafting any
 build-log update or blog post — first person, honest, concrete, **never fabricate**.
 
 - Build-log updates: `web/src/content/buildlog/<project>/NN-slug.mdx` (keep the

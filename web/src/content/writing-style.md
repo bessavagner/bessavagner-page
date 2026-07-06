@@ -1,9 +1,15 @@
-# Build-Log Writing Guide — RegWatch / dev blog
+# Writing style guide: blog posts and build-log updates
 
 > Lives in `web/src/content/` (next to the `blog/` and `buildlog/` collections) so
-> it's easy to find when writing a post. It is **not** a content entry itself — the
+> it's easy to find when writing a post. It is **not** a content entry itself: the
 > collections only load `**/*.mdx` under `blog/` and `buildlog/`, so this `.md` at
 > the content root is ignored by the build.
+
+**Scope.** These rules cover everything I publish here: standalone **blog posts**
+(`blog/`) and **build-log updates** (`buildlog/`). They're the same voice, so most
+notes apply to both. Where one is specific to build-log updates (threading to the
+next update, the running-series recap), it says so; treat those as optional for a
+one-off blog post.
 
 ## Related guides
 Cover letters and job proposals have their own directive at
@@ -63,7 +69,8 @@ The roadblocks and what they taught are the heart — but only the real ones.
 3. The story — grounded in real artifacts: link the commit, show a small real
    code snippet or real terminal output, name the actual tools.
 4. What I learned — a takeaway the reader can use.
-5. What's next — one line threading to the next entry (makes it a *log*).
+5. What's next (build-log updates) — one line threading to the next update, so the
+   series reads as a *log*. Optional for a standalone blog post.
 6. CTA — a genuine one: a real question I want input on, or "follow the repo /
    the series." Vary it; never bolt on a generic "what do you think?".
 
@@ -129,6 +136,16 @@ These are habits the early posts already show; lean into them, don't sand them o
   work, say the recognized name for it and tie it straight to the concrete thing it
   did in this update, or cut the sentence. Process description that pays off nothing
   reads as filler. (Corollary of "Name the pattern" and "Show, don't announce.")
+- **Land the takeaway as a two-part contrast.** The lines that stick in update #1 are
+  antitheses: a claim and its turn set side by side, so the point arrives in two beats
+  the reader can hold. `A [TODO] in the code is a smell. A tracked gate with a reason
+  is a decision.` `Fail-closed everywhere is a slogan; the login path is where it meets
+  reality.` `A green isolation test under a superuser proves nothing. It's a smoke
+  detector wired to a light switch.` The shape is: the thing that looks fine, then the
+  thing that makes it not fine (or the reverse). Where you can, make the second half a
+  concrete image (the smoke detector, the light switch) rather than another abstraction,
+  which is "show, don't announce" doing the landing. Use it to close a section or a
+  lesson, not every paragraph, or the rhythm becomes a tic.
 - **Name the pattern.** When an established pattern or principle is carrying the
   work, name it: Ports and Adapters / Hexagonal Architecture, Dependency Inversion,
   idempotency, test doubles. The recognized term is a keyword that signals
