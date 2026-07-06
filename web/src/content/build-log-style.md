@@ -5,6 +5,16 @@
 > collections only load `**/*.mdx` under `blog/` and `buildlog/`, so this `.md` at
 > the content root is ignored by the build.
 
+## Related guides
+Cover letters and job proposals have their own directive at
+`docs/job_applications/cover-letter-style.md`. This guide is the source of the
+rules that travel across everything I write — never fabricate, avoid the em-dash,
+show-don't-announce, name the pattern, be precise with AI vocabulary — and the
+cover-letter guide inherits them and layers on the proposal-specific parts (lead
+with the single strongest real proof, keep the body plain-text for the Upwork
+box, de-risk the close with a small sample before the full commit). Keep the
+shared rules defined here; when one changes, it changes for both.
+
 ## Who's writing, for whom
 - Voice: me, Vagner — a full-stack/AI engineer building in public. First person
   singular ("I") by default; use "we" only when a real collaborator was involved.
@@ -108,6 +118,17 @@ These are habits the early posts already show; lean into them, don't sand them o
   under it still carry the substance. (Observed: an edit pass on the
   document-extraction post opened with the reader, then landed the concrete "a
   résumé is a database row wearing a costume.")
+- **Name the principle plainly, then cash it out. Don't mythologize the process.**
+  An early draft of update #3 opened a section with "I write these features from a
+  machine-readable plan, test-first, one task at a time." It named no recognized
+  principle and paid nothing off: an oblique, almost mystical line dropped into the
+  middle of the post, a riddle with no reason to be there. The fix names the actual
+  principle in plain words (test-driven development, the thing I build everything
+  on) and immediately shows what it bought *this time*: a routing bug that left no
+  mark on the page but went red the instant a test hit it. If you invoke how you
+  work, say the recognized name for it and tie it straight to the concrete thing it
+  did in this update, or cut the sentence. Process description that pays off nothing
+  reads as filler. (Corollary of "Name the pattern" and "Show, don't announce.")
 - **Name the pattern.** When an established pattern or principle is carrying the
   work, name it: Ports and Adapters / Hexagonal Architecture, Dependency Inversion,
   idempotency, test doubles. The recognized term is a keyword that signals
