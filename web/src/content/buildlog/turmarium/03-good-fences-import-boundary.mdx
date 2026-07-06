@@ -3,7 +3,7 @@ title: "Good fences: the academic catalog, and the import boundary that broke on
 description: "Update 3 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1 and 2 proved and then switched on tenant isolation with Postgres row-level security. Update 3 builds the first real feature on top of it: the academic catalog (disciplines, syllabi with ordered units, terms with one current at a time), each a new tenant-scoped table with forced RLS, a django-ninja CRUD API, and browser screens driven off the generated OpenAPI client. It is also the first module to live behind the import boundary from update 1, and the boundary broke the moment the module imported anything real. The fix is a one-word import-linter flag, plus a probe test to prove the contract still catches a real violation. Along the way, a route that shadowed itself into a 405, and a syllabus you can create but can't navigate back to, both shipped honestly. 96 backend tests, import-linter at two contracts kept and zero broken, coverage above the gate on both sides."
 project: "turmarium"
 update: 3
-pubDate: 2026-08-05T05:00:00-03:00
+pubDate: 2026-07-10T05:00:00-03:00
 tags: ["django", "django-ninja", "postgresql", "row-level-security", "multi-tenancy", "import-linter", "modular-monolith", "react", "tdd", "building-in-public"]
 draft: true
 ---
@@ -12,11 +12,13 @@ import { Image } from 'astro:assets';
 import academicBoundaryLight from '../../../assets/buildlog/turmarium/academic-boundary.light.svg';
 import academicBoundaryDark from '../../../assets/buildlog/turmarium/academic-boundary.dark.svg';
 
-I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it. It's English-first because I build in the open, with Brazilian Portuguese as a first-class locale because that's who I want to sell it to.
+I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it.
 
-Two updates went to tenant isolation, the part you can't retrofit. [Update 1](/building/turmarium/01-proving-tenant-isolation-at-the-database/) proved it at the database with Postgres row-level security. [Update 2](/building/turmarium/02-green-tests-red-browser/) switched it on for real traffic and shipped the first tenant-data endpoints. This update finally builds a feature: the academic catalog. A discipline is a subject a school teaches (Math, unique per school by its code). A syllabus is the ordered list of units under a discipline. A term is a school period, with exactly one marked current at a time.
+Two updates went to tenant isolation, because you know, I don't want to improvise later. [Update 1](/building/turmarium/01-proving-tenant-isolation-at-the-database/) proved it at the database with Postgres row-level security. [Update 2](/building/turmarium/02-green-tests-red-browser/) switched it on for real traffic and shipped the first tenant-data endpoints.
 
-Four new tables, each extending the same `TenantScoped` base from update 1, each with forced row-level security using the policy form update 2 landed on: compare `organization_id::text` against the per-request session variable, and never cast that variable to an integer, or the Postgres planner folds the cast and crashes on the reset value. Same isolation drill as before, four more times. Boring on purpose, and boring is what you want from a security backstop.
+This update finally builds a feature: the academic catalog. A discipline is a subject a school teaches (Math, unique per school by its code). A syllabus is the ordered list of units under a discipline. A term is a school period, with exactly one marked current at a time.
+
+Four new tables, each extending the same `TenantScoped` base from update 1, each with forced row-level security using the policy form update 2 landed on: compare `organization_id::text` against the per-request session variable, and never cast that variable to an integer, or the Postgres planner folds the cast and crashes on the reset value. Same isolation drill as before, four more times. Boring on purpose, exactly what you want from a security backstop.
 
 ## The module that wires itself in
 
@@ -59,7 +61,7 @@ Flipping a flag to turn a red check green is the exact move that quietly guts a 
 
 ## The route that shadowed itself
 
-I write these features from a machine-readable plan, test-first, one task at a time. The plan got the genuinely fiddly part right: reordering a syllabus's units without tripping the unique `(syllabus, order)` constraint, which fires mid-statement, so a naive one-pass renumber collides on a swap and you have to move the rows out of the way first. The bugs it shipped were all in the boring parts.
+Test-driven development is the principle I build everything on, this project included. Writing the test before the code forces me to name the behavior I want before I have anything to lean on, and it keeps me safe. This time it saved me from a bug that leaves no mark on the screen. The plan I work from got the genuinely fiddly part right: reordering a syllabus's units without tripping the unique `(syllabus, order)` constraint, which fires mid-statement, so a naive one-pass renumber collides on a swap and you have to move the rows out of the way first. The bugs that survived were in the boring parts, and the ugliest of them was red in a test long before it could reach a browser.
 
 The best one was a routing shadow. Reordering units posts to `/syllabi/{id}/units/reorder`. Editing a unit patches `/syllabi/{id}/units/{unit_id}`. The reorder route was declared after the `{unit_id}` route, and Django matches URL patterns by shape, first match wins, before it ever looks at the HTTP method. So a POST to `.../units/reorder` matched `{unit_id} = "reorder"`, found only PATCH and DELETE registered there, and returned a 405. The fix is to declare the literal `/reorder` route ahead of the `{unit_id}` one. A one-line swap, invisible on the page, red the instant a test hit it.
 
@@ -73,7 +75,7 @@ The data is safe on the server. It's just unreachable from the UI across session
 
 ## What I learned
 
-import-linter's default, follow every transitive path, sounds stricter than checking direct imports, but for a module built to use a public seam it flags the intended usage and buries the real question: does my own code name the internals directly? Direct-import checking, plus a probe that proves the check still catches a real violation, is the version I trust. And the pattern from the last two updates held again: the plan was careful and test-first, and the defects that survived it, a route that shadowed itself and a syllabus you can't get back to, were the ones only a running test or a real click could surface.
+`import-linter`'s default, follow every transitive path, sounds stricter than checking direct imports, but for a module built to use a public seam it flags the intended usage and buries the real question: does my own code name the internals directly? Direct-import checking, plus a probe that proves the check still catches a real violation, is the version I trust. And the pattern from the last two updates held again: the plan was careful and test-first, and the defects that survived it, a route that shadowed itself and a syllabus you can't get back to, were the ones only a running test or a real click could surface.
 
 Where it landed: 96 backend tests and a green web suite, import-linter reporting two contracts kept and zero broken, coverage above its 80% floor on both the API and the browser app.
 

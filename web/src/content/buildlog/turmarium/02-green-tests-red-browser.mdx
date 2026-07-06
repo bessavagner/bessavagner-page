@@ -3,7 +3,7 @@ title: "Green tests, red browser: turning on tenant isolation for real traffic"
 description: "Update 2 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Update 1 proved Postgres row-level security at the database but left the request-path middleware a no-op, so it shipped zero tenant-data endpoints on purpose, behind a written gate. Update 2 closes that gate: the RLS session variable now gets set inside JWT auth, the first tenant-data API (memberships and users) ships behind role guards, and a React + Vite + Tailwind front end drives login, forced password change, and org switching through a client generated off the OpenAPI schema. Engaging isolation surfaced a Postgres cast that crashed inside the policy during planning; driving the finished app in a browser surfaced two more the green unit suite never saw: switch-org failing closed under its own RLS, and a CORS wall the front end hit on its first request. 66 backend tests, 97.58% coverage, and the isolation gate from update 1 finally closed."
 project: "turmarium"
 update: 2
-pubDate: 2026-07-22T05:00:00-03:00
+pubDate: 2026-07-08T05:00:00-03:00
 tags: ["django", "django-ninja", "postgresql", "row-level-security", "multi-tenancy", "react", "vite", "playwright", "cors", "tdd", "building-in-public"]
 draft: true
 ---

@@ -1,0 +1,106 @@
+---
+title: "Shouting into an empty room: offerings, enrollments, and the first domain event I shipped with no subscriber"
+description: "Update 4 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1-3 proved tenant isolation at the database, switched it on for real traffic, and built the academic catalog behind a strict import boundary. Update 4 makes the architecture finally do something: offerings (turmas, a discipline taught in a term to a section) and enrollments, two more tenant-scoped tables with forced RLS, plus the first domain event, EnrollmentCreated, emitted onto the event bus that has sat unused since update 1. The honest twist: the event fires into an empty room. No module subscribes yet (that is a later epic); only a test listens. PROTECT keeps a class you actually ran from being deleted by accident, limit_choices_to turns out to guard the form and not the API, and update 3's half-built syllabus revisit gets paid off first. 124 backend tests, 80 web tests, import-linter at two contracts kept and zero broken, coverage near 97% on the API and above the gate on the browser app."
+project: "turmarium"
+update: 4
+pubDate: 2026-07-17T05:00:00-03:00
+tags: ["django", "django-ninja", "postgresql", "row-level-security", "multi-tenancy", "domain-events", "event-driven", "modular-monolith", "react", "tdd", "building-in-public"]
+draft: true
+---
+
+I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it.
+
+Three updates built the foundation and never let it wobble. [Update 1](/building/turmarium/01-proving-tenant-isolation-at-the-database/) proved tenant isolation at the database with Postgres row-level security, and stood up an in-process event bus that nothing used yet. [Update 2](/building/turmarium/02-green-tests-red-browser/) switched isolation on for real traffic. [Update 3](/building/turmarium/03-good-fences-import-boundary/) built the academic catalog (disciplines, syllabi, terms) behind a strict import boundary.
+
+This update makes the architecture finally *do* something. It enrolls a student, and in doing so fires the first domain event the whole modular design was built to carry.
+
+Two new concepts. An **offering** is a discipline taught in a given term to a specific group: a *turma*, in Brazilian Portuguese, the concrete class you would walk into. An **enrollment** puts a student on an offering's roster. Creating one is the moment the `academic` module emits `EnrollmentCreated` onto the event bus. And that event, on purpose, lands in an empty room.
+
+## First, the debt from last time
+
+Update 3 shipped a syllabus you could create in one session and then not navigate back to, because the discipline the API returned carried no `syllabus_id`. I called it a fast-follow and named it out loud. This update opens by paying it: `DisciplineOut` now carries a nullable `syllabus_id`, the typed client is regenerated from the new schema, and the detail screen reads it on load. Revisit a discipline whose syllabus you made last week, and its unit editor is right there instead of a create button that 409s.
+
+The other note from that review still holds the same way. The patch endpoints copy request fields onto the row by name, which is only safe while the update schema stays narrow. So `OfferingUpdateIn`, the payload for editing an offering, exposes exactly one field, `section`. The mass-assignment surface is as small as the schema, and the schema is one line.
+
+## Offerings, and the history you can't delete by accident
+
+`Offering` is another `TenantScoped` table with forced RLS, the same isolation drill the catalog got. Two constraints give it its shape. It is unique on `(organization, discipline, term, section)`, so a school can run section A and section B of the same discipline in the same term, but never two identical ones. And both of its foreign keys are declared `on_delete=PROTECT`:
+
+```python
+class Offering(TenantScoped):
+    discipline = models.ForeignKey(
+        Discipline, on_delete=models.PROTECT, related_name="offerings"
+    )
+    term = models.ForeignKey(Term, on_delete=models.PROTECT, related_name="offerings")
+    section = models.CharField(max_length=20, default="A")
+    teachers = models.ManyToManyField(
+        Membership, related_name="teaching", blank=True,
+        limit_choices_to={"role": Membership.Role.TEACHER},
+    )
+```
+
+`PROTECT` means what it says. Once an offering exists, you cannot delete the discipline or term underneath it. Django raises, the API maps it to an error code, and the row survives. An offering is history, a class that actually ran and has students attached; cascading it into nothing because someone tidied the catalog is the kind of silent loss you notice a term too late. A blocked delete is the failure I want.
+
+One bug surfaced after the fact. Renaming an offering's section could collide with that same uniqueness rule mid-`save`, and the patch path was not wrapping it, so the clash came back as a 500. Now it is wrapped in a transaction and mapped to a 409. Red in a test first, as usual.
+
+## The guard that only guards the form
+
+Look again at that `teachers` line: `limit_choices_to={"role": Membership.Role.TEACHER}`. It reads like a rule that only teachers can be assigned to an offering. It is not, quite. `limit_choices_to` is a form-level convenience: it filters the dropdown in Django's admin and in model forms, and it does nothing at all to an API request. A `POST` that names a student as a teacher, or a teacher from an entirely different school, sails straight past it.
+
+So the service does the check I actually meant:
+
+```python
+def assign_teacher(*, organization_id, offering_id, membership_id):
+    offering = _get_offering(organization_id, offering_id)
+    # Same-org AND role=teacher. A cross-org membership is a tenant leak, not a 422 detail.
+    if not Membership.objects.filter(
+        id=membership_id, organization_id=organization_id, role=Membership.Role.TEACHER
+    ).exists():
+        raise HttpError(422, "invalid_teacher")
+    offering.teachers.add(membership_id)
+    return offering
+```
+
+Same story for enrolling: the student must be same-org and `role=student`. A cross-org membership is not a validation nicety, it is a tenant leak, and it fails the way an isolation breach fails. This is the same shape as last update's import-linter surprise. The framework's convenient-looking guard was checking something adjacent to what I needed, and the boundary only holds because I wrote the check I meant, then tested the reject paths red first.
+
+## The first event, and the empty room
+
+Here is the one I had been waiting three updates for. When an enrollment is created, and only after the transaction that creates it has committed, `academic` emits a typed event onto the bus that lives in `core`:
+
+```python
+# academic's FIRST domain event. core.events is part of the permitted public seam.
+events.emit(events.EnrollmentCreated(
+    organization_id=organization_id, enrollment_id=enrollment.id,
+))
+```
+
+The bus is deliberately boring: an in-process, synchronous publish/subscribe registry, part of the public seam academic is allowed to import. The whole emitter is this:
+
+```python
+def emit(event) -> list[Exception]:
+    errors: list[Exception] = []
+    for handler in _subscribers[type(event)]:
+        try:
+            handler(event)
+        except Exception as exc:  # a bad handler must not break the emitter
+            errors.append(exc)
+    return errors
+```
+
+Two choices in that tiny function matter more than its size. It emits *after* commit, so the enrollment is already durable when any handler runs: a subscriber reacts to a fact, never to a maybe that might roll back under it. And it collects each handler's exception into a returned list instead of letting it propagate, so one broken subscriber can never fail an enrollment. Today that list comes back empty every time, because nothing subscribes.
+
+That is the shape of it. `EnrollmentCreated` fires into a room with no one in it. No gamification module reacts, no notification goes out, no analytics row is written. A test subscribes to prove the event carries the right payload, and that test is the only listener in the codebase. I shipped it that way deliberately. The consumer is a later epic; wiring a real module to react is cheap once the seam is proven. What is not cheap to get wrong is the emitter and the contract: the typed payload, the post-commit timing, the failure isolation, and the import boundary staying *kept* while academic touches the bus for the first time. Prove those with the room empty, and the day a module walks in, it just subscribes.
+
+There is already a gate waiting for that module. `core` keeps a registry keyed off each organization's `enabled_modules`, so a future consumer is switched on per tenant, not globally. The bus carries the event; the registry decides who, eventually, is allowed to hear it. Last update I teased "the first module that reacts to the core." The event now fires. The reactor is still, on purpose, one epic ahead.
+
+## What I learned
+
+Emitting a domain event nothing consumes sounds like posting a letter to no address. It is the opposite. The value is fixing the contract while the stakes are low. A wrong payload, or a handler that can roll back a booking, is a nightmare to change once three modules depend on it, and trivial to get right when the only subscriber is a test. Build the emitter and the boundary first, prove them, let the listeners arrive later. It is the RLS lesson from update 1 run forward: do the part you cannot safely retrofit before you need it, not after.
+
+Where it landed: 124 backend tests and 80 web tests green, import-linter reporting two contracts kept and zero broken (academic reaches the bus without naming a single internal), backend coverage near 97% and the browser app above its 80% floor. The whole flow walks end to end in a real browser: create an offering, assign a teacher, enroll a student, watch the roster row turn Active.
+
+## What's next
+
+Now that the catalog has turmas with rosters, two epics open in parallel. Scheduling gives an offering a calendar: meeting patterns and the sessions they generate. Grading gives it an outcome: evaluation schemes and the assessments that roll up to a final grade. And somewhere past them is the module that finally subscribes to `EnrollmentCreated` and does something when a student joins a class. That is the update where the empty room gets an occupant.
+
+So the question I will leave with, for anyone running an event-driven or modular system. Do you emit domain events before anything consumes them? I have argued myself into yes: fixing the contract early is worth a stretch of talking to an empty room. But I have also watched "we'll consume it later" rot into events that quietly drift out of sync with reality, because nothing ever exercised them past the test that first asserted them. How do you keep an unconsumed event honest until its listener shows up?
