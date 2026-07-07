@@ -1,6 +1,6 @@
 ---
 title: "A local Whisper transcription pipeline: picking the right model size"
-description: "You don't need a paid API to transcribe audio. With faster-whisper, int8 quantization, and a little ffmpeg preprocessing you get offline, free transcription. The real skill is choosing the model size that fits your latency and accuracy budget."
+description: "You don't need a paid API to transcribe audio. With faster-whisper, int8 quantization, and a little ffmpeg preprocessing you get offline, free transcription. I benchmarked all five model sizes on CPU against LibriSpeech, and the biggest one didn't win."
 pubDate: 2026-07-07T05:00:00-03:00
 heroImage: ../../assets/blog/local-whisper-transcription-pipeline/latency.svg
 tags: ["whisper", "speech-to-text", "audio", "ml-ops", "python"]
@@ -82,35 +82,42 @@ You get both a flat transcript (`text`) and the timestamped segments, which is w
 
 ## Measuring latency vs. accuracy
 
-So which model do you load? `WhisperModel("tiny")` or `WhisperModel("large-v3")`? This is the whole game, and it's a tradeoff between two curves that pull in opposite directions.
+So which model do you load, `tiny` or `large-v3`? I stopped guessing and measured it. Everything below ran on one machine, a 13th-gen Intel Core i7 with 16 threads, on CPU, using the exact pipeline config: `compute_type="int8"`, `beam_size=1`. Two numbers per model: how long it takes, and how wrong it gets.
 
-The first is latency. Transcription time scales with the parameter count, and the [model card](https://github.com/openai/whisper#available-models-and-languages) makes the spread vivid: `tiny` is 39 M parameters, `base` 74 M, `small` 244 M, `medium` 769 M, and `large` 1550 M. On a CPU, each step up costs you real wall-clock time:
+Latency first. I stitched a fixed 70-second clip together and timed each model transcribing it, median of three runs. Transcription time tracks the parameter count, and the [model card](https://github.com/openai/whisper#available-models-and-languages) makes the spread concrete: `tiny` is 39 M parameters, `base` 74 M, `small` 244 M, `medium` 769 M, `large-v3` 1550 M. On a CPU that turns into wall-clock time you feel:
 
-<Image src={latency} alt="Latency to transcribe a fixed 60-second clip rises steeply from tiny to large; the largest model takes roughly twenty times as long as the smallest on CPU." />
+<Image src={latency} alt="Transcription latency rises steeply with model size: 1.7s for tiny, 3.8s base, 13.4s small, 32.6s medium, 49.6s large-v3 on a 70-second clip." />
 
-The numbers above are illustrative and will differ on your hardware, but the *shape* is universal: the jump from `small` to `medium` to `large` is brutal on a CPU, because you're more than tripling, then doubling, the work each time.
+`tiny` clears the whole clip in 1.7 seconds, 41 times faster than real time. `large-v3` needs 49.6 seconds, barely ahead of the audio itself. The steep part is the top end: `small`, `medium`, `large` run 13, then 33, then 50 seconds, each step close to double the one before.
 
-The second curve is accuracy, and the standard yardstick is [word error rate (WER)](https://en.wikipedia.org/wiki/Word_error_rate), the count of substitutions, deletions, and insertions needed to turn the transcript into the reference, divided by the number of words in the reference: `WER = (S + D + I) / N`. Lower is better; a WER of 0.05 means roughly one word in twenty is wrong. Bigger models have lower WER, but with diminishing returns:
+Accuracy uses [word error rate (WER)](https://en.wikipedia.org/wiki/Word_error_rate), `WER = (S + D + I) / N`: substitutions, deletions, and insertions over the reference word count. Lower is better; 0.05 means about one word in twenty is wrong. I scored all five models on 200 utterances of [LibriSpeech](https://www.openslr.org/12) `test-clean`, a standard read-speech set that ships ground-truth transcripts, using [jiwer](https://github.com/jitsi/jiwer) with the usual case- and punctuation-insensitive normalization.
 
-<Image src={wer} alt="Word error rate falls sharply from tiny to small, then flattens; the accuracy gain from medium to large is small compared to the latency cost." />
+Then the curve did something I wasn't expecting. It drops the way you'd hope from `tiny` to `medium`, 7.7% down to 2.9%, and then it climbs back up:
 
-The WER axis here is illustrative, not a measured benchmark, but the qualitative story is what every WER-vs-size comparison shows. The big accuracy wins come early, climbing out of `tiny`. By the time you're choosing between `medium` and `large`, you're paying a large latency premium for a small accuracy gain.
+<Image src={wer} alt="Word error rate falls from tiny (7.7%) to medium (2.9%) then rises at large-v3 (4.7%): the biggest model scores worse than medium and small." />
+
+`large-v3` scored 4.7%. Worse than `medium`, worse than `small`. The 1.5-billion-parameter model lost to one a fifth its size, on clean read speech, while taking twice as long to do it.
+
+I didn't trust that, so I broke it down per clip. The median `large-v3` transcript is perfect: at least half the utterances score a WER of exactly zero. The aggregate is wrecked by a few disasters. Two clips came in above 50%, and the worst one is diagnostic. `large-v3` transcribed a 16-word line correctly ("the sugar manufacturer who says loaf clarified lumps...") and then refused to stop, inventing a sentence about a membrane before falling into a loop of the single word "Why," over and over. That one clip scored 325% on its own. Drop it and the aggregate falls to 3.4%.
+
+That runaway is the Whisper hallucination loop, and greedy decoding opens the door to it. `beam_size=1` commits to the single likeliest next token at every step with no way to abandon a bad path, and the largest, most fluent model is the readiest to confabulate a fluent continuation past the end of the audio. I reran that clip to check: greedy spun out to 161 words; `beam_size=5` brought it back to 25. The accuracy was never the model's problem. It was the fast setting I had bolted onto it.
 
 ## Picking a tier
 
-Put the two curves side by side and the decision almost makes itself. The accuracy curve flattens exactly where the latency curve steepens, so the best value lives in the middle:
+Put the two curves side by side and the call almost makes itself, though not the way I assumed walking in.
 
-- **`tiny` / `base`**: for live or near-real-time work, quick drafts, or batch jobs over thousands of files where throughput dominates. `base` is the default in this pipeline for a reason: it's fast, light, and good enough for searchable transcripts and rough subtitles.
-- **`small`**: the sweet spot for most offline work, a large accuracy jump over `base` for a latency cost you can absorb on a single file.
-- **`medium` / `large`**: when accuracy is the product, like difficult audio, heavy accents, technical vocabulary, or transcripts a human will read closely. Reach for them deliberately, knowing each step roughly doubles your processing time.
+- **`tiny` / `base`**: live or near-real-time work, quick drafts, batch jobs over thousands of files where throughput is everything. `base` is this pipeline's default for a reason: fast, light, fine for searchable transcripts and rough subtitles.
+- **`small`**: the value pick. 4.0% WER for 13 seconds on the clip, a real jump over `base` you can absorb on a single file.
+- **`medium`**: the most accurate model in the run at 2.9%, when you can pay roughly real-time speed for the transcript.
+- **`large-v3`**: not the automatic "best." At the pipeline's greedy default it was both the slowest model and the least accurate of the top three. If you do reach for it, switch on beam search first, or you are paying for 1.5 billion parameters and buying hallucinations.
 
-A useful rule of thumb: start one tier *smaller* than you think you need, look at the output, and only move up if the errors actually hurt. People routinely reach for `large` and wait ten times as long for a transcript that `small` would have produced acceptably.
+The old rule of thumb comes out stronger: start one tier *smaller* than you think you need, read the output, and move up only if the errors actually hurt. People reach for `large` on reflex. Here that meant waiting nearly four times as long as `small` for a transcript that measured worse.
 
 ## Where I used this
 
 I built this pipeline as [yt-transcribe](https://github.com/bessavagner), a small download-extract-transcribe tool for pulling text out of copyright-cleared talks and lectures. It runs entirely offline, no API key, with `base` as the default and a one-line edit to move up a tier when a particular recording needed it. The shell-and-Python shape kept it easy to drive by hand or from a script.
 
-The lesson that travels beyond this one tool: capable speech recognition is now free and local, and the engineering isn't in calling an API. It's in the preprocessing (mono, 16 kHz) and in matching the model tier to your latency and accuracy budget. Get those two right and you rarely need to pay anyone for transcription again.
+The lesson that travels beyond this one tool: capable speech recognition is now free and local, and the engineering isn't in calling an API. It's in the preprocessing (mono, 16 kHz), in matching the model tier to your latency and accuracy budget, and, as the benchmark reminded me, in the decode settings underneath. Get those right and you rarely need to pay anyone for transcription again.
 
 ## References and further reading
 
@@ -119,4 +126,6 @@ The lesson that travels beyond this one tool: capable speech recognition is now 
 - [CTranslate2](https://github.com/OpenNMT/CTranslate2): the inference engine behind faster-whisper; supports INT16/INT8/INT4 quantization on CPU and GPU. *(Link verified.)*
 - [OpenAI Whisper: available models and languages](https://github.com/openai/whisper#available-models-and-languages): the model card table with parameter counts (tiny 39 M → large 1550 M). *(Link verified.)*
 - [Word error rate](https://en.wikipedia.org/wiki/Word_error_rate): the `(S + D + I) / N` metric used to compare transcription accuracy. *(Link verified.)*
+- [LibriSpeech ASR corpus](https://www.openslr.org/12): the read-speech benchmark; I scored WER on the `test-clean` split (200 utterances). *(Link verified.)*
+- [jiwer](https://github.com/jitsi/jiwer): the library used to compute WER with case- and punctuation-insensitive normalization. *(Link verified.)*
 - [FFmpeg resampler documentation](https://ffmpeg.org/ffmpeg-resampler.html): the official docs for sample-rate and channel-layout conversion (`-ar`, `-ac`). *(Link verified.)*
