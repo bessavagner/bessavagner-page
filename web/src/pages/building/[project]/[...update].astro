@@ -63,7 +63,7 @@ const breadcrumb = {
     <a href={`/building/${projectSlug}/`} class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← {project?.title ?? 'Build log'}</a>
     <header class="mt-6">
       <h1 class="font-header-4 font-bold leading-tight">{update.data.title}</h1>
-      <UpdateMeta pubDate={update.data.pubDate} minutes={minutes} update={update.data.update} class="mt-4" />
+      <UpdateMeta pubDate={update.data.pubDate} updatedDate={update.data.updatedDate} minutes={minutes} update={update.data.update} class="mt-4" />
       {update.data.tags.length > 0 && (
         <ul class="flex flex-wrap gap-2 mt-3">
           {update.data.tags.map((t) => (

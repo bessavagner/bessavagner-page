@@ -1,11 +1,18 @@
 ---
 import { formatDate } from '../../lib/blog';
-interface Props { pubDate: Date; minutes: number; tags: string[]; class?: string; maxTags?: number; }
-const { pubDate, minutes, tags, class: className = '', maxTags = 2 } = Astro.props;
+interface Props { pubDate: Date; updatedDate?: Date; minutes: number; tags: string[]; class?: string; maxTags?: number; }
+const { pubDate, updatedDate, minutes, tags, class: className = '', maxTags = 2 } = Astro.props;
 const shown = tags.slice(0, maxTags);
+const showUpdated = updatedDate && updatedDate.getTime() > pubDate.getTime();
 ---
 <div class:list={["flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-base-content/55", className]}>
   <time datetime={pubDate.toISOString()} class="ubuntu-mono-regular uppercase tracking-wide">{formatDate(pubDate)}</time>
+  {showUpdated && (
+    <>
+      <span aria-hidden="true" class="text-base-content/30">·</span>
+      <span class="ubuntu-mono-regular uppercase tracking-wide text-base-content/70">Updated {formatDate(updatedDate!)}</span>
+    </>
+  )}
   <span aria-hidden="true" class="text-base-content/30">·</span>
   <span class="ubuntu-mono-regular">{minutes} min</span>
   {shown.length > 0 && (
