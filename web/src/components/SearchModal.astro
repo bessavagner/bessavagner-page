@@ -153,8 +153,8 @@
   input.addEventListener('input', () => onInput(input.value));
 
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, rows.length - 1); render(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); render(); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (rows.length) { active = Math.min(active + 1, rows.length - 1); render(); } }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (rows.length) { active = Math.max(active - 1, 0); render(); } }
     else if (e.key === 'Enter') { e.preventDefault(); if (active >= 0) go(active); }
     // Focus trap: the input is the only tabbable control in the dialog (result
     // links are tabindex="-1"), so keep Tab on it rather than leaking to the page.
