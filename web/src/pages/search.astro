@@ -1,0 +1,100 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Search — Vagner Bessa" description="Search posts and build-log updates." spotlightGrid>
+  <section class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
+    <h1 class="font-header-4 font-bold leading-tight">Search</h1>
+
+    <div class="mt-6 flex items-center gap-3 rounded-2xl border border-base-content/10 bg-base-100 px-4">
+      <svg class="h-5 w-5 shrink-0 fill-current opacity-60" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 105.29 14.03l4.84 4.84 1.41-1.41-4.84-4.84A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z"/></svg>
+      <input
+        id="page-search-input"
+        type="search"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="Search posts and build-log updates…"
+        class="font-base w-full bg-transparent py-4 text-base outline-none"
+        aria-label="Search posts and build-log updates"
+      />
+    </div>
+
+    <p id="page-search-status" class="font-base mt-4 text-sm text-base-content/60">
+      Type to search across the blog and build log.
+    </p>
+    <ul id="page-search-results" class="mt-4 space-y-2"></ul>
+
+    <noscript>
+      <p class="font-base mt-4 text-base-content/70">
+        Search needs JavaScript. Browse the
+        <a class="text-primary hover:underline" href="/blog/">blog</a> or the
+        <a class="text-primary hover:underline" href="/building/">build log</a> instead.
+      </p>
+    </noscript>
+  </section>
+
+  <script>
+    import { toRow, debounce, type SearchRow } from '../lib/search-core.ts';
+
+    type Pagefind = { search: (q: string) => Promise<{ results: { data: () => Promise<any> }[] }> };
+
+    const input = document.getElementById('page-search-input') as HTMLInputElement;
+    const listEl = document.getElementById('page-search-results')!;
+    const statusEl = document.getElementById('page-search-status')!;
+
+    let pagefind: Pagefind | null = null;
+    let pagefindFailed = false;
+    let reqId = 0;
+
+    async function load(): Promise<Pagefind | null> {
+      if (pagefind || pagefindFailed) return pagefind;
+      try {
+        // @ts-expect-error runtime-only module — /pagefind/pagefind.js exists only in the built dist/ output
+        pagefind = (await import(/* @vite-ignore */ '/pagefind/pagefind.js')) as Pagefind;
+      }
+      catch { pagefindFailed = true; }
+      return pagefind;
+    }
+
+    function render(rows: SearchRow[]) {
+      listEl.innerHTML = rows.map((row) => `
+        <li class="rounded-xl border border-base-content/10 p-4 hover:bg-base-200/50">
+          <a href="${row.url}" class="block no-underline">
+            <span class="flex items-center gap-2">
+              <span class="badge badge-outline border-primary/40 font-base text-[10px]">${row.typeLabel}</span>
+              <span class="font-base font-semibold">${row.title}</span>
+              ${row.dateLabel ? `<span class="font-base ml-auto shrink-0 text-xs text-base-content/50">${row.dateLabel}</span>` : ''}
+            </span>
+            <span class="font-base mt-1 block text-sm text-base-content/70">${row.excerptHtml}</span>
+          </a>
+        </li>`).join('');
+    }
+
+    async function run(q: string) {
+      const myReq = ++reqId;
+      if (!q.trim()) { render([]); statusEl.textContent = 'Type to search across the blog and build log.'; return; }
+      const pf = await load();
+      if (!pf) { statusEl.textContent = 'Search is unavailable right now.'; return; }
+      const res = await pf.search(q);
+      if (myReq !== reqId) return;
+      const data = await Promise.all(res.results.slice(0, 30).map((r) => r.data()));
+      if (myReq !== reqId) return;
+      const rows = data.map(toRow);
+      render(rows);
+      statusEl.textContent = rows.length ? `${rows.length} result${rows.length === 1 ? '' : 's'} for “${q}”.` : `No matches for “${q}”.`;
+    }
+
+    const onInput = debounce((q: string) => run(q), 120);
+    input.addEventListener('input', () => { syncUrl(input.value); onInput(input.value); });
+
+    function syncUrl(q: string) {
+      const url = new URL(window.location.href);
+      if (q) url.searchParams.set('q', q); else url.searchParams.delete('q');
+      window.history.replaceState(null, '', url);
+    }
+
+    // Deep-link: run whatever ?q= arrived with.
+    const initial = new URLSearchParams(window.location.search).get('q') ?? '';
+    if (initial) { input.value = initial; run(initial); }
+    input.focus();
+  </script>
+</Base>
