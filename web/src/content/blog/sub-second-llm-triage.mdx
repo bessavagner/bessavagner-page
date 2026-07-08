@@ -13,6 +13,7 @@ import latencyCdf from '../../assets/blog/sub-second-llm-triage/latency-cdf.svg'
 import latencyCdfDark from '../../assets/blog/sub-second-llm-triage/latency-cdf.dark.svg';
 import costPerRequest from '../../assets/blog/sub-second-llm-triage/cost-per-request.svg';
 import costPerRequestDark from '../../assets/blog/sub-second-llm-triage/cost-per-request.dark.svg';
+import AnswerBlock from '../../components/blog/AnswerBlock.astro';
 
 <style>{`
   .tri-fig-dark { display: none; }
@@ -20,11 +21,15 @@ import costPerRequestDark from '../../assets/blog/sub-second-llm-triage/cost-per
   [data-theme="custom-dark"] .tri-fig-dark { display: block; }
 `}</style>
 
+<AnswerBlock>
+Across 800 real API calls, tiering an LLM safety gate barely moved latency: on the current gpt-5.4 models, the fast and large tiers run at nearly the same speed. The real payoffs are cost and, more importantly, catching the dangerous cases the cheap model quietly gets wrong.
+</AnswerBlock>
+
 Some checks can take their time. If a model is summarizing a document or drafting a reply, a second or two of latency is invisible: the user is reading, thinking, waiting anyway. But some checks sit on a hot path where every message has to pass through them first, and where being slow is itself a failure. A safety gate that decides "is this the dangerous case?" on every single turn is the canonical example: it runs before anything else happens, it runs constantly, and if it's slow it makes *everything* slow.
 
 The instinct is to reach for your best model and let it judge. It will judge well. It will also cost you a few hundred milliseconds to a couple of seconds per call, on every turn, forever. And it bills you for a large model's tokens to answer what is usually a trivial question. This post is about the shape that gets you out of that trade: a **cascade** of differently-sized models, a resilience layer so the cascade fails safe instead of failing open, and a fallback that's deliberately biased toward caution.
 
-## The latency budget of a safety check
+## How much latency can an LLM safety check afford?
 
 Start by being honest about the budget. A check on the hot path isn't allowed to "usually" be fast. It has to be fast at the *tail*, because the tail is what users actually feel. This is the point Dean and Barroso make in [The Tail at Scale](https://research.google/pubs/the-tail-at-scale/): when a request fans out across components, the slow ones dominate the experience, so you have to design for p99, not the mean. If your gate's median is 200 ms but its p99 is three seconds, a meaningful slice of every conversation stalls for three seconds before anything else can happen.
 
