@@ -9,6 +9,11 @@ draft: false
 
 import { Image } from 'astro:assets';
 import passrate from '../../assets/blog/beating-browser-fingerprinting/pass-rate.svg';
+import AnswerBlock from '../../components/blog/AnswerBlock.astro';
+
+<AnswerBlock>
+Modern sites fingerprint your whole device: GPU, fonts, timing quirks, not just <code>navigator.webdriver</code>. A stealth Selenium setup passes real detection suites by injecting CDP commands to mask automation tells, spoofing a believable environment, and persisting realistic state. You get past the checks by running the suites against yourself and fixing each failing signal one at a time, where the rules of the site allow it.
+</AnswerBlock>
 
 If you've ever pointed a fresh Selenium script at a modern website and watched it hit a CAPTCHA wall on the first request, you've met browser fingerprinting. The frustrating part is that you did everything "right": a real Chrome binary, a real chromedriver, a real page load, a real UserAgent, and the site still knew, instantly, that no human was there.
 
@@ -16,7 +21,7 @@ That's because detection moved on. A few years ago, the giveaway was a single Ja
 
 This post is about what those suites actually measure, and how a carefully built stealth Selenium setup gets past them. It's also, importantly, about *when you're allowed to do that*. So let's set the boundary up front and come back to it at the end.
 
-## What sites fingerprint
+## What do anti-bot suites actually fingerprint?
 
 A fingerprint is just a bundle of signals that, together, identify a browser closely enough to tell "real person" from "bot." Roughly, they fall into three layers:
 
