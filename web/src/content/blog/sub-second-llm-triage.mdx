@@ -1,6 +1,6 @@
 ---
 title: "Sub-second triage: tiering LLMs for latency-critical paths"
-description: "When a safety check has to run in milliseconds, one big model per turn is too slow and too costly. A model cascade (a tiny fast model on the hot path, a larger one for reasoning), plus circuit breakers and a deliberately biased fallback, buys you speed without dropping the dangerous cases."
+description: "I benchmarked a tiered LLM safety gate with 800 real API calls: a fast model on the hot path, a larger one for the cases that need reasoning, plus circuit breakers and a caution-biased fallback. The measurements upended two of my assumptions, starting with a 'tiny' model that turned out to be the slowest thing in the system."
 pubDate: 2026-07-05T05:00:00-03:00
 heroImage: ../../assets/blog/sub-second-llm-triage/cost-per-request.svg
 tags: ["llm-agents", "latency", "reliability", "architecture"]
@@ -21,11 +21,15 @@ Start by being honest about the budget. A check on the hot path isn't allowed to
 
 So the budget is a *distribution*, not a number. "Under 500 ms" means under 500 ms for nearly all requests, with a known, bounded tail. That's exactly the framing the [Google SRE book's chapter on SLOs](https://sre.google/sre-book/service-level-objectives/) pushes you toward: pick the percentile that reflects what users care about, set a target, and measure against it.
 
-Here's the problem with a single large model in that frame, drawn from a synthetic timing harness:
+I finally stopped drawing that curve from a synthetic harness and measured it: 800 real calls to the OpenAI API from my machine in Brazil, through the same [Mastra](https://mastra.ai/) agent stack and structured-output path the clinic assistant uses, one patient message per call. API latency drifts with provider load and your region, so treat the absolute numbers as a snapshot. The shape held, and it corrected three things I had assumed.
 
-<Image src={latencyCdf} alt="CDF of per-request latency: the large-tier-only curve crosses the 500 ms budget late and has a long tail, while the fast tier and the cascade clear the budget for almost all requests." />
+<Image src={latencyCdf} alt="CDF of per-request latency on a log scale: the prior-generation gpt-5-nano detector sits far to the right (p50 ~5.6s, p99 ~24s); the current gpt-5.4-nano fast tier and gpt-5.4-mini large tier cluster near 1 to 2.6s; the cascade tracks the fast tier for the bulk then steps right on the fraction it escalates." />
 
-The large-tier-only curve clears a 500 ms budget for only a small fraction of requests. A tiny model clears it almost always. The interesting line is the cascade: it tracks the fast tier for the bulk of requests and only inherits the large model's slow tail on the minority it escalates.
+The first correction is the one I least expected. The *tiny* model I had shipped as the fast tier, `gpt-5-nano`, was the slowest thing in the system: the dashed curve out on the right, a 5.6-second median and a p99 of 23. It is a [reasoning model](https://artificialanalysis.ai/models/comparisons/gpt-5-nano-vs-gpt-4-1-nano), and at its default effort it burned hundreds of hidden reasoning tokens to answer a yes/no. A small model is not automatically a fast one. The current-generation `gpt-5.4-nano` answers the same question in about a second, so the fix was a one-line model bump, but I would not have gone looking without a tail to explain.
+
+The second: once both tiers run on models that are actually fast, the latency gap between them is small. The fast tier (`gpt-5.4-nano`) runs a 1.1-second median; the large tier (`gpt-5.4-mini`) runs 1.6. Where the fast tier pulls ahead is the tail (p99 of 3.0 s against 6.0 s) and, as the next section shows, the cost. Raw median speed is not where it wins.
+
+The third correction is about the word in the title. Nobody here clears 500 ms, and the fast tier does not even clear one second at the median. From this setup, with a 700-token system prompt and structured JSON output, sub-second is a target you engineer toward (a leaner prompt, a region closer to the provider, dropping structured output for a raw call), not a number these models hand you. The budget is the goal; the tail is what you design against.
 
 ## Right-sizing the model per job
 
@@ -38,7 +42,7 @@ The fast tier is a stateless detector: a tiny model, a tight prompt, no conversa
 ```typescript
 export const fastDetector = new Agent({
   name: 'fastDetector',
-  model: openai('gpt-5-nano'), // fastest/cheapest tier for a yes/no job
+  model: openai('gpt-5.4-nano'), // small and fast for a yes/no; see the latency note below
   // Minimal memory: recent turns only, no semantic recall (recall is
   // latency we can't pay on every message).
   memory: new Memory({
@@ -57,11 +61,17 @@ Respond as fast as possible.`,
 });
 ```
 
-The reasoning tier is a different agent on a larger model (`gpt-4.1-mini` in this code), and crucially it calls the fast detector *first*, before it does its own work. The cheap check runs on the hot path; the expensive reasoning only happens for the cases that earn it. Routing the bulk of traffic to the small tier is also where the cost line bends:
+The reasoning tier is a different agent on a larger model, and it runs *behind* the detector: the cheap check happens on every turn, the expensive reasoning only for the cases that earn it. That is where the cost bends:
 
-<Image src={costPerRequest} alt="Bar chart of cost per 1,000 requests: the large tier dominates, the fast tier is roughly an order of magnitude cheaper, and the cascade lands just above the fast tier." />
+<Image src={costPerRequest} alt="Bar chart of cost per 1,000 hot-path requests: fast tier (gpt-5.4-nano) $0.21, cascade $0.58, large tier (gpt-5.4-mini) $0.88." />
 
-The cascade lands a hair above the fast tier (you pay the large model only on the escalated minority), while a large-model-on-every-turn design pays the tall bar every time.
+At current pricing, the fast tier is about four times cheaper per thousand requests than running the large model on every turn: $0.21 against $0.88. The cascade lands in the middle at $0.58, because on my emergency-heavy test set roughly 40% of messages escalated. Real clinic traffic is mostly routine scheduling, so its escalation rate would be lower and the cascade would sit closer to the fast tier. Cost is the cascade's clearest win, not latency: an escalated turn pays *both* tiers in sequence, so the cascade only beats a large-model-every-turn design on the majority of turns that never escalate.
+
+## What the cheap tier misses
+
+Cost and latency are the easy things to measure. For a safety gate the number that matters is what the fast tier gets *wrong*. Across the emergency messages in my set, `gpt-5.4-nano` caught 93% of them. Good, but a gate that waves through one dangerous case in fourteen is not good enough, and the misses were the tell. It flagged every message with an obvious keyword (*dor no peito*, *desmaiou*, *convulsão*) and missed the two emergencies with no keyword at all: *"tomei um remédio e agora estou com o corpo todo inchado"* (anaphylaxis) and *"dor de barriga muito forte do lado direito, não aguento ficar em pé"* (a possible appendicitis). Catching those takes reasoning, not keyword-matching, which is exactly the job I moved off the hot path.
+
+This is why the cascade is a safety mechanism and not only a cost one. On the misses, the detector was not confident: it returned `isEmergency: false` with a confidence around 0.35 to 0.6, under the escalation threshold. So the cascade sends those uncertain cases up to the reasoning tier, which catches them, and measured recall climbs from 93% to 100%. It only works because the fast tier is *honestly unsure* when it is wrong. A model that is confidently wrong defeats it: an earlier candidate, `gpt-4.1-nano`, returned `false` at 0.8 confidence on that same anaphylaxis message, sailed past the threshold, and pulled cascade recall down to 94%. "Wrong but unsure" turns out to be a property worth testing a detector for.
 
 ## Failing safe
 
@@ -118,19 +128,19 @@ That one field encodes the whole approach. Fast on the common path, cheap on the
 
 ## Measuring the trade
 
-None of this is worth much if you can't see it. A cascade is a *bet*: that the fast tier is accurate enough often enough that escalations stay rare. The only way to know if the bet is paying off is per-tier instrumentation: latency, token usage, and cost, tagged by which model handled the request.
+None of this is worth much if you can't see it. A cascade is a *bet*: that the fast tier is accurate enough, and escalates rarely enough, to be worth the extra moving parts. My 40% escalation rate came from a test set stuffed with emergencies; on live traffic I need to watch the real number, because if it drifts up I am quietly paying for the large model on more and more turns. The only way to know is per-tier instrumentation: latency, token usage, and cost, tagged by which model handled the request.
 
 The cheap version is to record it on every call. Capture a start time, measure the duration, and emit the model, the token counts, and a computed cost:
 
 ```typescript
 await trackAgentMetrics({
   agentName: 'fastDetector',
-  model: 'gpt-5-nano',
+  model: 'gpt-5.4-nano',
   promptTokens,
   completionTokens,
   totalTokens,
   responseTimeMs: durationMs,
-  costUsd: calculateLLMCost('gpt-5-nano', promptTokens, completionTokens),
+  costUsd: calculateLLMCost('gpt-5.4-nano', promptTokens, completionTokens),
   success: true,
 });
 ```
@@ -141,7 +151,7 @@ For something you can graph and alert on, expose the same numbers as [Prometheus
 
 I built exactly this shape into a real-time messaging assistant of my own: a tiny stateless model on the hot path to catch the one case that had to be caught immediately, a larger model behind it for the cases that needed real reasoning, wrapped in a circuit breaker and a retry layer, with a fallback hardwired to escalate when anything failed. The domain specifics don't matter; the structure is the point, and it generalizes to any check that has to be fast, cheap, and safe at the same time.
 
-The durable lessons are the ones that travel across implementations. Treat the latency budget as a distribution and design for the tail. Size the model to the job and escalate only when the cheap tier is unsure. Wrap the hot path in a breaker so a flaky upstream fails fast instead of cascading. Bias the fallback toward the safe error. And measure every tier, because a cascade is only as good as your ability to see when it stops paying off.
+The durable lessons are the ones that travel across implementations. Treat the latency budget as a distribution and design for the tail. Check that your "fast" model is actually fast, because a small reasoning model can be the slowest thing you run. Size the model to the job and escalate only when the cheap tier is unsure, since a cascade rescues the dangerous case only when the fast tier is honestly uncertain about it. Wrap the hot path in a breaker so a flaky upstream fails fast instead of cascading. Bias the fallback toward the safe error. And measure every tier, because a cascade is only as good as your ability to see when it stops paying off.
 
 ## References and further reading
 
@@ -152,3 +162,5 @@ The durable lessons are the ones that travel across implementations. Treat the l
 - [CircuitBreaker](https://martinfowler.com/bliki/CircuitBreaker.html). Martin Fowler; the pattern Michael Nygard popularized in *Release It!*
 - [Prometheus: histograms and summaries](https://prometheus.io/docs/practices/histograms/). Measuring latency quantiles · [Grafana panels & visualizations](https://grafana.com/docs/grafana/latest/panels-visualizations/) · [prom-client](https://github.com/siimon/prom-client) (Node.js)
 - [Mastra](https://mastra.ai/). The TypeScript agent framework used in the code snippets
+- [Artificial Analysis: GPT-5 nano vs GPT-4.1 nano](https://artificialanalysis.ai/models/comparisons/gpt-5-nano-vs-gpt-4-1-nano). Time-to-first-token and reasoning behaviour; why a reasoning model can be the slow one
+- [OpenAI API pricing](https://developers.openai.com/api/docs/pricing). Current per-token rates used for the cost figures (a July 2026 snapshot; latency numbers are from the same period and will drift)
