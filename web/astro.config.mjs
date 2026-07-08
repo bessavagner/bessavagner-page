@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
 import mdx from '@astrojs/mdx';
+import pagefind from 'astro-pagefind';
 import tailwindcss from '@tailwindcss/vite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -103,6 +104,7 @@ export default defineConfig({
         return item;
       },
     }),
+    pagefind(),
   ],
   vite: {
     plugins: [tailwindcss()],
