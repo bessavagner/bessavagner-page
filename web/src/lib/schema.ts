@@ -53,3 +53,47 @@ export function personNode(siteUrl: string, profile: Profile): Record<string, un
   }
   return node;
 }
+
+/** The WebSite entity, published by the Person. */
+export function webSiteNode(siteUrl: string): Record<string, unknown> {
+  return {
+    '@type': 'WebSite',
+    '@id': `${siteUrl}/#website`,
+    url: `${siteUrl}/`,
+    name: 'Vagner Bessa',
+    inLanguage: 'en',
+    publisher: { '@id': `${siteUrl}/#vagner-bessa` },
+  };
+}
+
+/** The homepage ProfilePage node. `dateModified` is a freshness signal for AI search. */
+export function profilePageNode(siteUrl: string, dateModified?: string): Record<string, unknown> {
+  const node: Record<string, unknown> = {
+    '@type': 'ProfilePage',
+    '@id': `${siteUrl}/#profile`,
+    url: `${siteUrl}/`,
+    name: 'Vagner Bessa — Senior Developer & AI Engineer',
+    inLanguage: 'en',
+    about: { '@id': `${siteUrl}/#vagner-bessa` },
+    mainEntity: { '@id': `${siteUrl}/#vagner-bessa` },
+    isPartOf: { '@id': `${siteUrl}/#website` },
+  };
+  if (dateModified) node.dateModified = dateModified;
+  return node;
+}
+
+/** An ItemList of the portfolio's project detail pages, for entity discovery. */
+export function projectItemList(
+  siteUrl: string,
+  projects: { id: string; name: string }[],
+): Record<string, unknown> {
+  return {
+    '@type': 'ItemList',
+    itemListElement: projects.map((p, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: p.name,
+      url: `${siteUrl}/projects/${p.id}/`,
+    })),
+  };
+}
