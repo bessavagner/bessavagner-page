@@ -9,11 +9,17 @@ const { post } = Astro.props;
 const minutes = readingTime(post.body ?? '');
 const href = `/blog/${post.id}/`;
 const cover = post.data.heroImage;
+const coverDark = post.data.heroImageDark;
 ---
 <article class="blog-reveal group relative grid grid-cols-[5rem_1fr] sm:grid-cols-[7rem_1fr] gap-4 sm:gap-5 py-6 transition-colors">
   <div class="overflow-hidden rounded-lg border border-base-content/10 bg-base-200/40 aspect-[16/10]">
     {cover
-      ? <Image src={cover} alt="" width={224} height={140} loading="lazy" class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+      ? (coverDark
+          ? <Fragment>
+              <Image src={cover} alt="" width={224} height={140} loading="lazy" class="card-cover-light h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+              <Image src={coverDark} alt="" width={224} height={140} loading="lazy" class="card-cover-dark h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />
+            </Fragment>
+          : <Image src={cover} alt="" width={224} height={140} loading="lazy" class="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" />)
       : <CoverFallback title={post.data.title} />}
   </div>
   <div class="min-w-0">
@@ -24,3 +30,9 @@ const cover = post.data.heroImage;
     <p class="font-base text-sm text-base-content/70 mt-2 leading-relaxed line-clamp-2 max-w-[65ch]">{post.data.description}</p>
   </div>
 </article>
+
+<style>
+  .card-cover-dark { display: none; }
+  :global([data-theme="custom-dark"]) .card-cover-light { display: none; }
+  :global([data-theme="custom-dark"]) .card-cover-dark { display: block; }
+</style>
