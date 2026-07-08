@@ -59,9 +59,19 @@ const breadcrumb = {
   <script is:inline type="application/ld+json" set:html={jsonLd(blogPosting)} />
   <script is:inline type="application/ld+json" set:html={jsonLd(breadcrumb)} />
 
-  <article class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">
+  <article
+    class="w-11/12 max-w-3xl mx-auto pt-28 pb-20"
+    data-pagefind-body
+    data-pagefind-meta={`title:${update.data.title}`}
+  >
+    <span hidden data-pagefind-meta="type:buildlog"></span>
+    <span hidden data-pagefind-meta={`date:${update.data.pubDate.toISOString()}`}></span>
+    <span hidden data-pagefind-meta={`description:${update.data.description}`}></span>
     <a href={`/building/${projectSlug}/`} class="inline-flex items-center gap-1 font-base text-sm text-primary hover:underline">← {project?.title ?? 'Build log'}</a>
     <header class="mt-6">
+      {update.data.tags.map((t) => (
+        <span hidden data-pagefind-filter="tag">{t}</span>
+      ))}
       <h1 class="font-header-4 font-bold leading-tight">{update.data.title}</h1>
       <UpdateMeta pubDate={update.data.pubDate} updatedDate={update.data.updatedDate} minutes={minutes} update={update.data.update} class="mt-4" />
       {update.data.tags.length > 0 && (
