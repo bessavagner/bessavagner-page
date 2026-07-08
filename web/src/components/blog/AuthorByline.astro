@@ -1,0 +1,24 @@
+---
+import { Image } from 'astro:assets';
+import avatar from '../../assets/avatar.png';
+interface Props { class?: string; }
+const { class: className = '' } = Astro.props;
+---
+<aside class:list={["flex items-center gap-4 rounded-2xl border border-base-content/10 bg-base-200/40 p-5", className]}>
+  <div class="avatar shrink-0">
+    <div class="w-14 h-14 rounded-full ring ring-primary/30">
+      <Image src={avatar} alt="Portrait of Vagner Bessa" width={112} height={112} loading="lazy" />
+    </div>
+  </div>
+  <div class="min-w-0">
+    <p class="font-base text-sm font-semibold text-base-content/90">Vagner Bessa</p>
+    <p class="font-base text-xs text-base-content/70">
+      Senior Developer &amp; AI Engineer — production AI products and web platforms in Python &amp; TypeScript.
+    </p>
+    <p class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+      <a href="https://github.com/bessavagner" target="_blank" rel="noopener" class="text-primary hover:underline">GitHub</a>
+      <a href="https://www.linkedin.com/in/bessavagner/" target="_blank" rel="noopener" class="text-primary hover:underline">LinkedIn</a>
+      <a href="https://orcid.org/0000-0002-7584-262X" target="_blank" rel="noopener" class="text-primary hover:underline">ORCID</a>
+    </p>
+  </div>
+</aside>
