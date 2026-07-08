@@ -27,6 +27,11 @@ export const GET: APIRoute = ({ site }) => {
   if (p.links.email) lines.push(`- Email: ${p.links.email}`);
   if (p.links.cv) lines.push(`- CV: ${base}${asset(p.links.cv)}`);
 
+  if (p.sameAs?.length) {
+    lines.push('', '## Profiles');
+    for (const url of p.sameAs) lines.push(`- ${url}`);
+  }
+
   lines.push('', '## Projects');
   for (const pr of projects) {
     lines.push(`- [${pr.name}](${base}/projects/${pr.id}/): ${pr.tagline}. ${pr.summary}`);
