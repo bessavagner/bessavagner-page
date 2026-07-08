@@ -1,3 +1,5 @@
 User-agent: *
 Allow: /
 Sitemap: https://bessavagner.com/sitemap-index.xml
+
+# AI/LLM summary of this site: https://bessavagner.com/llms.txt
