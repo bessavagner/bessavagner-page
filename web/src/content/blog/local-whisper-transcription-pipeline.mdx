@@ -13,12 +13,17 @@ import latency from '../../assets/blog/local-whisper-transcription-pipeline/late
 import latencyDark from '../../assets/blog/local-whisper-transcription-pipeline/latency.dark.svg';
 import wer from '../../assets/blog/local-whisper-transcription-pipeline/wer.svg';
 import werDark from '../../assets/blog/local-whisper-transcription-pipeline/wer.dark.svg';
+import AnswerBlock from '../../components/blog/AnswerBlock.astro';
 
 <style>{`
   .whi-fig-dark { display: none; }
   [data-theme="custom-dark"] .whi-fig-light { display: none; }
   [data-theme="custom-dark"] .whi-fig-dark { display: block; }
 `}</style>
+
+<AnswerBlock>
+You don't need a paid API to transcribe audio: faster-whisper with int8 quantization and a one-line ffmpeg preprocess gets you free, offline transcription on a plain CPU. Benchmarked across all five Whisper sizes on CPU against LibriSpeech, the largest model didn't win: the mid tiers hit the better speed-to-accuracy trade.
+</AnswerBlock>
 
 There's a reflex, when you need to turn audio into text, to reach for a hosted API. It's understandable: speech recognition used to be hard, and paying someone else to do it felt like the safe choice. But that reflex is out of date. OpenAI's [Whisper](https://arxiv.org/abs/2212.04356) is open, the weights are free, and a small reimplementation called [faster-whisper](https://github.com/SYSTRAN/faster-whisper) makes it quick enough to run on a plain CPU. You can transcribe an hour of audio on your laptop, offline, for nothing.
 
@@ -113,7 +118,7 @@ I didn't trust that, so I broke it down per clip. The median `large-v3` transcri
 
 That runaway is the Whisper hallucination loop, and greedy decoding opens the door to it. `beam_size=1` commits to the single likeliest next token at every step with no way to abandon a bad path, and the largest, most fluent model is the readiest to confabulate a fluent continuation past the end of the audio. I reran that clip to check: greedy spun out to 161 words; `beam_size=5` brought it back to 25. The accuracy was never the model's problem. It was the fast setting I had bolted onto it.
 
-## Picking a tier
+## Which Whisper model size should you use?
 
 Put the two curves side by side and the call almost makes itself, though not the way I assumed walking in.
 
