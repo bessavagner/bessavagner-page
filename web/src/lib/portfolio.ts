@@ -40,6 +40,8 @@ export interface Profile {
   languages?: string[];
   links: { github?: string; linkedin?: string; email?: string; cv?: string; whatsapp?: string };
   stacks: Record<string, string[]>;
+  sameAs?: string[];
+  occupation?: { name: string; category: string };
 }
 
 /** Public-asset path: "images/x.png" -> "/images/x.png"; strips a legacy "/static/" prefix. */
@@ -54,6 +56,7 @@ import bpData from '../data/buildProjects.json';
 import { buildProjectToProject, type BuildProject } from './buildlog-core';
 
 const profile = data.profile as Profile;
+export const updated: string | undefined = (data as { updated?: string }).updated;
 const graduated = (bpData.projects as BuildProject[])
   .filter((p) => p.status === 'shipped' && p.work)
   .map(buildProjectToProject);
