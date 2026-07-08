@@ -48,8 +48,11 @@ import Base from '../layouts/Base.astro';
     async function load(): Promise<Pagefind | null> {
       if (pagefind || pagefindFailed) return pagefind;
       try {
-        // @ts-expect-error runtime-only module — /pagefind/pagefind.js exists only in the built dist/ output
-        pagefind = (await import(/* @vite-ignore */ '/pagefind/pagefind.js')) as Pagefind;
+        // Resolved at runtime from a variable so Vite's import-analysis doesn't try
+        // to bundle it in dev — the module only exists in dist/ (served by the
+        // astro-pagefind dev middleware after a build), never in the source tree.
+        const runtime = '/pagefind/pagefind.js';
+        pagefind = (await import(/* @vite-ignore */ runtime)) as Pagefind;
       }
       catch { pagefindFailed = true; }
       return pagefind;
