@@ -3,13 +3,22 @@ title: "Sub-second triage: tiering LLMs for latency-critical paths"
 description: "I benchmarked a tiered LLM safety gate with 800 real API calls: a fast model on the hot path, a larger one for the cases that need reasoning, plus circuit breakers and a caution-biased fallback. The measurements upended my reasons for tiering. On current models the fast and large tiers run at nearly the same speed, so the real payoffs are cost and, more importantly, catching the emergencies the cheap model quietly gets wrong."
 pubDate: 2026-07-05T05:00:00-03:00
 heroImage: ../../assets/blog/sub-second-llm-triage/cost-per-request.svg
+heroImageDark: ../../assets/blog/sub-second-llm-triage/cost-per-request.dark.svg
 tags: ["llm-agents", "latency", "reliability", "architecture"]
 draft: false
 ---
 
 import { Image } from 'astro:assets';
 import latencyCdf from '../../assets/blog/sub-second-llm-triage/latency-cdf.svg';
+import latencyCdfDark from '../../assets/blog/sub-second-llm-triage/latency-cdf.dark.svg';
 import costPerRequest from '../../assets/blog/sub-second-llm-triage/cost-per-request.svg';
+import costPerRequestDark from '../../assets/blog/sub-second-llm-triage/cost-per-request.dark.svg';
+
+<style>{`
+  .tri-fig-dark { display: none; }
+  [data-theme="custom-dark"] .tri-fig-light { display: none; }
+  [data-theme="custom-dark"] .tri-fig-dark { display: block; }
+`}</style>
 
 Some checks can take their time. If a model is summarizing a document or drafting a reply, a second or two of latency is invisible: the user is reading, thinking, waiting anyway. But some checks sit on a hot path where every message has to pass through them first, and where being slow is itself a failure. A safety gate that decides "is this the dangerous case?" on every single turn is the canonical example: it runs before anything else happens, it runs constantly, and if it's slow it makes *everything* slow.
 
@@ -23,7 +32,8 @@ So the budget is a *distribution*, not a number. "Under 500 ms" means under 500 
 
 I finally stopped drawing that curve from a synthetic harness and measured it: 800 real calls to the OpenAI API from my machine in Brazil, through the same [Mastra](https://mastra.ai/) agent stack and structured-output path the clinic assistant uses, one patient message per call, on the current models (`gpt-5.4-nano` for the fast tier, `gpt-5.4-mini` for the large one). API latency drifts with provider load and your region, so treat the absolute numbers as a snapshot. The shape is the point, and it was not the shape I expected.
 
-<Image src={latencyCdf} alt="CDF of per-request latency on a log scale: gpt-5.4-nano (fast) and gpt-5.4-mini (large) sit almost on top of each other, roughly 1 to 2.6 seconds; the cascade curve trails to the right through the middle of the distribution because escalated turns pay both tiers." />
+<Image src={latencyCdf} alt="CDF of per-request latency on a log scale: gpt-5.4-nano (fast) and gpt-5.4-mini (large) sit almost on top of each other, roughly 1 to 2.6 seconds; the cascade curve trails to the right through the middle of the distribution because escalated turns pay both tiers." class="tri-fig-light" />
+<Image src={latencyCdfDark} alt="CDF of per-request latency on a log scale: gpt-5.4-nano (fast) and gpt-5.4-mini (large) sit almost on top of each other, roughly 1 to 2.6 seconds; the cascade curve trails to the right through the middle of the distribution because escalated turns pay both tiers." class="tri-fig-dark" />
 
 I had assumed the fast tier would sit well to the left of the large one, clearing the budget while the big model lagged. It doesn't. The two curves are almost on top of each other: `gpt-5.4-nano` runs a 1.1-second median, `gpt-5.4-mini` runs 1.6, and their distributions overlap through most of the range. The small model is barely quicker, and the only real separation is out in the tail (p99 of 3.0 s against 6.0 s). The cascade, the third curve, is actually the *slowest* of the three through the middle of the distribution, because an escalated turn runs the detector and then the reasoning model in sequence. Tiering did almost nothing for latency.
 
@@ -63,7 +73,8 @@ Respond as fast as possible.`,
 
 The reasoning tier is a different agent on a larger model, and it runs *behind* the detector: the cheap check happens on every turn, the expensive reasoning only for the cases that earn it. That is where the cost bends:
 
-<Image src={costPerRequest} alt="Bar chart of cost per 1,000 hot-path requests: fast tier (gpt-5.4-nano) $0.21, cascade $0.58, large tier (gpt-5.4-mini) $0.88." />
+<Image src={costPerRequest} alt="Bar chart of cost per 1,000 hot-path requests: fast tier (gpt-5.4-nano) $0.21, cascade $0.58, large tier (gpt-5.4-mini) $0.88." class="tri-fig-light" />
+<Image src={costPerRequestDark} alt="Bar chart of cost per 1,000 hot-path requests: fast tier (gpt-5.4-nano) $0.21, cascade $0.58, large tier (gpt-5.4-mini) $0.88." class="tri-fig-dark" />
 
 At current pricing, the fast tier is about four times cheaper per thousand requests than running the large model on every turn: $0.21 against $0.88. The cascade lands in the middle at $0.58, because on my emergency-heavy test set roughly 40% of messages escalated. Real clinic traffic is mostly routine scheduling, so its escalation rate would be lower and the cascade would sit closer to the fast tier. Cost is the cascade's clearest win, not latency: an escalated turn pays *both* tiers in sequence, so the cascade only beats a large-model-every-turn design on the majority of turns that never escalate.
 

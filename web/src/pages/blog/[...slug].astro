@@ -55,9 +55,14 @@ const breadcrumb = {
       <h1 class="font-header-4 font-bold leading-tight">{post.data.title}</h1>
       <PostMeta pubDate={post.data.pubDate} minutes={minutes} tags={post.data.tags} maxTags={post.data.tags.length} class="mt-4" />
     </header>
-    {post.data.heroImage && (
+    {post.data.heroImage && (post.data.heroImageDark ? (
+      <Fragment>
+        <Image src={post.data.heroImage} alt={post.data.title} class="blog-hero-light rounded-2xl border border-primary/20 mt-8 w-full h-auto" />
+        <Image src={post.data.heroImageDark} alt={post.data.title} class="blog-hero-dark rounded-2xl border border-primary/20 mt-8 w-full h-auto" />
+      </Fragment>
+    ) : (
       <Image src={post.data.heroImage} alt={post.data.title} class="rounded-2xl border border-primary/20 mt-8 w-full h-auto" />
-    )}
+    ))}
     {headings.length > 0 && <TableOfContents headings={headings} class="mt-8" />}
     <div class="prose prose-lg max-w-none mt-8">
       <Content />
@@ -68,3 +73,9 @@ const breadcrumb = {
     <SubscribeForm class="mt-10" />
   </article>
 </Base>
+
+<style>
+  .blog-hero-dark { display: none; }
+  :global([data-theme="custom-dark"]) .blog-hero-light { display: none; }
+  :global([data-theme="custom-dark"]) .blog-hero-dark { display: block; }
+</style>

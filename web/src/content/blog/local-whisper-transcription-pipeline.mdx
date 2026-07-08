@@ -3,13 +3,22 @@ title: "A local Whisper transcription pipeline: picking the right model size"
 description: "You don't need a paid API to transcribe audio. With faster-whisper, int8 quantization, and a little ffmpeg preprocessing you get offline, free transcription. I benchmarked all five model sizes on CPU against LibriSpeech, and the biggest one didn't win."
 pubDate: 2026-07-07T05:00:00-03:00
 heroImage: ../../assets/blog/local-whisper-transcription-pipeline/latency.svg
+heroImageDark: ../../assets/blog/local-whisper-transcription-pipeline/latency.dark.svg
 tags: ["whisper", "speech-to-text", "audio", "ml-ops", "python"]
 draft: false
 ---
 
 import { Image } from 'astro:assets';
 import latency from '../../assets/blog/local-whisper-transcription-pipeline/latency.svg';
+import latencyDark from '../../assets/blog/local-whisper-transcription-pipeline/latency.dark.svg';
 import wer from '../../assets/blog/local-whisper-transcription-pipeline/wer.svg';
+import werDark from '../../assets/blog/local-whisper-transcription-pipeline/wer.dark.svg';
+
+<style>{`
+  .whi-fig-dark { display: none; }
+  [data-theme="custom-dark"] .whi-fig-light { display: none; }
+  [data-theme="custom-dark"] .whi-fig-dark { display: block; }
+`}</style>
 
 There's a reflex, when you need to turn audio into text, to reach for a hosted API. It's understandable: speech recognition used to be hard, and paying someone else to do it felt like the safe choice. But that reflex is out of date. OpenAI's [Whisper](https://arxiv.org/abs/2212.04356) is open, the weights are free, and a small reimplementation called [faster-whisper](https://github.com/SYSTRAN/faster-whisper) makes it quick enough to run on a plain CPU. You can transcribe an hour of audio on your laptop, offline, for nothing.
 
@@ -86,7 +95,8 @@ So which model do you load, `tiny` or `large-v3`? I stopped guessing and measure
 
 Latency first. I stitched a fixed 70-second clip together and timed each model transcribing it, median of three runs. Transcription time tracks the parameter count, and the [model card](https://github.com/openai/whisper#available-models-and-languages) makes the spread concrete: `tiny` is 39 M parameters, `base` 74 M, `small` 244 M, `medium` 769 M, `large-v3` 1550 M. On a CPU that turns into wall-clock time you feel:
 
-<Image src={latency} alt="Transcription latency rises steeply with model size: 1.7s for tiny, 3.8s base, 13.4s small, 32.6s medium, 49.6s large-v3 on a 70-second clip." />
+<Image src={latency} alt="Transcription latency rises steeply with model size: 1.7s for tiny, 3.8s base, 13.4s small, 32.6s medium, 49.6s large-v3 on a 70-second clip." class="whi-fig-light" />
+<Image src={latencyDark} alt="Transcription latency rises steeply with model size: 1.7s for tiny, 3.8s base, 13.4s small, 32.6s medium, 49.6s large-v3 on a 70-second clip." class="whi-fig-dark" />
 
 `tiny` clears the whole clip in 1.7 seconds, 41 times faster than real time. `large-v3` needs 49.6 seconds, barely ahead of the audio itself. The steep part is the top end: `small`, `medium`, `large` run 13, then 33, then 50 seconds, each step close to double the one before.
 
@@ -94,7 +104,8 @@ Accuracy uses [word error rate (WER)](https://en.wikipedia.org/wiki/Word_error_r
 
 Then the curve did something I wasn't expecting. It drops the way you'd hope from `tiny` to `medium`, 7.7% down to 2.9%, and then it climbs back up:
 
-<Image src={wer} alt="Word error rate falls from tiny (7.7%) to medium (2.9%) then rises at large-v3 (4.7%): the biggest model scores worse than medium and small." />
+<Image src={wer} alt="Word error rate falls from tiny (7.7%) to medium (2.9%) then rises at large-v3 (4.7%): the biggest model scores worse than medium and small." class="whi-fig-light" />
+<Image src={werDark} alt="Word error rate falls from tiny (7.7%) to medium (2.9%) then rises at large-v3 (4.7%): the biggest model scores worse than medium and small." class="whi-fig-dark" />
 
 `large-v3` scored 4.7%. Worse than `medium`, worse than `small`. The 1.5-billion-parameter model lost to one a fifth its size, on clean read speech, while taking twice as long to do it.
 
