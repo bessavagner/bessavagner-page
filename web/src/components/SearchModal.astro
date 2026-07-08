@@ -1,0 +1,171 @@
+---
+// Site search modal. Built on Pagefind's JS API (loaded lazily at runtime from
+// /pagefind/pagefind.js, which only exists in a real build — see the dev note
+// in the script). UI matches the daisyUI + is:inline idiom used in Header.astro.
+---
+<div
+  id="search-modal"
+  class="fixed inset-0 z-[70] hidden items-start justify-center px-4 pt-[12vh]"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="search-modal-title"
+>
+  <div id="search-backdrop" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
+
+  <div class="relative w-full max-w-xl rounded-2xl border border-base-content/10 bg-base-100 shadow-2xl">
+    <h2 id="search-modal-title" class="sr-only">Search the site</h2>
+    <div class="flex items-center gap-3 border-b border-base-content/10 px-4">
+      <svg class="h-5 w-5 shrink-0 fill-current opacity-60" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 2a8 8 0 105.29 14.03l4.84 4.84 1.41-1.41-4.84-4.84A8 8 0 0010 2zm0 2a6 6 0 110 12 6 6 0 010-12z"/></svg>
+      <input
+        id="search-input"
+        type="search"
+        role="combobox"
+        aria-expanded="false"
+        aria-controls="search-results"
+        aria-autocomplete="list"
+        autocomplete="off"
+        spellcheck="false"
+        placeholder="Search posts and build-log updates…"
+        class="font-base w-full bg-transparent py-4 text-base outline-none"
+      />
+      <kbd class="kbd kbd-sm hidden sm:inline-flex">Esc</kbd>
+    </div>
+    <ul id="search-results" role="listbox" aria-label="Search results" class="max-h-[55vh] overflow-y-auto p-2"></ul>
+    <p id="search-status" class="font-base px-4 pb-4 pt-1 text-sm text-base-content/60">
+      Search posts and build-log updates…
+    </p>
+  </div>
+</div>
+
+<script>
+  import { toRow, debounce, type SearchRow } from '../lib/search-core.ts';
+
+  type PagefindResult = { data: () => Promise<any> };
+  type Pagefind = { search: (q: string) => Promise<{ results: PagefindResult[] }> };
+
+  const modal = document.getElementById('search-modal')!;
+  const backdrop = document.getElementById('search-backdrop')!;
+  const input = document.getElementById('search-input') as HTMLInputElement;
+  const list = document.getElementById('search-results')!;
+  const status = document.getElementById('search-status')!;
+
+  let pagefind: Pagefind | null = null;
+  let pagefindFailed = false;
+  let opener: HTMLElement | null = null;
+  let rows: SearchRow[] = [];
+  let active = -1;
+  let reqId = 0;
+
+  async function loadPagefind(): Promise<Pagefind | null> {
+    if (pagefind || pagefindFailed) return pagefind;
+    try {
+      // @vite-ignore — the module only exists in dist/, resolved at runtime.
+      // @ts-expect-error runtime-only module — /pagefind/pagefind.js exists only in the built dist/ output
+      pagefind = (await import(/* @vite-ignore */ '/pagefind/pagefind.js')) as Pagefind;
+      return pagefind;
+    } catch {
+      pagefindFailed = true;
+      return null;
+    }
+  }
+
+  function setStatus(msg: string) {
+    status.textContent = msg;
+    status.classList.toggle('hidden', msg === '');
+  }
+
+  function render() {
+    list.innerHTML = '';
+    rows.forEach((row, i) => {
+      const li = document.createElement('li');
+      li.id = `search-opt-${i}`;
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', String(i === active));
+      li.className =
+        'rounded-xl px-3 py-2 cursor-pointer ' +
+        (i === active ? 'bg-base-200' : 'hover:bg-base-200/60');
+      li.innerHTML = `
+        <a href="${row.url}" class="block no-underline" tabindex="-1">
+          <span class="flex items-center gap-2">
+            <span class="badge badge-outline border-primary/40 font-base text-[10px]">${row.typeLabel}</span>
+            <span class="font-base font-semibold">${row.title}</span>
+            ${row.dateLabel ? `<span class="font-base ml-auto shrink-0 text-xs text-base-content/50">${row.dateLabel}</span>` : ''}
+          </span>
+          <span class="font-base mt-1 block text-sm text-base-content/70">${row.excerptHtml}</span>
+        </a>`;
+      li.addEventListener('click', () => go(i));
+      list.appendChild(li);
+    });
+    input.setAttribute('aria-expanded', rows.length ? 'true' : 'false');
+    if (active >= 0) input.setAttribute('aria-activedescendant', `search-opt-${active}`);
+    else input.removeAttribute('aria-activedescendant');
+  }
+
+  async function runSearch(q: string) {
+    const myReq = ++reqId;
+    if (!q.trim()) { rows = []; active = -1; render(); setStatus('Search posts and build-log updates…'); return; }
+    const pf = await loadPagefind();
+    if (!pf) { setStatus('Search is unavailable right now.'); return; }
+    const search = await pf.search(q);
+    if (myReq !== reqId) return; // a newer query superseded this one
+    const data = await Promise.all(search.results.slice(0, 8).map((r) => r.data()));
+    if (myReq !== reqId) return;
+    rows = data.map(toRow);
+    active = rows.length ? 0 : -1;
+    render();
+    setStatus(rows.length ? '' : `No matches for “${q}”.`);
+  }
+
+  const onInput = debounce((q: string) => runSearch(q), 120);
+
+  function go(i: number) {
+    const row = rows[i];
+    if (row) window.location.href = row.url;
+  }
+
+  function open() {
+    opener = (document.activeElement as HTMLElement) ?? null;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+    input.value = '';
+    rows = []; active = -1; render();
+    setStatus('Search posts and build-log updates…');
+    input.focus();
+    void loadPagefind(); // warm the index while they type the first char
+  }
+
+  function close() {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    document.body.style.overflow = '';
+    if (opener) opener.focus();
+  }
+
+  function isOpen() { return !modal.classList.contains('hidden'); }
+
+  // --- wiring ---
+  document.addEventListener('open-search', open);
+  document.querySelectorAll('[data-open-search]').forEach((el) =>
+    el.addEventListener('click', (e) => { e.preventDefault(); open(); }),
+  );
+  backdrop.addEventListener('click', close);
+  input.addEventListener('input', () => onInput(input.value));
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, rows.length - 1); render(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); render(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (active >= 0) go(active); }
+    // Focus trap: the input is the only tabbable control in the dialog (result
+    // links are tabindex="-1"), so keep Tab on it rather than leaking to the page.
+    else if (e.key === 'Tab') { e.preventDefault(); input.focus(); }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const inField = /^(INPUT|TEXTAREA)$/.test((e.target as HTMLElement)?.tagName) ||
+      (e.target as HTMLElement)?.isContentEditable;
+    if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) { e.preventDefault(); isOpen() ? close() : open(); }
+    else if (e.key === '/' && !inField && !isOpen()) { e.preventDefault(); open(); }
+    else if (e.key === 'Escape' && isOpen()) { e.preventDefault(); close(); }
+  });
+</script>
