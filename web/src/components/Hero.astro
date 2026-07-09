@@ -1,6 +1,7 @@
 ---
 import CodeAnimation from './CodeAnimation.astro';
 import { asset, type Profile } from '../lib/portfolio';
+import { EVENTS } from '../lib/analytics-events';
 const { profile } = Astro.props as { profile: Profile };
 const cv = asset(profile.links.cv);
 ---
@@ -23,15 +24,15 @@ const cv = asset(profile.links.cv);
       <p class="font-base text-lg lg:text-xl text-base-content/70 mt-5 max-w-xl mx-auto lg:mx-0">{profile.tagline}</p>
 
       <div class="flex flex-wrap gap-3 justify-center lg:justify-start mt-8">
-        <a href="#section-contact" data-umami-event="hero-lets-talk" class="btn btn-primary font-base">Let's talk</a>
-        <a href="#section-featured" data-umami-event="hero-see-work" class="btn btn-outline font-base">See my work</a>
+        <a href="#section-contact" data-track={EVENTS.HERO_CTA_CONTACT} class="btn btn-primary font-base">Let's talk</a>
+        <a href="#section-featured" data-track={EVENTS.HERO_CTA_WORK} class="btn btn-outline font-base">See my work</a>
       </div>
 
       <div class="flex flex-wrap gap-x-5 gap-y-2 justify-center lg:justify-start mt-6 text-sm">
         {profile.links.github && <a href={profile.links.github} target="_blank" rel="noopener" class="font-base text-base-content/60 hover:text-primary">GitHub ↗</a>}
         {profile.links.linkedin && <a href={profile.links.linkedin} target="_blank" rel="noopener" class="font-base text-base-content/60 hover:text-primary">LinkedIn ↗</a>}
-        {cv && <a href={cv} target="_blank" rel="noopener" data-umami-event="cv-download" class="font-base text-base-content/60 hover:text-primary">Download CV ↓</a>}
-        {profile.links.email && <a href={`mailto:${profile.links.email}`} data-umami-event="email-click" class="font-base text-base-content/60 hover:text-primary">{profile.links.email}</a>}
+        {cv && <a href={cv} target="_blank" rel="noopener" data-track={EVENTS.CV_DOWNLOAD} data-track-file_extension="pdf" data-track-location="hero" class="font-base text-base-content/60 hover:text-primary">Download CV ↓</a>}
+        {profile.links.email && <a href={`mailto:${profile.links.email}`} data-track={EVENTS.EMAIL_CLICK} data-track-location="hero" class="font-base text-base-content/60 hover:text-primary">{profile.links.email}</a>}
       </div>
     </div>
 
