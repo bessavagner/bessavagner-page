@@ -11,7 +11,7 @@ import { track, trackAndGo, trackParams } from './analytics-core.ts';
  *  hashes (#section), and modified/middle clicks do NOT unload. */
 function unloadsPage(anchor: HTMLAnchorElement | null, e: MouseEvent): anchor is HTMLAnchorElement {
   if (!anchor) return false;
-  if (anchor.target === '_blank') return false;
+  if (anchor.target.toLowerCase() === '_blank') return false;
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
   const href = anchor.getAttribute('href') ?? '';
   if (!href || href.startsWith('#')) return false; // in-page anchor: no unload

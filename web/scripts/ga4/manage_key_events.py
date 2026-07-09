@@ -15,14 +15,13 @@ Usage:
     python manage_key_events.py            # dry-run (safe)
     python manage_key_events.py --apply    # perform create/delete (owner-gated)
 
-The DESIRED set below MUST mirror the key-event names in
-web/src/lib/analytics-events.ts (kept in sync by hand).
+The DESIRED set below mirrors only the CONVERSION events from
+web/src/lib/analytics-events.ts (generate_lead, whatsapp_click, newsletter_signup, cv_download) — the taxonomy's engagement events (hero_cta_*, email_click) are intentionally NOT key events. Keep this set in sync by hand.
 """
 from __future__ import annotations
 
 import argparse
 import os
-import sys
 
 from google.analytics.admin import AnalyticsAdminServiceClient
 from google.analytics.admin_v1beta.types import KeyEvent

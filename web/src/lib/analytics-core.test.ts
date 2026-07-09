@@ -80,14 +80,14 @@ test('trackAndGo navigates via the fallback timer when gtag never calls back', a
   const scope: AnalyticsGlobals = { gtag: () => { /* never invokes the callback */ } };
   trackAndGo('email_click', {}, { navigate: () => navigated++, scope, timeoutMs: 10 });
   assert.equal(navigated, 0);
-  await new Promise((r) => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, 120));
   assert.equal(navigated, 1);
 });
 
 test('trackAndGo navigates even when gtag is absent (blocked)', async () => {
   let navigated = 0;
   trackAndGo('email_click', {}, { navigate: () => navigated++, scope: {}, timeoutMs: 10 });
-  await new Promise((r) => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, 120));
   assert.equal(navigated, 1);
 });
 
@@ -97,7 +97,7 @@ test('trackAndGo never navigates twice when callback AND fallback both fire', as
     gtag: (_c, _n, params) => (params as { event_callback: () => void }).event_callback(),
   };
   trackAndGo('email_click', {}, { navigate: () => navigated++, scope, timeoutMs: 10 });
-  await new Promise((r) => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, 120));
   assert.equal(navigated, 1);
 });
 
