@@ -1,5 +1,5 @@
 // web/src/lib/og-text.test.ts
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { sanitizeDashes, clampText } from './og-text.ts';
 
