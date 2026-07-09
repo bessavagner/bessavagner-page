@@ -1,5 +1,6 @@
 ---
 import { portfolio } from '../lib/portfolio';
+import { EVENTS } from '../lib/analytics-events';
 
 const whatsapp = portfolio.profile.links.whatsapp;
 // Pre-filled message improves reply rate; encoded so it survives the URL.
@@ -13,7 +14,8 @@ const href = whatsapp ? `${whatsapp}?text=${encodeURIComponent(greeting)}` : '';
     target="_blank"
     rel="noopener"
     aria-label="Chat on WhatsApp"
-    data-umami-event="whatsapp-click"
+    data-track={EVENTS.WHATSAPP_CLICK}
+    data-track-location="floating_button"
     class="fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-transform duration-200 hover:scale-110 focus-visible:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2"
   >
     <svg viewBox="0 0 24 24" fill="currentColor" class="h-7 w-7" aria-hidden="true">
@@ -21,8 +23,3 @@ const href = whatsapp ? `${whatsapp}?text=${encodeURIComponent(greeting)}` : '';
     </svg>
   </a>
 )}
-<script is:inline>
-  document.getElementById('whatsapp-fab')?.addEventListener('click', function () {
-    if (window.gtag) window.gtag('event', 'whatsapp_click', { location: 'floating_button' });
-  });
-</script>

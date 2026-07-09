@@ -34,6 +34,9 @@ const action = handle ? `https://buttondown.com/api/emails/embed-subscribe/${han
   </section>
 )}
 <script>
+  import { track } from '../lib/analytics-core.ts';
+  import { EVENTS } from '../lib/analytics-events.ts';
+
   document.querySelectorAll('form[data-bd-form]').forEach((form) => {
     form.addEventListener('submit', (event) => {
       const f = event.currentTarget as HTMLFormElement;
@@ -46,7 +49,7 @@ const action = handle ? `https://buttondown.com/api/emails/embed-subscribe/${han
         fetch(action, { method: 'POST', body: new FormData(f), mode: 'no-cors' });
         const status = f.parentElement && f.parentElement.querySelector('[data-bd-status]');
         if (status) status.classList.remove('hidden');
-        (window as any).gtag?.('event', 'newsletter_signup', { method: 'buttondown' });
+        track(EVENTS.NEWSLETTER_SIGNUP, { method: 'buttondown' });
         f.reset();
       } catch {
         f.submit(); // fall back to a native POST (opens Buttondown's confirm page)
