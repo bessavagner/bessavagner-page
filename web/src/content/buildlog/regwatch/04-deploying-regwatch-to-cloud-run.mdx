@@ -1,0 +1,81 @@
+---
+title: "Unattended at last: RegWatch on Cloud Run, and the round-trip that nearly killed the job"
+description: "Update 4 of the RegWatch build log: taking the daily pipeline off my laptop and onto GCP Cloud Run Jobs against Supabase. The plan was clean; the first live deploy was not. Three quick config failures, and then the one that taught me something: a cross-region round-trip that timed the job out at a full hour, until co-locating Cloud Run with the Supabase region dropped a whole gazette day to ten minutes."
+project: "regwatch"
+update: 4
+pubDate: 2026-07-09T08:00:00-03:00
+tags: ["django", "deployment", "cloud-run", "gcp", "supabase", "docker", "ci-cd", "latency", "building-in-public", "govtech"]
+draft: false
+---
+
+*Diário Oficial da União* (DOU) is Brazil's official federal gazette: the daily record where laws, fines, appointments, grants and public tenders get published. RegWatch is the product I'm building in public, a "Google Alerts for the DOU" that watches the gazette on behalf of a firm's clients and emails a short, categorized digest of every hit.
+
+By the end of [#3](/building/regwatch/03-the-daily-run-made-real/) the daily run was real: one command, `run_daily`, that fetched a day, matched it, summarized each hit with an LLM, and emailed the digests, all wrapped in a `RunLog`. But it ran from my laptop. I closed #3 with an honest split: *"Make the run real" and "deploy the run" are different risk surfaces, so different steps.* This update is the second half. The run leaves my machine.
+
+## Two risk surfaces, and why I kept them apart
+
+The first half was correctness: real adapters, per-section resilience, a logbook, a cost cap, all testable against Postgres with no cloud account in the loop. The second half is operations: a container, secrets in Secret Manager instead of a `.env`, the pipeline as a Cloud Run Job, Cloud Scheduler firing it on weekday mornings, and an alert the moment a run fails or fails to happen. Bundling them would have meant debugging a JSON parse error and an IAM binding in the same sitting.
+
+The shape of the deploy is small on paper. One Docker image backs three Cloud Run Jobs that differ only by the management command they run (`run_daily`, `check_heartbeat`, `migrate`), with `run_daily` triggered by Cloud Scheduler at 08:05 and 13:00 BRT on weekdays. Postgres is Supabase, reached over the session pooler. Provisioning is a committed `gcloud` script plus a runbook, and a GitHub Actions workflow tests, builds, and deploys on a version tag, authenticating to GCP with Workload Identity Federation so there's no long-lived key in the repo. A clean afternoon.
+
+## Three failures before the job even started
+
+It was not a clean afternoon. The plan was right about the destination and wrong about the road.
+
+**The container wouldn't start the way I built it.** My first Dockerfile used `uv run python manage.py` as the entrypoint. `uv run` re-resolves the environment on every container start, which is exactly the wrong thing to do at runtime when the build already produced a locked venv. I pointed the entrypoint straight at the interpreter that build step made:
+
+```dockerfile
+-ENTRYPOINT ["uv", "run", "python", "manage.py"]
++ENTRYPOINT ["/app/.venv/bin/python", "manage.py"]
+```
+
+**Cloud Scheduler couldn't invoke the job.** I'd granted the scheduler's service account a broad `roles/run.developer` at the project level and pointed the trigger at the Cloud Run *v1* run URI. Two things wrong: too much privilege, and the wrong API version for a Job. The fix was a per-job invoker role and the v2 Jobs endpoint:
+
+```bash
+# per-job invoker, not a project-wide developer role
+gcloud run jobs add-iam-policy-binding regwatch-run-daily \
+  --member="serviceAccount:$SCHED_SA" --role="roles/run.invoker"
+
+# v2 :run, not the v1 namespaces path
+https://run.googleapis.com/v2/projects/$PROJECT/locations/$REGION/jobs/$JOB:run
+```
+
+**The ingestor crashed on login.** INlabs, the DOU distribution service RegWatch fetches from ([#2](/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/)), needs credentials. Locally they lived in my `.env`; in the provisioning script I'd wired every secret except those two. The job read `DATABASE_URL`, the Anthropic key, and the Resend key from Secret Manager, then hit the INlabs login with nothing. I added `INLABS_USERNAME` and `INLABS_PASSWORD` to the secret list and the mount.
+
+None of these three were hard to fix once I found them, and they shared a cause: each was something the laptop provided for free that the container didn't. The `uv run` entrypoint, the IAM role that was implicitly mine, the INlabs credentials sitting in my shell. Locally they were all just there; in the container, none of them were.
+
+## Then it ran, and never finished
+
+With those fixed, the job started, logged in, fetched the day, and began writing to Supabase. And it ran. And ran. At 600 seconds, Cloud Run's default task timeout, it was killed mid-run.
+
+My first hypothesis was the obvious one: a full DOU day is a lot of work (six sections plus any extra editions, thousands of acts, a bulk full-text-search update), so it just needs more time and more muscle. I bumped `regwatch-run-daily` to a one-hour timeout with more CPU and memory:
+
+```
+--task-timeout=3600 --cpu=2 --memory=2Gi
+```
+
+It timed out again. At a full hour.
+
+That's when the number stopped reading as "slow" and started reading as "distance." I had Cloud Run in São Paulo (`southamerica-east1`) talking to a Supabase database in AWS `us-east-2`, in Ohio. `run_daily` does thousands of small database round-trips over the course of a day. Every one of them was paying the São Paulo to Ohio round-trip: roughly 150 ms. Thousands of sequential 150 ms round-trips don't sum to a slow job. They sum to a job that cannot finish inside any timeout I was willing to set.
+
+The fix wasn't code. It was moving compute next to data: region `us-east4`, co-located with the Supabase region, round-trip down to about 10 ms. The same job that couldn't finish in an hour across the continent finished in about ten minutes beside the database. I'd been reading a wall-clock number as a compute problem. It was a geography problem.
+
+I wrote the reason into `provision.sh` and the runbook so the next person to touch this (me, in three months) doesn't rediscover it from scratch: pick the GCP region nearest your Supabase's AWS region, because thousands of small ORM round-trips multiply whatever the per-trip latency is.
+
+## Operate, not just deploy
+
+Deploying something isn't the same as operating it. Two Cloud Monitoring policies email me. One fires when a `run_daily` execution exits non-zero: the pipeline already re-raises on failure ([#3](/building/regwatch/03-the-daily-run-made-real/)), which is exactly what turns a bad run into a failed Cloud Run execution. The other is a dead-man's switch: a 09:00 `check_heartbeat` job that exits non-zero if no successful `RunLog` exists for today. A run that silently doesn't happen is worse than one that loudly fails, so I wanted the alert to cover the absence, not just the error.
+
+There's a sharp edge in that pairing that I noted instead of hitting: the heartbeat fires at 09:00, the morning run at 08:05. If a run ever legitimately took more than about 55 minutes, the heartbeat would cry wolf. Once co-location put a full day at ~10 minutes that margin is comfortable, but the runbook now says to push the check later if it ever tightens.
+
+## What I learned
+
+This deploy taught me less about GCP than about the gap between code that works on my machine and code that runs without me. Every failure here was a laptop convenience that production doesn't grant: an entrypoint that quietly re-resolves, an IAM role that's implicitly mine, a credential that's implicitly in my shell, and a database that's implicitly next door. The database one is the one I'll carry the longest: I spent an hour reading a latency problem as a compute problem before the region was even a suspect.
+
+The suite is **66 tests, green on Postgres** (56 before this slice; the new ten cover the JSON log formatter, the env resolvers, and the heartbeat command). Not one of them touches GCP, Supabase, a real LLM, or a real inbox. The Dockerfile, the provisioning script, and the workflow aren't unit-tested by design; their acceptance test was the first real scheduled run landing a `RunLog(status="success")` and a digest in an inbox I control.
+
+## What's next
+
+**API and auth.** The pipeline runs itself now, but the only way to see what it found is to query Postgres by hand. Next is a workspace-scoped API: session auth, per-client CRUD, a match feed with triage, and the HTTP-serving hardening I deliberately deferred here (enforced `ALLOWED_HOSTS`, CSRF origins) now that there's finally a server to protect. The security constants I stubbed into settings this update were aimed at a door that didn't exist yet. #5 builds the door.
+
+The Dockerfile, `provision.sh`, the deploy workflow, and `check_heartbeat` are on `main` at [**github.com/bessavagner/regwatch**](https://github.com/bessavagner/regwatch). Follow the repo to watch it run without me.
