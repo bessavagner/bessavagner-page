@@ -12,7 +12,9 @@
     "check": "astro check",
     "test": "vitest run",
     "astro": "astro",
-    "search:verify": "astro build && node scripts/assert-pagefind-index.mjs"
+    "search:verify": "astro build && node scripts/assert-pagefind-index.mjs",
+    "utm": "node --experimental-strip-types scripts/utm/build-url.ts",
+    "utm:audit": "node scripts/utm/assert-no-internal-utm.mjs"
   },
   "dependencies": {
     "@astrojs/mdx": "^7.0.0",
