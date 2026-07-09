@@ -15,6 +15,15 @@ const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const CONTENT_DIR = 'web/src/content';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * The publish cron ('5 12 * * *' in .github/workflows/scheduled-publish.yml), as minutes past
+ * UTC midnight. A pubDate whose instant falls later in its own UTC day is emailed by that day's
+ * digest (which matches on the exact UTC calendar day) but not built until the next day's
+ * deploy, because isPublic() gates on the instant. The result is a newsletter link that 404s
+ * for a day.
+ */
+const CRON_UTC_MINUTES = 12 * 60 + 5;
+
 /** Run git at the repo root and return stdout. Throws on a non-zero exit. */
 function git(...args: string[]): string {
   return execFileSync('git', args, {
@@ -74,9 +83,22 @@ for (const bad of invalid) {
 
 for (const { item, repoPath } of posts) {
   const state = stateOf(repoPath);
+  const due = item.pubDate.getTime();
+
+  // Runs for every future post, including ones already 'ok' on origin/main — a
+  // pushed post with a bad time still produces a dead link, so this must not be
+  // skipped by the "nothing left to check" continue below.
+  if (due > now) {
+    const minutes = item.pubDate.getUTCHours() * 60 + item.pubDate.getUTCMinutes();
+    if (minutes > CRON_UTC_MINUTES) {
+      warnings.push(
+        `${repoPath}\n      pubDate ${item.pubDate.toISOString()} is after the 12:05 UTC publish cron — it will be emailed a day before it is built`,
+      );
+    }
+  }
+
   if (state === 'ok' || state === 'unknown') continue;
 
-  const due = item.pubDate.getTime();
   const line = `${repoPath}\n      due ${utcDateStamp(item.pubDate)} — ${EXPLAIN[state]}`;
 
   if (due <= now) failures.push(line);

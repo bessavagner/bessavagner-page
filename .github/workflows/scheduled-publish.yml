@@ -17,7 +17,13 @@ name: Scheduled publish (daily rebuild + digest)
 #     cannot double-send.
 #   * Timing: the cron fires at 12:05 UTC so it runs AFTER any morning-BRT
 #     pubDate (e.g. 08:00 -03:00 = 11:00 UTC). A cron earlier than a post's
-#     pubDate would rebuild before the post is due and silently hide it.
+#     pubDate would rebuild before the post is due and silently hide it. The
+#     mirror case: a pubDate whose instant falls LATER than 12:05 UTC in its
+#     own UTC day is still emailed that day (the digest matches the exact UTC
+#     calendar date) but isn't built until the next day's deploy (the build
+#     gates on the instant), so the link it sends 404s for about a day.
+#     web/scripts/check-publish.ts warns locally when a post is scheduled
+#     that way.
 #
 # To change a release date: edit that post's `pubDate`. That is the whole ritual.
 # To publish ad hoc: trigger this workflow manually (workflow_dispatch).
