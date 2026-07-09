@@ -5,7 +5,7 @@ project: "stealthbench"
 update: 1
 pubDate: 2026-07-10T09:00:00-03:00
 tags: ["python", "playwright", "camoufox", "firefox", "ports-and-adapters", "hexagonal-architecture", "protocol", "browser-automation", "stealth", "tdd", "building-in-public"]
-draft: true
+draft: false
 ---
 
 Which automated-browser setup is actually the stealthiest? People argue about it constantly, usually with vibes. **stealthbench** is my attempt to replace the argument with a number.
@@ -29,7 +29,7 @@ class BrowserHandle(Protocol):
     def quit(self) -> None: ...
 ```
 
-Every detector speaks only that. It calls `handle.evaluate("return window.__TELLS__")` and never knows whether a Chrome or a Firefox is on the other end. So a second browser stack should slot in as two new adapters and nothing else: a `PlaywrightHandle` that makes a Playwright `Page` look like a `BrowserHandle`, and a `CamoufoxConfig` whose `build()` launches Camoufox and hands back that handle. If the bet was right, the detectors don't move.
+Every detector speaks only that. It calls `handle.evaluate("return window.__TELLS__")` and never knows whether a Chrome or a Firefox is on the other end. So a second browser stack should slot in as two new adapters: a `PlaywrightHandle` that makes a Playwright `Page` look like a `BrowserHandle`, and a `CamoufoxConfig` whose `build()` launches Camoufox and hands back that handle. If the bet was right, the detectors don't move.
 
 ## The adapter that speaks two dialects of "evaluate"
 
@@ -78,7 +78,7 @@ A whole new browser engine entered the benchmark and the detector directory show
 
 ## The honest number
 
-With the arm wired in, the committed 4-config snapshot (Chrome 149 + Camoufox, Linux, 3 trials) reads:
+With the arm wired in, the 4-config snapshot I committed at the end of this sprint (Chrome 149 + Camoufox, Linux, 3 trials, `results/20260706T214120910749.json`) reads:
 
 | Config | Tells passed | BotD | CreepJS lies |
 |---|:---:|:---:|:---:|
@@ -93,12 +93,12 @@ The design backs that honesty at the mechanism level too: a detector that errors
 
 ## What I learned
 
-A Protocol seam is a promise you make early and can't cash until later. I wrote `BrowserHandle` in the first week with three Chrome configs behind it, and it looked like ceremony: three adapters that all wrapped the same Selenium. The seam only earns its keep the day something *unlike* the others shows up. This sprint was that day, and the whole cost of a second browser engine came out to two new files under `configs/` and an empty diff everywhere else.
+A Protocol seam is a promise you make early and can't cash until later. I wrote `BrowserHandle` in the first week with three Chrome configs behind it, and it looked like ceremony: three adapters that all wrapped the same Selenium. The seam only earns its keep the day something *unlike* the others shows up. This sprint was that day, and the whole cost of a second browser engine came out to two new files under `configs/`, three edits in `__main__.py` to register it (an import, one more entry in the config list, and `" + Camoufox"` appended to the run's browser metadata), and an empty diff over `detectors/`.
 
 Ports and Adapters gets sold as "swap your database someday." The quieter payoff is this: when the genuinely different thing arrives, it arrives as an adapter, not a rewrite. Design the seam before you need it, and the day you need it is boring. That's the goal.
 
 ## What's next
 
-The fleet has its first non-Chrome arm; the obvious next moves are more detectors (the panel is deliberately open and self-hosted), and a headful CI workflow so the snapshot regenerates under Xvfb instead of only on my machine. Both are on the backlog under `docs/plans/`.
+The fleet has its first non-Chrome arm; the obvious next moves are more detectors (the panel is deliberately open and self-hosted), and a headful CI workflow so the snapshot regenerates under Xvfb instead of only on my machine. Today CI runs the pure suite with no browser in it, which keeps it fast and keeps the numbers honest about where they came from: my desk.
 
 If you run browser automation, I want the disagreement this benchmark exists to settle: what's in *your* stealth setup that you'd bet beats these four, and which detector do you think would catch it first? The repo is open at [github.com/bessavagner/stealthbench](https://github.com/bessavagner/stealthbench), every number traces to a committed `results/*.json`, and adding a config to test your claim is, by design, just one more adapter.
