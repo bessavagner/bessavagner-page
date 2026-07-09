@@ -1,4 +1,4 @@
-name: Scheduled publish (rebuild on release dates)
+name: Scheduled publish (daily rebuild + digest)
 
 # Surfaces scheduled blog AND buildlog posts without any manual step.
 #
@@ -6,22 +6,30 @@ name: Scheduled publish (rebuild on release dates)
 #   * Visibility is gated in code by `isPublic()` in web/src/lib/blog.ts: in a
 #     production build a post shows only when `draft !== true` AND its `pubDate`
 #     has arrived. So "publishing" a post = rebuilding the site on/after its date.
-#   * This job runs daily but only triggers the Cloud Run deploy on the dates
-#     listed in RELEASE_DATES below. On every other day it exits early, so the
-#     site is rebuilt (and a new post becomes visible) only on release days —
-#     the actual cadence lives in each post's `pubDate`, mirrored here.
+#   * This job therefore deploys EVERY day. A day with nothing due rebuilds the
+#     same content, which is a harmless no-op — a build is cheap. There is
+#     deliberately no release-date list here: the schedule lives in exactly one
+#     place, each post's own `pubDate` frontmatter. A second copy of that data
+#     would only drift, and silently skip the posts missing from it.
+#   * The digest self-gates the same way. `digest.ts` sends only posts whose
+#     pubDate falls on today's UTC date, prints "Nothing dated <date>" otherwise,
+#     and is idempotent against its date-stamped subject, so a repeated run
+#     cannot double-send.
 #   * Timing: the cron fires at 12:05 UTC so it runs AFTER any morning-BRT
 #     pubDate (e.g. 08:00 -03:00 = 11:00 UTC). A cron earlier than a post's
 #     pubDate would rebuild before the post is due and silently hide it.
 #
-# To change the schedule: edit a post's `pubDate` and add/adjust the matching
-# UTC date in RELEASE_DATES (mind that a `-03:00` timestamp can roll into the
-# next UTC day). To publish ad hoc: trigger this workflow manually
-# (workflow_dispatch) — the manual run skips the date check and always deploys.
+# To change a release date: edit that post's `pubDate`. That is the whole ritual.
+# To publish ad hoc: trigger this workflow manually (workflow_dispatch).
+#
+# What this job cannot see: a post that was never pushed. A GitHub Action runs
+# against a fresh checkout of the remote, so an uncommitted file does not exist
+# from here. That gap is covered locally by web/scripts/check-publish.ts, run
+# each morning by the systemd timer in ops/systemd/.
 
 on:
   schedule:
-    - cron: '5 12 * * *' # 12:05 UTC daily, after morning-BRT pubDates; date check below gates deploys
+    - cron: '5 12 * * *' # 12:05 UTC daily, after morning-BRT pubDates
   workflow_dispatch: {}
 
 permissions:
@@ -29,54 +37,25 @@ permissions:
 
 jobs:
   publish:
-    name: Deploy if a post is due today
+    name: Rebuild the site and send any digest due today
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Release calendar. Each date must match the UTC date of a post's pubDate
-      # in web/src/content/{blog,buildlog}/**.mdx; isPublic() in src/lib/blog.ts
-      # surfaces a post once its pubDate has arrived and this job rebuilds.
-      # Blog lands on odd days; buildlog updates fill in gap days (e.g. 06-28).
-      RELEASE_DATES: >-
-        2026-06-25 2026-06-27 2026-06-28 2026-06-29 2026-07-01 2026-07-03
-        2026-07-05 2026-07-07 2026-07-09 2026-07-11 2026-07-13 2026-07-15
-        2026-07-17 2026-07-19 2026-07-21 2026-07-23 2026-07-25
     steps:
-      - name: Decide whether today is a release day
-        id: gate
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "Manual run — deploying regardless of date."
-            echo "due=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          today="$(date -u +%F)"
-          if echo "$RELEASE_DATES" | grep -qw "$today"; then
-            echo "Today ($today) is a release day — will deploy."
-            echo "due=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Today ($today) has nothing scheduled — skipping deploy."
-            echo "due=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Trigger the Cloud Run deploy workflow
-        if: steps.gate.outputs.due == 'true'
         # --repo is required: this step runs before checkout, so gh has no local
         # git context to infer the repository from and would otherwise exit 1.
         run: gh workflow run deploy-web-cloudrun.yml --ref main --repo "$GITHUB_REPOSITORY"
 
       - name: Check out the repository (for the digest script)
-        if: steps.gate.outputs.due == 'true'
         uses: actions/checkout@v4
 
       - name: Set up Node
-        if: steps.gate.outputs.due == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Send today's content digest
-        if: steps.gate.outputs.due == 'true'
         env:
           BUTTONDOWN_KEY: ${{ secrets.BUTTONDOWN_KEY }}
         run: node --experimental-strip-types web/scripts/digest.ts
