@@ -24,9 +24,50 @@ export function normalizeBody(src: string): string {
 const isLocal = (spec: string): boolean => spec.startsWith('.') || spec.startsWith('/');
 
 /**
+ * Blank out fenced code regions (``` or ~~~, up to 3 spaces of indent, optional
+ * info string, closing fence at least as long as the opening one — per
+ * CommonMark) so a documentation example like `import chart from './example.svg'`
+ * shown inside a fence isn't mistaken for a real top-level import. MDX requires
+ * real imports at the top level of the document, never inside a fence, so
+ * nothing legitimate is lost.
+ *
+ * Fenced lines are replaced with empty lines rather than deleted, so a line
+ * before the fence can never be joined onto a line after it and fabricate a
+ * match that didn't exist in the source.
+ */
+function stripFencedCode(body: string): string {
+  const lines = body.split('\n');
+  const openRe = /^ {0,3}(`{3,}|~{3,})/;
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const open = lines[i].match(openRe);
+    if (!open) {
+      out.push(lines[i]);
+      i++;
+      continue;
+    }
+    const fenceChar = open[1][0];
+    const fenceLen = open[1].length;
+    const closeRe = new RegExp(`^ {0,3}[${fenceChar}]{${fenceLen},}\\s*$`);
+    out.push(''); // opening fence line
+    i++;
+    while (i < lines.length && !closeRe.test(lines[i])) {
+      out.push('');
+      i++;
+    }
+    if (i < lines.length) {
+      out.push(''); // closing fence line
+      i++;
+    }
+  }
+  return out.join('\n');
+}
+
+/**
  * Every local asset the post depends on, deduplicated and sorted — import order is
- * not content. Sources: the body's `import x from '<spec>'` statements, and the
- * heroImage / heroImageDark frontmatter fields.
+ * not content. Sources: the body's `import x from '<spec>'` statements outside
+ * fenced code blocks, and the heroImage / heroImageDark frontmatter fields.
  */
 export function extractAssetSpecifiers(
   body: string,
@@ -34,7 +75,7 @@ export function extractAssetSpecifiers(
 ): string[] {
   const found = new Set<string>();
   const importRe = /^\s*import\s+[^'"]*from\s*['"]([^'"]+)['"]/gm;
-  for (const m of body.matchAll(importRe)) {
+  for (const m of stripFencedCode(body).matchAll(importRe)) {
     if (isLocal(m[1])) found.add(m[1]);
   }
   for (const hero of [frontmatter.heroImage, frontmatter.heroImageDark]) {
@@ -57,6 +98,17 @@ export interface ReviewPayload {
 }
 
 /**
+ * Locale-independent string comparator: plain UTF-16 code-unit order, the same
+ * order the default `.sort()` used on `tags` below produces for strings.
+ * `String.prototype.localeCompare()` with no arguments depends on the engine's
+ * default locale and bundled ICU/CLDR collation tables (ECMA-402), so it is not
+ * guaranteed to agree between machines or Node versions. This digest is stamped
+ * on one machine and re-verified on another (CI), so any comparator it uses must
+ * be a pure function of the bytes, not of where it happens to run.
+ */
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+/**
  * A deterministic string for a payload. Tags and assets are sorted, so reordering
  * them is not a content change. JSON.stringify over an explicit array — never over
  * an object — because object key order is not part of JSON's contract.
@@ -67,7 +119,7 @@ export function canonicalize(p: ReviewPayload): string {
     ['title', p.title.trim()],
     ['description', p.description.trim()],
     ['tags', [...p.tags].sort()],
-    ['assets', [...p.assets].sort((a, b) => a.specifier.localeCompare(b.specifier)).map((a) => [a.specifier, a.sha256])],
+    ['assets', [...p.assets].sort((a, b) => byCodeUnit(a.specifier, b.specifier)).map((a) => [a.specifier, a.sha256])],
   ]);
 }
 

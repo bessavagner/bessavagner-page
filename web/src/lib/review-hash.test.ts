@@ -3,6 +3,7 @@ import {
   normalizeBody,
   extractAssetSpecifiers,
   computeReviewHash,
+  canonicalize,
   type ReviewPayload,
 } from './review-hash';
 
@@ -56,6 +57,61 @@ describe('extractAssetSpecifiers', () => {
     const body = "import a from './x.svg';\nimport b from './x.svg';";
     expect(extractAssetSpecifiers(body, {})).toEqual(['./x.svg']);
   });
+
+  it('ignores a local import shown inside a fenced code block', () => {
+    const body = [
+      '```ts',
+      "import chart from './example.svg';",
+      '```',
+      '',
+      "import real from './real.svg';",
+    ].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./real.svg']);
+  });
+
+  it('still finds a real top-level import in the same body as a fenced one', () => {
+    const body = [
+      "import before from './before.svg';",
+      '```',
+      "import fenced from './fenced.svg';",
+      '```',
+      "import after from './after.svg';",
+    ].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./after.svg', './before.svg']);
+  });
+
+  it('handles a fence with a language info string', () => {
+    const body = [
+      '```typescript',
+      "import fenced from './fenced.svg';",
+      '```',
+      "import real from './real.svg';",
+    ].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./real.svg']);
+  });
+
+  it('handles a ~~~ fence', () => {
+    const body = [
+      '~~~',
+      "import fenced from './fenced.svg';",
+      '~~~',
+      "import real from './real.svg';",
+    ].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./real.svg']);
+  });
+
+  it('does not let fence-stripping join surrounding lines into a fabricated match', () => {
+    // If the fence lines were deleted outright instead of blanked, the import
+    // statement split across the fence boundary could be concatenated into
+    // something that matches the import regex. Blanking must prevent that.
+    const body = [
+      'import broken',
+      '```',
+      "  from './should-not-match.svg';",
+      '```',
+    ].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual([]);
+  });
 });
 
 describe('computeReviewHash', () => {
@@ -99,5 +155,49 @@ describe('computeReviewHash', () => {
     expect(computeReviewHash(payload({ assets: [{ specifier: './x.svg', sha256: 'aa' }] }))).not.toBe(
       computeReviewHash(payload()),
     );
+  });
+
+  it('sorts assets by code-unit order, not locale collation — order-independent and stable', () => {
+    // Code-unit order: '../../assets/B.svg' < '../../assets/b.svg' ('B' = 0x42 < 'b' = 0x62).
+    // A locale-aware comparator (e.g. bare .localeCompare()) reverses this on many
+    // ICU locales, which would make the digest depend on the machine's default
+    // locale instead of the content. Supplying the two assets in either order must
+    // hash identically, and that hash must not move across runs.
+    const upperFirst = payload({
+      assets: [
+        { specifier: '../../assets/B.svg', sha256: 'aa' },
+        { specifier: '../../assets/b.svg', sha256: 'bb' },
+      ],
+    });
+    const lowerFirst = payload({
+      assets: [
+        { specifier: '../../assets/b.svg', sha256: 'bb' },
+        { specifier: '../../assets/B.svg', sha256: 'aa' },
+      ],
+    });
+    const h1 = computeReviewHash(upperFirst);
+    const h2 = computeReviewHash(lowerFirst);
+    expect(h1).toBe(h2);
+    // Stable across repeated calls too, not just order-independent.
+    expect(computeReviewHash(upperFirst)).toBe(h1);
+  });
+
+  it('canonicalizes assets in code-unit order, not locale collation order', () => {
+    // Pins the actual ordering, not just that some consistent order is used:
+    // under code-unit comparison 'B' (0x42) sorts before 'b' (0x62), while a
+    // locale-aware comparator commonly reverses that on this machine's ICU data.
+    const canonical = canonicalize(
+      payload({
+        assets: [
+          { specifier: '../../assets/b.svg', sha256: 'bb' },
+          { specifier: '../../assets/B.svg', sha256: 'aa' },
+        ],
+      }),
+    );
+    const upperIndex = canonical.indexOf('../../assets/B.svg');
+    const lowerIndex = canonical.indexOf('../../assets/b.svg');
+    expect(upperIndex).toBeGreaterThan(-1);
+    expect(lowerIndex).toBeGreaterThan(-1);
+    expect(upperIndex).toBeLessThan(lowerIndex);
   });
 });
