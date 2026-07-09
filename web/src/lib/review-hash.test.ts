@@ -157,12 +157,10 @@ describe('computeReviewHash', () => {
     );
   });
 
-  it('sorts assets by code-unit order, not locale collation — order-independent and stable', () => {
-    // Code-unit order: '../../assets/B.svg' < '../../assets/b.svg' ('B' = 0x42 < 'b' = 0x62).
-    // A locale-aware comparator (e.g. bare .localeCompare()) reverses this on many
-    // ICU locales, which would make the digest depend on the machine's default
-    // locale instead of the content. Supplying the two assets in either order must
-    // hash identically, and that hash must not move across runs.
+  it('computes the same hash for assets in any input order — consistent and stable', () => {
+    // Asset order must not affect the digest, since neither the MDX body nor
+    // the frontmatter defines asset order. Supplying the two assets in either
+    // order must hash identically, and that hash must not move across runs.
     const upperFirst = payload({
       assets: [
         { specifier: '../../assets/B.svg', sha256: 'aa' },

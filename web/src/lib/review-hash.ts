@@ -31,9 +31,15 @@ const isLocal = (spec: string): boolean => spec.startsWith('.') || spec.startsWi
  * real imports at the top level of the document, never inside a fence, so
  * nothing legitimate is lost.
  *
- * Fenced lines are replaced with empty lines rather than deleted, so a line
- * before the fence can never be joined onto a line after it and fabricate a
- * match that didn't exist in the source.
+ * Fenced lines are replaced with empty lines rather than deleted to preserve
+ * line numbers and line boundaries; a line before the fence is not physically
+ * concatenated onto a line after it. However, the import regex's [^'"]*
+ * negated character class still spans blank lines freely. What actually
+ * prevents fabrication is MDX itself: any top-level line beginning with
+ * `import` is parsed as an ESM statement by acorn, so a prose line like
+ * `import maps are a neat trick, let me show you.` cannot exist in a post that
+ * compiles. This was verified against @mdx-js/mdx 3.1.1 — such a line is
+ * rejected with `Could not parse import/exports with acorn`.
  */
 function stripFencedCode(body: string): string {
   const lines = body.split('\n');
