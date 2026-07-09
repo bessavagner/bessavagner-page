@@ -1,9 +1,16 @@
 """DB queries per list request: naive vs select_related + prefetch_related.
 
-SYNTHETIC / representative numbers. The naive bars follow the classic N+1
-shape: one query for the page of items, then one extra query per related
-lookup per row. The eager-loaded bars are constant: one query for the page
-plus a small fixed number of prefetch queries, independent of page size.
+MEASURED numbers, not hand-tuned. They come from rendering the real
+`ItemSerializer` over an Item list in the personal-registry app, counting
+queries with Django's `CaptureQueriesContext`, at each page size. Reproduce with:
+
+    # in the personal-registry repo
+    uv run pytest src/tests/test_query_counts_bench.py -s -q
+
+The naive queryset shows the classic N+1 shape (one query for the page, then
+one extra query per related lookup per row, here tags + attachments = 2N). The
+eager-loaded queryset (`select_related("owner").prefetch_related("tags",
+"attachments")`) is flat at 3 regardless of page size.
 """
 
 import pathlib
@@ -20,13 +27,11 @@ apply()
 # Page sizes (rows returned by an Item list endpoint).
 page_sizes = [10, 25, 50, 100]
 
-# Naive: 1 base query + one query per row for each of two related lookups
-# (tags, attachments). This is the N+1 pattern, here "N+2N".
-naive = [1 + 2 * n for n in page_sizes]
-
-# Eager: 1 base query (with select_related join folded in) + 1 prefetch
-# query per related manager (tags, attachments). Constant regardless of N.
-eager = [1 + 2 for _ in page_sizes]
+# Measured by src/tests/test_query_counts_bench.py in the personal-registry repo
+# (each item seeded with 2 tags + 1 attachment, rendered through ItemSerializer).
+# Naive follows the N+1 shape (1 base + 2 per row); eager is flat at 3.
+naive = [21, 51, 101, 201]
+eager = [3, 3, 3, 3]
 
 x = np.arange(len(page_sizes))
 w = 0.38
@@ -42,7 +47,7 @@ b2 = ax.bar(
 )
 
 ax.set_xlabel("Items returned per request")
-ax.set_ylabel("Database queries (synthetic)")
+ax.set_ylabel("Database queries (measured)")
 ax.set_title("Killing the N+1: queries per list request")
 ax.set_xticks(x)
 ax.set_xticklabels([str(n) for n in page_sizes])
