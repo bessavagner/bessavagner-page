@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily bessavagner.com publish check
+
+[Timer]
+# 09:00 local, before the 12:05 UTC publish cron — there is still time to push.
+OnCalendar=*-*-* 09:00:00
+# Replay a run missed while the machine was off, at next login.
+Persistent=true
+AccuracySec=1m
+
+[Install]
+WantedBy=timers.target

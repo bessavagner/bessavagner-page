@@ -1,0 +1,6 @@
+[Unit]
+Description=Check that every due bessavagner.com post is pushed to origin/main
+
+[Service]
+Type=oneshot
+ExecStart=@REPO@/ops/systemd/run-check.sh @REPO@ @NODE@
