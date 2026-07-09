@@ -33,6 +33,16 @@ describe('publicationState', () => {
     const pubDate = new Date(NOW);
     expect(publicationState(facts({ pubDate }), { now: NOW, prod: true })).toBe('published');
   });
+
+  it('ignores prod — all states are independent of the build environment', () => {
+    // publicationState's state is a fact about the post, not about the build.
+    // This test pins that invariant: changing prod must not change the output.
+    for (const [, over] of cases) {
+      const withProd = publicationState(facts(over), { now: NOW, prod: true });
+      const withoutProd = publicationState(facts(over), { now: NOW, prod: false });
+      expect(withoutProd).toBe(withProd);
+    }
+  });
 });
 
 describe('isVisible', () => {
