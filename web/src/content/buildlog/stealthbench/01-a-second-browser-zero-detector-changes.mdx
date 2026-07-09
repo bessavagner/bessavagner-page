@@ -8,15 +8,18 @@ tags: ["python", "playwright", "camoufox", "firefox", "ports-and-adapters", "hex
 draft: false
 ---
 
+import { Image } from 'astro:assets';
+import passRate from '../../../assets/buildlog/stealthbench/pass-rate-3-trials.png';
+
 Which automated-browser setup is actually the stealthiest? People argue about it constantly, usually with vibes. **stealthbench** is my attempt to replace the argument with a number.
 
-It scores stealth **configs** (how you set up an automated browser) against open, self-hosted **detectors** (how a site decides you're a bot), on your own `localhost`, and commits the result to a file so anyone can rerun it. It measures *detectability*, never anyone's data: no crawler, no login, no target site, and every detector runs offline on your machine. A run is the cross-product **configs × detectors × trials**, folded into one versioned results file plus a regenerated table and chart.
+It scores stealth **configs** (how you set up an automated browser) against open, self-hosted **detectors** (how a site decides you're a bot), and commits the result to a file so anyone can rerun it. The whole thing runs offline on your own `localhost`: no crawler, no login, no target site. It measures *detectability*, never anyone's data. A run is the cross-product of configs, detectors and trials, folded into one versioned results file plus a regenerated table and chart.
 
-Until this sprint the fleet was three flavors of the same browser: stock Selenium Chrome, `selenium-stealth`, and `undetected-chromedriver`. All Chrome. A benchmark that only tests one engine isn't measuring stealth, it's measuring three ways to dress up Chrome. So the job for this update was the first genuinely different arm: a stealth **Firefox**.
+Until this sprint the fleet was three flavors of the same browser: stock Selenium Chrome, `selenium-stealth`, and `undetected-chromedriver`. All Chrome. A benchmark that only tests one engine isn't measuring stealth, it's measuring three ways to dress up Chrome. So the job for this update was the first arm that runs a different engine underneath: a stealth Firefox.
 
 ## The whole point was to not touch the detectors
 
-The new arm is [Camoufox](https://github.com/daijro/camoufox), a stealth Firefox that spoofs its fingerprint by default and drives through Playwright's sync API. That's a different browser, a different automation SDK, and a different fingerprint surface from everything already in the fleet. The interesting constraint I set myself: add all of it with **zero changes** to the detector code.
+The new arm is [Camoufox](https://github.com/daijro/camoufox), a stealth Firefox that spoofs its fingerprint by default and drives through Playwright's sync API. That's a different browser, a different automation SDK, and a different fingerprint surface from everything already in the fleet. The constraint I set myself: add all of it with zero changes to the detector code.
 
 That constraint isn't discipline for its own sake. It's the test of an architectural bet I made in the first commits. stealthbench is built on **Ports and Adapters** (Hexagonal Architecture): the detectors are written against a `Protocol`, not a real driver. The port is a tiny, driver-agnostic interface called `BrowserHandle`:
 
@@ -35,9 +38,9 @@ Every detector speaks only that. It calls `handle.evaluate("return window.__TELL
 
 The catch is that Selenium and Playwright disagree about what `evaluate` means. Detectors were written in Selenium's dialect: `execute_script("return window.__TELLS__")`, a statement body that may `return`. Playwright's `page.evaluate` wants an expression or a function instead. The adapter's job is to translate one into the other so the detectors keep their existing convention untouched.
 
-I expected that translation to be a one-liner: wrap the script as a zero-arg arrow function, `() => { return <script> }`, let Playwright invoke it. It wasn't. This is the part worth recording, because it's exactly the kind of thing that doesn't show up until you run the real browser.
+I expected that translation to be a one-liner: wrap the script as a zero-arg arrow function, `() => { return <script> }`, let Playwright invoke it. It wasn't.
 
-Camoufox is Firefox, and `page.evaluate` runs in Firefox's **content world**, where `window` is an *Xray wrapper*. Xray is a security feature: it hides "expando" properties that page scripts set, so JS you inject sees a clean, tamper-resistant view of `window`. Which is a problem here, because the detector pages *are* page scripts, and everything they report lives on exactly those expando properties. `window.__TELLS__` and `window.__BOTD__` read back as `undefined` through the wrapper, even though the DOM is right there and populated. The bench would have recorded a Firefox that "failed" every detector, when really the adapter just couldn't see the answers.
+Camoufox is Firefox, and `page.evaluate` runs in Firefox's content world, where `window` is an *Xray wrapper*. Xray is a security feature: it hides "expando" properties that page scripts set, so JS you inject sees a clean, tamper-resistant view of `window`. Which is a problem here, because the detector pages *are* page scripts, and everything they report lives on exactly those expando properties. `window.__TELLS__` and `window.__BOTD__` read back as `undefined` through the wrapper, even though the DOM is right there and populated. The bench would have recorded a Firefox that "failed" every detector, when really the adapter just couldn't see the answers.
 
 Firefox exposes the page's real window at `window.wrappedJSObject`. So the translation rebinds `window` to that before running the detector's script:
 
@@ -46,20 +49,13 @@ def _wrap_script(script: str) -> str:
     return f"() => {{ return (function (window) {{ {script} }})(window.wrappedJSObject || window); }}"
 ```
 
-The `|| window` keeps it a no-op on any browser without an Xray wrapper, so the same adapter stays correct if a Chromium-based Playwright arm ever joins the fleet. This is a pure string function with no browser in it, which means it gets unit-tested with a fake page and never needs a real Firefox to prove it's right:
+The `|| window` keeps it a no-op on any browser without an Xray wrapper, so the same adapter stays correct if a Chromium-based Playwright arm ever joins the fleet. And because `_wrap_script` is a pure string function with no browser in it, `test_wrap_script_reaches_page_window_past_firefox_xray` can prove it against a fake page without ever launching a real Firefox.
 
-```python
-def test_wrap_script_reaches_page_window_past_firefox_xray():
-    ...
-```
-
-The lesson I keep relearning: an adapter is where two systems' assumptions collide, and the collision is never in the part you predicted. I planned for the `return`-statement mismatch. The Xray wrapper is the one that actually cost me the afternoon.
+I planned for the `return`-statement mismatch. The Xray wrapper is the one that cost me the afternoon, and it only showed up once a real Camoufox was running.
 
 ## The proof is an empty diff
 
-Here's what makes the "zero detector changes" claim more than a nice sentence. Two things enforce it, and both are automated.
-
-The provider seam is a rule: a driver SDK may be imported **only** under `configs/`. Nothing in `core/`, the runner, the report layer, or any detector is allowed to import one. For the browser SDKs this arm introduced, `camoufox` and `playwright`, that rule is pinned by a test, so it can't quietly rot:
+The provider seam is a rule: a driver SDK may be imported only under `configs/`. Nothing in `core/`, the runner, the report layer, or any detector is allowed to import one. For the browser SDKs this arm introduced, `camoufox` and `playwright`, that rule is pinned by a test, so it can't quietly rot:
 
 ```python
 def test_no_browser_sdk_import_outside_configs():
@@ -74,11 +70,15 @@ git status --porcelain src/stealthbench/detectors/
 # (empty)
 ```
 
-A whole new browser engine entered the benchmark and the detector directory shows *no changes*. A green test that says "the seam holds" is a claim; an empty diff over `detectors/` is the receipt. That's the difference between architecture you assert and architecture you can point at.
+A whole new browser engine entered the benchmark and the detector directory shows *no changes*. A green test that says "the seam holds" is a claim; an empty diff over `detectors/` is the receipt.
 
 ## The honest number
 
+Three detectors score each config: a transparent panel of ~17 automation tells (`navigator.webdriver`, the `$cdc_` properties chromedriver injects, plugin and mimetype counts, and so on), [BotD](https://github.com/fingerprintjs/BotD), which returns a verdict and names the kind of bot it thinks you are, and a self-hosted [CreepJS](https://github.com/abrahamjuliot/creepjs), which counts fingerprint inconsistencies it calls *lies*. I wrote up how these checks work, and how you go about passing them, in [Beating browser fingerprinting](/blog/beating-browser-fingerprinting/).
+
 With the arm wired in, the 4-config snapshot I committed at the end of this sprint (Chrome 149 + Camoufox, Linux, 3 trials, `results/20260706T214120910749.json`) reads:
+
+<Image src={passRate} alt="Bar chart of the automation-tells score for four configs. Bar colour is the BotD verdict. vanilla 82% red (caught), selenium-stealth 94% red (caught), undetected-chromedriver 94% green (passed), camoufox 82% green (passed). Single bars, no error bars." class="rounded-2xl border border-primary/20 my-8 w-full h-auto" />
 
 | Config | Tells passed | BotD | CreepJS lies |
 |---|:---:|:---:|:---:|
@@ -89,13 +89,13 @@ With the arm wired in, the 4-config snapshot I committed at the end of this spri
 
 Camoufox passes BotD and CreepJS clean, and it's tempting to want that 82% on the tells panel to be higher so the new toy looks best in class. But the number is honest and it stays. The three tells it "fails" are all Chrome-specific: `window.chrome` being present, Chrome's `productSub` value, Chrome's `eval.toString().length`. A genuine Firefox doesn't match those *because it is genuinely Firefox*. Forcing them to pass would mean teaching a Firefox to lie about being Chrome, which is the opposite of what a fingerprint-consistency detector should reward. An 82% that means "this is a real, consistent Firefox" is worth more than a 94% bought by impersonating an engine you're not running.
 
-The design backs that honesty at the mechanism level too: a detector that errors on the Camoufox arm records an explicit `n/a`, never a silent pass. A blank where an answer should be is a failure you can see; a fake pass is a lie the benchmark tells on your behalf.
+The design backs that honesty at the mechanism level too: a detector that errors on the Camoufox arm records an explicit `n/a`, never a silent pass. If a detector crashes, I want the results file to say so, because a fake pass would inflate the score of whichever config happened to break it.
 
 ## What I learned
 
-A Protocol seam is a promise you make early and can't cash until later. I wrote `BrowserHandle` in the first week with three Chrome configs behind it, and it looked like ceremony: three adapters that all wrapped the same Selenium. The seam only earns its keep the day something *unlike* the others shows up. This sprint was that day, and the whole cost of a second browser engine came out to two new files under `configs/`, three edits in `__main__.py` to register it (an import, one more entry in the config list, and `" + Camoufox"` appended to the run's browser metadata), and an empty diff over `detectors/`.
+I wrote `BrowserHandle` in the first week with three Chrome configs behind it, and for a while it looked like ceremony: three adapters that all wrapped the same Selenium. A seam like that only pays you back the day something unlike the others shows up. This sprint was that day, and the whole cost of a second browser engine came out to two new files under `configs/`, three edits in `__main__.py` to register it (an import, one more entry in the config list, and `" + Camoufox"` appended to the run's browser metadata), and an empty diff over `detectors/`.
 
-Ports and Adapters gets sold as "swap your database someday." The quieter payoff is this: when the genuinely different thing arrives, it arrives as an adapter, not a rewrite. Design the seam before you need it, and the day you need it is boring. That's the goal.
+Ports and Adapters gets sold as "swap your database someday," which is a swap most projects never make. The payoff I actually got is smaller and more useful: when a truly different thing arrived, it arrived as an adapter instead of a rewrite, and the day I added it was boring.
 
 ## What's next
 
