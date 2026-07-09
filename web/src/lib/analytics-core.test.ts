@@ -1,7 +1,7 @@
 // web/src/lib/analytics-core.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { track, trackParams, type AnalyticsGlobals } from './analytics-core.ts';
+import { track, trackParams, trackAndGo, type AnalyticsGlobals } from './analytics-core.ts';
 
 function recorder() {
   const calls: { tool: 'umami' | 'gtag'; name: string; params: unknown }[] = [];
@@ -53,4 +53,60 @@ test('trackParams keeps only data-track-* attributes, minus the marker', () => {
     { name: 'class', value: 'btn' },
   ];
   assert.deepEqual(trackParams(attrs), { location: 'hero', file_extension: 'pdf' });
+});
+
+test('trackAndGo navigates once via the gtag event_callback', () => {
+  let navigated = 0;
+  const scope: AnalyticsGlobals = {
+    gtag: (_cmd, _name, params) => (params as { event_callback: () => void }).event_callback(),
+  };
+  // setTimeoutFn is a no-op here so only the callback path can navigate.
+  trackAndGo('email_click', {}, { navigate: () => navigated++, scope, setTimeoutFn: () => {} });
+  assert.equal(navigated, 1);
+});
+
+test('trackAndGo passes beacon transport + a timeout to gtag', () => {
+  let seen: Record<string, unknown> = {};
+  const scope: AnalyticsGlobals = { gtag: (_c, _n, params) => { seen = params as Record<string, unknown>; } };
+  trackAndGo('email_click', { location: 'hero' }, { navigate: () => {}, scope, timeoutMs: 800, setTimeoutFn: () => {} });
+  assert.equal(seen.transport_type, 'beacon');
+  assert.equal(seen.event_timeout, 800);
+  assert.equal(seen.location, 'hero');
+  assert.equal(typeof seen.event_callback, 'function');
+});
+
+test('trackAndGo navigates via the fallback timer when gtag never calls back', async () => {
+  let navigated = 0;
+  const scope: AnalyticsGlobals = { gtag: () => { /* never invokes the callback */ } };
+  trackAndGo('email_click', {}, { navigate: () => navigated++, scope, timeoutMs: 10 });
+  assert.equal(navigated, 0);
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(navigated, 1);
+});
+
+test('trackAndGo navigates even when gtag is absent (blocked)', async () => {
+  let navigated = 0;
+  trackAndGo('email_click', {}, { navigate: () => navigated++, scope: {}, timeoutMs: 10 });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(navigated, 1);
+});
+
+test('trackAndGo never navigates twice when callback AND fallback both fire', async () => {
+  let navigated = 0;
+  const scope: AnalyticsGlobals = {
+    gtag: (_c, _n, params) => (params as { event_callback: () => void }).event_callback(),
+  };
+  trackAndGo('email_click', {}, { navigate: () => navigated++, scope, timeoutMs: 10 });
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(navigated, 1);
+});
+
+test('trackAndGo also fires umami', () => {
+  let umami = 0;
+  const scope: AnalyticsGlobals = {
+    umami: { track: () => umami++ },
+    gtag: (_c, _n, params) => (params as { event_callback: () => void }).event_callback(),
+  };
+  trackAndGo('email_click', {}, { navigate: () => {}, scope, setTimeoutFn: () => {} });
+  assert.equal(umami, 1);
 });
