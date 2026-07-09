@@ -24,6 +24,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 const CRON_UTC_MINUTES = 12 * 60 + 5;
 
+/** CRON_UTC_MINUTES rendered as zero-padded HH:MM, so the warning text cannot drift from the check. */
+const CRON_UTC_HHMM = `${String(Math.floor(CRON_UTC_MINUTES / 60)).padStart(2, '0')}:${String(CRON_UTC_MINUTES % 60).padStart(2, '0')}`;
+
 /** Run git at the repo root and return stdout. Throws on a non-zero exit. */
 function git(...args: string[]): string {
   return execFileSync('git', args, {
@@ -89,10 +92,11 @@ for (const { item, repoPath } of posts) {
   // pushed post with a bad time still produces a dead link, so this must not be
   // skipped by the "nothing left to check" continue below.
   if (due > now) {
+    // Cron has only minute granularity, so we drop seconds in the comparison.
     const minutes = item.pubDate.getUTCHours() * 60 + item.pubDate.getUTCMinutes();
     if (minutes > CRON_UTC_MINUTES) {
       warnings.push(
-        `${repoPath}\n      pubDate ${item.pubDate.toISOString()} is after the 12:05 UTC publish cron — it will be emailed a day before it is built`,
+        `${repoPath}\n      pubDate ${item.pubDate.toISOString()} is after the ${CRON_UTC_HHMM} UTC publish cron — it will be emailed a day before it is built`,
       );
     }
   }

@@ -72,9 +72,11 @@ export function toDigestItem(relPath: string, src: string): DigestItem | null {
  * The raw `pubDate` of a would-be-publishable file whose date cannot be parsed, or null.
  *
  * Mirrors toDigestItem's publishability gate: drafts and files without frontmatter or a
- * pubDate are not flagged, because they are not scheduled to publish. Astro's z.coerce.date()
- * rejects the same value at build time; this exists so the local tooling can say what it
- * could not read instead of dropping the file silently.
+ * pubDate are not flagged, because they are not scheduled to publish. Note that Astro
+ * validates `pubDate` at build time regardless of draft status via z.coerce.date(), so a
+ * draft with a malformed date is still caught — just not by this local tooling. This function
+ * exists so the local tooling can say what it could not read instead of dropping the file
+ * silently.
  */
 export function malformedPubDate(src: string): string | null {
   const fm = parseFrontmatter(src);
