@@ -30,8 +30,8 @@ export function parseFrontmatter(src: string): Frontmatter | null {
  *   buildlog/<project>/<slug>.mdx -> /building/<project>/<slug>/
  *
  * Null is returned for drafts, files without frontmatter or without a pubDate,
- * an unrecognised top-level root, and buildlog files that do not sit under a
- * project folder.
+ * a pubDate that cannot be parsed into a valid Date, an unrecognised top-level
+ * root, and buildlog files that do not sit under a project folder.
  */
 export function toDigestItem(relPath: string, src: string): DigestItem | null {
   const fm = parseFrontmatter(src);
@@ -44,6 +44,7 @@ export function toDigestItem(relPath: string, src: string): DigestItem | null {
   const rest = rel.slice(cut + 1);
 
   const pubDate = new Date(fm.pubDate);
+  if (Number.isNaN(pubDate.getTime())) return null;
   const description = fm.description ?? '';
 
   if (root === 'blog') {
@@ -65,4 +66,18 @@ export function toDigestItem(relPath: string, src: string): DigestItem | null {
     pubDate,
     project,
   };
+}
+
+/**
+ * The raw `pubDate` of a would-be-publishable file whose date cannot be parsed, or null.
+ *
+ * Mirrors toDigestItem's publishability gate: drafts and files without frontmatter or a
+ * pubDate are not flagged, because they are not scheduled to publish. Astro's z.coerce.date()
+ * rejects the same value at build time; this exists so the local tooling can say what it
+ * could not read instead of dropping the file silently.
+ */
+export function malformedPubDate(src: string): string | null {
+  const fm = parseFrontmatter(src);
+  if (!fm || fm.draft === 'true' || !fm.pubDate) return null;
+  return Number.isNaN(new Date(fm.pubDate).getTime()) ? fm.pubDate : null;
 }

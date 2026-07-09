@@ -1,6 +1,6 @@
 // web/src/lib/content-core.test.ts
 import { describe, it, expect } from 'vitest';
-import { parseFrontmatter, toDigestItem } from './content-core';
+import { parseFrontmatter, toDigestItem, malformedPubDate } from './content-core';
 
 /** A minimal .mdx document with the given frontmatter lines. */
 const doc = (fm: string) => `---\n${fm}\n---\n\nSome body text.\n`;
@@ -108,5 +108,43 @@ describe('toDigestItem', () => {
 
   it('defaults an absent description to the empty string', () => {
     expect(toDigestItem('blog/x.mdx', doc('title: X\npubDate: 2026-07-08'))?.description).toBe('');
+  });
+
+  it('returns null when pubDate is unparsable', () => {
+    expect(
+      toDigestItem('blog/x.mdx', doc('title: X\ndescription: d\npubDate: not-a-date')),
+    ).toBeNull();
+  });
+});
+
+describe('malformedPubDate', () => {
+  it('returns the raw value for a non-draft file with an unparsable pubDate', () => {
+    expect(
+      malformedPubDate(doc('title: X\ndescription: d\npubDate: not-a-date\ndraft: false')),
+    ).toBe('not-a-date');
+  });
+
+  it('returns null for a valid bare date', () => {
+    expect(malformedPubDate(doc('title: X\ndescription: d\npubDate: 2026-07-08'))).toBeNull();
+  });
+
+  it('returns null for a valid -03:00 timestamp', () => {
+    expect(
+      malformedPubDate(doc('title: X\ndescription: d\npubDate: 2026-07-08T08:00:00-03:00')),
+    ).toBeNull();
+  });
+
+  it('returns null for a draft, even with an unparsable pubDate', () => {
+    expect(
+      malformedPubDate(doc('title: X\ndescription: d\npubDate: not-a-date\ndraft: true')),
+    ).toBeNull();
+  });
+
+  it('returns null when pubDate is absent', () => {
+    expect(malformedPubDate(doc('title: X\ndescription: d'))).toBeNull();
+  });
+
+  it('returns null when there is no frontmatter block', () => {
+    expect(malformedPubDate('# Just a heading\n')).toBeNull();
   });
 });

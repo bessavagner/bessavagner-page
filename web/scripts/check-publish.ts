@@ -66,7 +66,13 @@ const EXPLAIN: Record<'untracked' | 'unpushed', string> = {
 
 const now = Date.now();
 
-for (const { item, repoPath } of readPosts()) {
+const { posts, invalid } = readPosts();
+
+for (const bad of invalid) {
+  warnings.push(`${bad.repoPath} — unparsable pubDate "${bad.rawPubDate}"; cannot tell whether it is due`);
+}
+
+for (const { item, repoPath } of posts) {
   const state = stateOf(repoPath);
   if (state === 'ok' || state === 'unknown') continue;
 

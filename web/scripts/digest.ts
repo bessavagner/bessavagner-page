@@ -42,7 +42,11 @@ async function send(subject: string, body: string, key: string): Promise<void> {
 }
 
 async function main() {
-  const due = selectDue(readPosts().map((p) => p.item), TODAY);
+  const { posts, invalid } = readPosts();
+  for (const bad of invalid) {
+    console.warn(`WARN  ${bad.repoPath} — unparsable pubDate "${bad.rawPubDate}"; skipped`);
+  }
+  const due = selectDue(posts.map((p) => p.item), TODAY);
   if (due.length === 0) {
     console.log(`Nothing dated ${TODAY}; not sending.`);
     return;
