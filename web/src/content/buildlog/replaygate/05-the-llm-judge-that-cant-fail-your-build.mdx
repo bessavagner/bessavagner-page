@@ -1,0 +1,109 @@
+---
+title: "The LLM judge that can't fail your build: an offline evaluator, advisory by default"
+description: "Update 5 of the ReplayGate build log: adding an LLM-as-judge for the dimensions a deterministic predicate can't score (goal completion, relevance, tone), and then spending most of the sprint making sure it can never fail a build on its own. The judge is a real Claude call via forced tool_use, but its verdicts are recorded and replayed offline like every other call, keyed by the conversation and dimensions. `--judge` is advisory (prints scores, never touches the exit code); `--judge-gate` is a separate opt-in with its own exit code 4. Writing the post caught a bug in it: with no recorded verdict the gate found nothing below threshold and passed the build without running, so it now refuses with exit 2 rather than failing open. Plus the golden test that pinned the deterministic gate byte-for-byte before any of this was written, and why I flipped my own roadmap to build the judge before the WhatsApp channel."
+project: "replaygate"
+update: 5
+pubDate: 2026-07-08T08:00:00-03:00
+tags: ["python", "pydantic", "typer", "llm-agents", "llm-as-judge", "evaluation", "testing", "tdd", "building-in-public"]
+draft: false
+---
+
+ReplayGate is conversation-level regression testing for multi-turn AI agents. It records a real conversation once, every model call and every tool call, into a deterministic fixture, then replays it offline and checks the properties that span the whole conversation.
+
+This update adds the feature that sounds like the headline and turns out to be the footnote: an LLM that grades the agent's replies. I built the judge, then spent most of the sprint making sure it can never fail a build on its own.
+
+## What a predicate can't score
+
+[#4](/building/replaygate/04-cross-version-regress-pass-fail-or-diverged/) answered the prompt-tweak question with cross-version replay: record a conversation from agent A, replay a candidate B against it, get pass, fail, or diverged. Every check in that gate is a deterministic predicate, a Python function that reads the recorded trace and returns true or false. That is exactly why the gate is trustworthy. It also caps what the gate can see.
+
+A predicate is great at structural facts: *booked only after the user confirmed*, *an order id was never re-asked*. It has nothing to say about *did the agent actually answer the question*, *was the tone right*, *did the reply stay relevant*. Those are judgment calls, and the honest word for handing a judgment call to another model is LLM-as-judge. So the judge scores three dimensions from 0.0 to 1.0: `goal_completion`, `relevance`, `tone`.
+
+## The judge fights everything ReplayGate promises
+
+An LLM judge is non-deterministic and it needs the network. ReplayGate's entire pitch is the opposite: the suite runs offline on a laptop with everything unplugged, and a fixture replays identically every time. Drop a live model call into that and you get a flaky gate that phones an API on every CI run.
+
+Two problems, non-determinism and the network, and both had the same fix I'd already built for the agent's own model calls: record the call once, replay it forever.
+
+## Record the judge like any other call
+
+A judge call is content-keyed exactly like an LLM exchange. `judge_key` is a `sha256` over the conversation plus the sorted list of dimensions, and the verdict is persisted in a `judge_recording.json` sitting right next to the LLM and tool recordings in the fixture. Recording is one command, `replaygate judge-record ./fx`, and it is the only step in the whole tool that touches the network. From then on replay reads the verdict off disk.
+
+A miss on replay never silently falls back to a live call: `RecordingJudge` runs under the same `on_miss="raise"` rule as the rest of the capture layer, and raises a `DivergenceError` whose `kind` is `"judge"`. What the layers above do with that error is a decision I got wrong the first time, and I'll come back to it.
+
+The one part that talks to a real provider is the Claude call itself, and I got a structured verdict out of it with forced `tool_use`. The judge hands Claude a single `record_verdict` tool and pins it so the model has to call it:
+
+```python
+tool_choice={"type": "tool", "name": "record_verdict"}
+```
+
+The dimensions I asked for are baked into that tool's schema as an `enum`, so the model can only score those dimensions and has to return validated JSON instead of prose. I pulled the exact shape from Anthropic's tool-use docs rather than from memory. The one part of this that isn't offline is the one part worth not guessing at.
+
+## Advisory by default, gate by opt-in
+
+Here is the decision the whole update turns on. Even fully recorded and replayable, a judge verdict is still a model's opinion, and I did not want a model's opinion silently deciding whether a build passes. So `--judge` is advisory: it prints per-dimension scores and never touches the exit code.
+
+```
+$ replaygate regress ./fx
+  [PASS] order_id_never_reasked: order id carried forward, never re-asked
+regress OK (support_happy): 1 invariant(s) held                     # exit 0
+
+$ replaygate regress ./fx --judge
+  [PASS] order_id_never_reasked: order id carried forward, never re-asked
+  [judge] goal_completion: 1.00 — Answered the shipping status.
+  [judge] relevance: 1.00 — Addressed ORD-1234 directly.
+  [judge] tone: 1.00 — Helpful and concise.
+regress OK (support_happy): 1 invariant(s) held                     # exit 0 (unchanged)
+```
+
+Gating is a separate opt-in, `--judge-gate`, and only it can fail a run, with its own exit code `4` that sits apart from the deterministic gate's `0`/`1`/`3`:
+
+```
+$ replaygate regress ./fx --judge-gate
+  [PASS] order_id_never_reasked: order id carried forward, never re-asked
+  [judge] goal_completion: 1.00 — Answered the shipping status.
+  [judge] relevance: 1.00 — Addressed ORD-1234 directly.
+  [judge] tone: 0.30 — Curt, borderline dismissive.
+  JUDGE-GATE: tone scored 0.30 (< 0.5)
+regress JUDGE-GATE FAILED (support_happy): 1 dimension(s) below threshold   # exit 4
+```
+
+The deterministic invariant gate stays authoritative either way: if an invariant fails, its exit `1` wins before the judge is even consulted. And the advisory guarantee isn't a matter of me remembering to be careful. `run_regress` attaches the verdict to the report but structurally never lets it touch `passed` or `status`. The judge cannot reach the default exit code because there is no line of code that would let it.
+
+## The gate that passed by doing nothing
+
+Writing that last paragraph is what caught the bug. I had just claimed that only `--judge-gate` can fail a run, and it occurred to me that I had never asked what the gate does when it has nothing to judge.
+
+Here is the path. `run_regress` catches the judge's `DivergenceError` and leaves the verdict as `None`, because a missing recording is advisory and must never fail a run. That is the right call for `--judge`. But `--judge-gate` then asked a `None` verdict which of its dimensions fell below threshold, got an empty list back, found no failures, and printed `regress OK`. Exit 0. A gate I had deliberately opted into, on a fixture with no verdict in it, greened the build without ever running.
+
+Failing open is the exact failure mode the rest of this design spends its effort avoiding, so the gate now refuses:
+
+```
+$ replaygate regress ./fx --judge-gate      # fixture has no recorded verdict
+  [PASS] order_id_never_reasked: order id carried forward, never re-asked
+regress JUDGE-GATE ERROR (support_happy): no recorded verdict for this fixture; run `replaygate judge-record` first
+                                                                             # exit 2
+```
+
+`--judge` is unchanged, still shrugging and printing an advisory note to stderr. And the refusal lives in the CLI rather than inside `run_regress`, so the structural guarantee from the previous section survives untouched: a verdict still cannot reach `passed` or `status`, and a violated invariant still exits `1` before the judge gate is consulted at all.
+
+There's a corollary I hadn't thought through either. A verdict is keyed to the exact conversation it scored, so `--judge-gate --candidate B` finds no verdict for B's trajectory and now exits `2` rather than passing. If you want to gate a candidate, you have to record a verdict for that candidate. That's more friction, and it's the honest amount.
+
+## The boring test that guards all of this
+
+The real risk in bolting a non-deterministic feature onto a deterministic tool is that it quietly changes the deterministic path. So before I wrote a line of the judge, I pinned the default `regress` output in a golden test: exact `stdout`, exact exit code, byte for byte. Then I kept that test green through every single commit of the judge work.
+
+A new feature that changes the old output isn't a feature. It's a regression wearing one. That golden test is what let me add an LLM to the tool without touching the promise that made the tool worth trusting in the first place.
+
+## What I learned
+
+The reflex I keep reaching for: when a new capability collides with an existing guarantee, put the capability behind a flag and pin the guarantee with a characterization test *before* you build. The judge was a week of work, and maybe forty lines of it are the actual Claude call. The rest is recording, keying, and the wiring that keeps a model's opinion from leaking into pass or fail.
+
+And a guarantee you never tested is a guess. The advisory path had a test. The gate's *empty* path didn't, which is precisely where it failed open.
+
+Offline purity is checked, not hoped. A subprocess test asserts the `anthropic` package is never even imported on the replay path, so "runs unplugged" is a passing assertion rather than a claim in a README. The suite is **111 tests now, up from 78 in [#4](/building/replaygate/04-cross-version-regress-pass-fail-or-diverged/)**, and still not one of them opens a socket or imports a provider SDK.
+
+## What's next
+
+I flipped my own roadmap here. At the end of #4 I said channel adapters (WhatsApp first) were next and the judge came after. I reordered on purpose: the judge first, because the thing I most want to build next reads directly off what the judge and the divergence policy already produce. That next thing is a **read-only dashboard**, a baseline-versus-candidate view that puts the invariant results, the divergences from #4, and these per-dimension scores on one screen. The first surface you can actually look at instead of read off a terminal.
+
+Everything above is on `main` at [**github.com/bessavagner/replaygate**](https://github.com/bessavagner/replaygate). The question I'm sitting with: should a non-deterministic judge ever gate a build at all? I shipped `--judge-gate` because someone will want it, but I made it opt-in and left the default threshold at a blunt `0.5`. If you run agents in CI, would you let an LLM's tone score fail a merge, or is the only honest use of a judge to inform the human who decides? I built the switch, and I'm still not sure it should ever be on.
