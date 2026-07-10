@@ -1,18 +1,20 @@
 ---
 title: "Green tests, red browser: turning on tenant isolation for real traffic"
-description: "Update 2 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Update 1 proved Postgres row-level security at the database but left the request-path middleware a no-op, so it shipped zero tenant-data endpoints on purpose, behind a written gate. Update 2 closes that gate: the RLS session variable now gets set inside JWT auth, the first tenant-data API (memberships and users) ships behind role guards, and a React + Vite + Tailwind front end drives login, forced password change, and org switching through a client generated off the OpenAPI schema. Engaging isolation surfaced a Postgres cast that crashed inside the policy during planning; driving the finished app in a browser surfaced two more the green unit suite never saw: switch-org failing closed under its own RLS, and a CORS wall the front end hit on its first request. 66 backend tests, 97.58% coverage, and the isolation gate from update 1 finally closed."
+description: "Update 2 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Update 1 proved Postgres row-level security at the database but left the request-path middleware a no-op, so it shipped zero tenant-data endpoints on purpose, behind a written gate. Update 2 closes that gate: the RLS session variable now gets set inside JWT auth, the first tenant-data API (memberships and users) ships behind role guards, and a React + Vite + Tailwind front end drives login, forced password change, and org switching through a client generated off the OpenAPI schema. Hardening the policy turned up a Postgres cast that crashes during planning no matter what guards surround it. Then driving the finished app in a browser turned up two more bugs the green unit suite never saw: switch-org failing closed under its own RLS, and a CORS wall the front end hit on its first request. 66 backend tests, 97.58% coverage, and the isolation gate from update 1 finally closed."
 project: "turmarium"
 update: 2
 pubDate: 2026-07-08T05:00:00-03:00
 tags: ["django", "django-ninja", "postgresql", "row-level-security", "multi-tenancy", "react", "vite", "playwright", "cors", "tdd", "building-in-public"]
-status: draft
+status: approved
+reviewedAt: 2026-07-10T10:44:12.499Z
+reviewHash: sha256:27fdfadd40e62188a87ff2a4d0b737590a08bb9b0305801417fc6f5df450390c
 ---
 
 I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it. It's English-first because I'm building it in the open, with Brazilian Portuguese as a first-class locale because that's who I want to sell it to.
 
 In [update 1](/building/turmarium/01-proving-tenant-isolation-at-the-database/) I proved tenant isolation at the database with Postgres row-level security, then admitted the part that wasn't done. The middleware meant to set the per-request session variable ran *before* Ninja's JWT auth knew which org the request belonged to, so it never fired. RLS was correct in SQL and dead on a live request. I shipped zero tenant-data endpoints and wrote the gate into the plan: nothing tenant-scoped ships until that variable gets set on real traffic, with a test that drives it over HTTP.
 
-This update closes that gate and builds the first thing a human actually touches: a browser. It also taught me the same lesson update 1 did, one level up.
+This update closes that gate and builds the first thing a human actually touches: a browser. Then the browser found two bugs that 66 green backend tests never had a shot at.
 
 ## Closing the no-op
 
@@ -26,13 +28,13 @@ if org_id is not None:
         cur.execute("SET LOCAL turmarium.org_id = %s", [org_id])
 ```
 
-`ATOMIC_REQUESTS` wraps every view in a transaction and Ninja runs auth inside it, so the `SET LOCAL` is scoped to that request and rolls back on its own. The middleware kept one job: reset the org context at the start of every request, so a value left over from a previous request on the same worker can't bleed into the next one. Fail closed by default, set explicitly per request.
+`ATOMIC_REQUESTS` wraps every view in a transaction and Ninja runs auth inside it, so the `SET LOCAL` is scoped to that request and rolls back on its own. The middleware kept one job: reset the org context at the start of every request, so a value left over from a previous request on the same worker can't bleed into the next one. Nothing gets an org until auth gives it one.
 
 The test for this is a callback to a mistake from update 1, where an isolation test passed for the wrong reason because it ran as a superuser. Same trap, different layer. The API tests use Ninja's own `TestClient`, which dispatches operations in-process and skips Django's middleware entirely, so it cannot see whether `SET LOCAL` fired on a real request. The regression test uses Django's test `Client`, wraps the connection to record every statement it runs, and asserts the right `SET LOCAL` fired for an authenticated request and stayed silent for an anonymous one.
 
 ## The cast that wouldn't fold
 
-While hardening that, I added a deterministic test for a nasty edge. On a pooled connection that already served one request, a custom Postgres GUC that was set and then rolled back reads back as an empty string, not `NULL`, for the rest of that connection's life. The policy from update 1 already guarded against that with `NULLIF`, treating `''` as unset. The test still crashed.
+Before I trusted that switch, there was an edge case to kill. On a pooled connection that already served one request, a custom Postgres GUC that was set and then rolled back reads back as an empty string, not `NULL`, for the rest of that connection's life. Update 1's policy only ever tested that variable for `IS NULL`, so I wrote migration `0004`: wrap it in `NULLIF` and treat `''` as unset. Then I wrote a deterministic test that forces the empty string. It crashed anyway.
 
 The reason is a piece of Postgres I had wrong. Postgres constant-folds [`STABLE`](https://www.postgresql.org/docs/current/xfunc-volatility.html) function calls with constant arguments during planning, independent of the logic around them. So `current_setting('turmarium.org_id', true)::bigint` gets evaluated as its own subexpression before the surrounding `OR` ever short-circuits. When the GUC is `''`, folding that cast raises `invalid input syntax for type bigint`, guard or no guard.
 
@@ -46,11 +48,11 @@ CREATE POLICY tenant_isolation ON core_membership
     );
 ```
 
-`organization_id::text` never throws, so there's nothing left for the planner to fold into an error. The GUC is only ever set from an integer claim on a signed token, so its text is a plain decimal and the string compare is exact. Migration `0004` was the `NULLIF` guard that looked right; `0005` is the one that actually is.
+`organization_id::text` never throws, so there's nothing left for the planner to fold into an error. The GUC is only ever set from an integer claim on a signed token, so its text is a plain decimal and the string compare is exact. Before replacing `0004` with `0005` I checked the theory against Postgres 16 directly: a scratch table, the `0004` policy, the GUC forced to `''` with `set_config`, no other moving parts. It crashed there too, which is what told me the guard was never the problem.
 
 ## The surface
 
-With isolation genuinely engaged, the tenant-data endpoints could ship. A super-admin creates a school and its owner in one call and gets back a one-time password. An org admin adds members with a role and, for a student, an enrollment number; a brand-new user is created with a forced-password-change flag set. Every one of those queries is scoped twice: the router filters by the caller's active org, and RLS sits under it as the backstop. The proof that both hold together is the test update 1 couldn't write yet. Seed two orgs over real HTTP, log in as org A's admin, list memberships, and assert org B's rows are absent from the response, not merely filtered by a manager in the same process.
+With isolation genuinely engaged, the tenant-data endpoints could ship. A super-admin creates a school and its owner in one call and gets back a one-time password. An org admin adds members with a role and, for a student, an enrollment number, and the API stamps every brand-new user with a forced-password-change flag. Every one of those queries is scoped twice: the router filters by the caller's active org, and RLS sits under it as the backstop. The proof that both hold together is the test update 1 couldn't write yet. Seed two orgs over real HTTP, log in as org A's admin, list memberships, and assert org B's rows are absent from the response, not merely filtered by a manager in the same process.
 
 The front end is a fresh Vite + React + Tailwind app with `react-i18next` carrying `en` and `pt-br` from the first screen, talking to the backend through a client generated off the OpenAPI schema, so the front-end types can't drift from the API without CI noticing. Login, the forced password change, the org switcher, the admin tables. All the plumbing you'd expect, most of it uneventful.
 
@@ -58,7 +60,7 @@ Then I ran it in a browser.
 
 ## Green tests, red browser
 
-Two bugs were waiting there that the whole green backend suite never had a shot at, both for the same reason: the fast in-process tests skip the exact layer the bug lives in.
+Both bugs had the same shape: the fast in-process tests skip the exact layer the bug lives in.
 
 The first is switch-org. When you change orgs, the endpoint looks up your membership in the target org. But auth already ran, which means it already did `SET LOCAL` to your *current* org, which means the policy now hides the target org's row from that very lookup. A user who legitimately belongs to both orgs gets a 403. It fails closed, so it isn't a leak, but it's broken. The existing switch tests were green because they use Ninja's `TestClient` and never touch RLS. A test with Django's real client, under the live policy, turns red on the first run. The fix is small: that lookup is already filtered to the caller's own user id, so it's safe to clear the org GUC just for it, then let the freshly issued token carry the new org.
 
@@ -72,6 +74,10 @@ Access to fetch at 'http://localhost:8000/api/v1/auth/login' from origin
 
 The backend had no CORS handling at all. [django-cors-headers](https://github.com/adamchainz/django-cors-headers) wasn't installed, and the `.env` even declared a `CORS_ALLOWED_ORIGINS` value that the settings module never read. Every unit test was green and the app was completely non-functional in the one place it's meant to run. Installing the package, adding the middleware, and reading that variable is a five-line change. Finding it out required starting the server and clicking the button, which no in-process test does.
 
+So I put the browser into the suite, partway. `apps/web` now carries Playwright specs for the smoke screen, the login flow, and the admin members table. CI does not run them yet: its web job stops at lint, Vitest, and the build. Running Playwright there means standing up the API and a database next to the browser, which is a real chunk of work rather than another five-line fix. Until that lands, the specs only protect me when I remember to run them.
+
+Where it landed: 66 backend tests green against real Postgres, coverage 97.58%, and the gate from update 1 closed.
+
 ## What I learned
 
 Update 1's lesson was that a test can pass for the wrong reason, and you only catch it when you check what role you're connected as. This update is that same lesson one level up. Ninja's `TestClient` is fast and it genuinely proves the SQL policy and the handler logic. It also skips the middleware, the request transaction, and everything about being a browser on a different origin, which is precisely where tenant isolation gets switched on and where the SPA meets its API. A suite can be entirely green and describe a program that doesn't run. The only fix I trust is to drive the thing the way a user does, at least once, before calling it done: Django's real client for the middleware path, an actual browser for the CORS wall.
@@ -82,4 +88,4 @@ The academic core, the reason the whole spine exists: disciplines, terms, offeri
 
 I built this the way I built update 1: a [machine-readable plan](/blog/machine-readable-plan-format/), one task at a time, a failing test before the code and a review before the next task starts. What that discipline did not catch, and what a browser caught in about thirty seconds, is the thing I keep turning over.
 
-So here's the question I'll leave with, for anyone shipping a web app. Do you gate merges on real-browser end-to-end tests, or do you trust a green unit suite and accept that this class of bug gets caught by hand? Both of mine, the RLS false-403 and the CORS wall, sailed through everything except a real client. I know where I'm landing after this one. I'd like to hear where you did.
+Which leaves me with a question for anyone shipping a web app. Do you gate merges on real-browser end-to-end tests, or do you trust a green unit suite and accept that this class of bug gets caught by hand? Both of mine, the RLS false-403 and the CORS wall, sailed through everything except a real client. I know where I'm landing after this one. I'd like to hear where you did.

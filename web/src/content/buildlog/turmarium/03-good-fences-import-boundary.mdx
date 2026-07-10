@@ -1,11 +1,13 @@
 ---
 title: "Good fences: the academic catalog, and the import boundary that broke once a module used it"
-description: "Update 3 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1 and 2 proved and then switched on tenant isolation with Postgres row-level security. Update 3 builds the first real feature on top of it: the academic catalog (disciplines, syllabi with ordered units, terms with one current at a time), each a new tenant-scoped table with forced RLS, a django-ninja CRUD API, and browser screens driven off the generated OpenAPI client. It is also the first module to live behind the import boundary from update 1, and the boundary broke the moment the module imported anything real. The fix is a one-word import-linter flag, plus a probe test to prove the contract still catches a real violation. Along the way, a route that shadowed itself into a 405, and a syllabus you can create but can't navigate back to, both shipped honestly. 96 backend tests, import-linter at two contracts kept and zero broken, coverage above the gate on both sides."
+description: "Update 3 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1 and 2 proved and then switched on tenant isolation with Postgres row-level security. Update 3 builds the first real feature on top of it: the academic catalog (disciplines, syllabi with ordered units, terms with one current at a time), each a new tenant-scoped table with forced RLS, a django-ninja CRUD API, and browser screens driven off the generated OpenAPI client. It is also the first module to live behind the import boundary from update 1, and the boundary broke the moment the module imported anything real. The fix is a one-word import-linter flag, plus a probe test to prove the contract still catches a real violation. Along the way, a route that shadowed itself into a 405, and a syllabus you can create but can't navigate back to, both shipped honestly. 95 backend tests, 62 web tests, import-linter at two contracts kept and zero broken, coverage above the gate on both sides."
 project: "turmarium"
 update: 3
 pubDate: 2026-07-10T05:00:00-03:00
 tags: ["django", "django-ninja", "postgresql", "row-level-security", "multi-tenancy", "import-linter", "modular-monolith", "react", "tdd", "building-in-public"]
-status: draft
+status: approved
+reviewedAt: 2026-07-10T10:55:59.204Z
+reviewHash: sha256:37d0a66114a6ce573ae77e39eaa63009348b3858ceeacc9be6ee759ae2500502
 ---
 
 import { Image } from 'astro:assets';
@@ -14,7 +16,7 @@ import academicBoundaryDark from '../../../assets/buildlog/turmarium/academic-bo
 
 I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it.
 
-Two updates went to tenant isolation, because you know, I don't want to improvise later. [Update 1](/building/turmarium/01-proving-tenant-isolation-at-the-database/) proved it at the database with Postgres row-level security. [Update 2](/building/turmarium/02-green-tests-red-browser/) switched it on for real traffic and shipped the first tenant-data endpoints.
+Two updates went to tenant isolation, because it's the one thing here you can't retrofit. [Update 1](/building/turmarium/01-proving-tenant-isolation-at-the-database/) proved it at the database with Postgres row-level security. [Update 2](/building/turmarium/02-green-tests-red-browser/) switched it on for real traffic and shipped the first tenant-data endpoints.
 
 This update finally builds a feature: the academic catalog. A discipline is a subject a school teaches (Math, unique per school by its code). A syllabus is the ordered list of units under a discipline. A term is a school period, with exactly one marked current at a time.
 
@@ -34,8 +36,8 @@ name = "academic imports only core's public seam"
 type = "forbidden"
 source_modules = ["turmarium.academic"]
 forbidden_modules = [
-  "turmarium.core.auth", "turmarium.core.jwt",
-  "turmarium.core.tenancy", "turmarium.core.managers",
+  "turmarium.core.auth", "turmarium.core.jwt", "turmarium.core.middleware",
+  "turmarium.core.tenancy", "turmarium.core.managers", "turmarium.core.registry",
   "turmarium.gamification", "turmarium.ai", "turmarium.exams",
 ]
 ```
@@ -61,9 +63,9 @@ Flipping a flag to turn a red check green is the exact move that quietly guts a 
 
 ## The route that shadowed itself
 
-Test-driven development is the principle I build everything on, this project included. Writing the test before the code forces me to name the behavior I want before I have anything to lean on, and it keeps me safe. This time it saved me from a bug that leaves no mark on the screen. The plan I work from got the genuinely fiddly part right: reordering a syllabus's units without tripping the unique `(syllabus, order)` constraint, which fires mid-statement, so a naive one-pass renumber collides on a swap and you have to move the rows out of the way first. The bugs that survived were in the boring parts, and the ugliest of them was red in a test long before it could reach a browser.
+Test-driven development is the principle I build everything on, this project included. Writing the test before the code forces me to name the behavior I want before I have anything to lean on. This time it caught a bug that leaves no mark on the screen. The plan I work from got the genuinely fiddly part right: reordering a syllabus's units without tripping the unique `(syllabus, order)` constraint, which fires mid-statement, so a naive one-pass renumber collides on a swap and you have to move the rows out of the way first. The bugs that survived were in the boring parts, and the ugliest of them was red in a test long before it could reach a browser.
 
-The best one was a routing shadow. Reordering units posts to `/syllabi/{id}/units/reorder`. Editing a unit patches `/syllabi/{id}/units/{unit_id}`. The reorder route was declared after the `{unit_id}` route, and Django matches URL patterns by shape, first match wins, before it ever looks at the HTTP method. So a POST to `.../units/reorder` matched `{unit_id} = "reorder"`, found only PATCH and DELETE registered there, and returned a 405. The fix is to declare the literal `/reorder` route ahead of the `{unit_id}` one. A one-line swap, invisible on the page, red the instant a test hit it.
+The best one was a routing shadow. Reordering units posts to `/syllabi/{id}/units/reorder`. Editing a unit patches `/syllabi/{id}/units/{unit_id}`. I declared the reorder route after the `{unit_id}` one and assumed it was safe, because the handler signature reads `unit_id: int` and `reorder` is not an integer. It matched anyway: the path converter django-ninja generates accepts any segment without a slash in it, digits or not. Django then resolves URLs by shape, first match wins, before it ever looks at the HTTP method. So a POST to `.../units/reorder` bound `unit_id = "reorder"`, found only PATCH and DELETE registered at that pattern, and returned a 405. The fix is to declare the literal `/reorder` route ahead of the `{unit_id}` one. A one-line swap, invisible on the page, red the instant a test hit it.
 
 Two smaller ones rode along, both in code that read as correct until it ran: a React test that sliced a header off a table that had none, and a TypeScript constant used only as a type, which tripped the unused-variable lint.
 
@@ -71,16 +73,29 @@ Two smaller ones rode along, both in code that read as correct until it ran: a R
 
 One flow works only inside a single session, and I shipped it that way with my eyes open. When you create a discipline's syllabus in the browser, the screen keeps its id in local state and everything works: add units, reorder them, edit. But the discipline record the API returns doesn't carry the syllabus id, and there's no "get the syllabus for this discipline" endpoint yet. Navigate away and come back, and the detail screen sees no syllabus, offers to create one, and the create hits the one-syllabus-per-discipline rule with a 409.
 
-The data is safe on the server. It's just unreachable from the UI across sessions. No leak, no corruption, and the user sees it the moment it happens, so it's a fast-follow, not a blocker: add the syllabus id to the discipline response (or a lookup endpoint), regenerate the client, read it on load. A separate review of the isolation on the four new tables came back clean, with one note for the same list: the patch endpoints copy request fields onto the row by name, which is safe today because the update schemas expose only harmless fields, but would let a carelessly widened schema reassign a row's owner. Naming both is cheaper than pretending the feature is done.
+The data is safe on the server. It's just unreachable from the UI across sessions. No leak, no corruption, and the user sees it the moment it happens, so it's a fast-follow, not a blocker: add the syllabus id to the discipline response (or a lookup endpoint), regenerate the client, read it on load. A separate review of the isolation on the four new tables came back clean, with one note for the same list: the patch endpoints copy request fields onto the row by name, which is safe today because the update schemas expose only harmless fields, but would let a carelessly widened schema reassign a row's owner.
+
+Two more items went on that list. `routers/disciplines.py` sits at 72% coverage, and the holes are specific: `get_discipline`, the success path of `patch_discipline`, and `delete_discipline` have no direct tests at all. They're typed and published in the OpenAPI schema, and nothing in the browser calls them yet, which is exactly how they slipped past a test list I wrote myself. The suite is green and 72% of that file is a guess.
+
+The other is a debt from update 2, where I said the Playwright specs only protect me when I remember to run them. This slice added three more, for disciplines, the syllabus editor, and terms, and I didn't run any of them for the completion review, because they still want a seeded admin and a reachable API. The syllabus one hedges its own click:
+
+```ts
+const createSyllabus = page.getByRole("button", { name: "Create syllabus" });
+if (await createSyllabus.isVisible()) await createSyllabus.click();
+```
+
+That `if` is the test declining to know whether the syllabus came back. It's the revisit bug above, sitting inside the spec written to catch it. Naming these is cheaper than pretending the feature is done.
 
 ## What I learned
 
-`import-linter`'s default, follow every transitive path, sounds stricter than checking direct imports, but for a module built to use a public seam it flags the intended usage and buries the real question: does my own code name the internals directly? Direct-import checking, plus a probe that proves the check still catches a real violation, is the version I trust. And the pattern from the last two updates held again: the plan was careful and test-first, and the defects that survived it, a route that shadowed itself and a syllabus you can't get back to, were the ones only a running test or a real click could surface.
+`import-linter`'s default, follow every transitive path, sounds stricter than checking direct imports, but for a module built to use a public seam it flags the intended usage and buries the question I actually care about: does my own code name the internals directly? Direct-import checking, plus a probe that proves the check still catches a real violation, is the version I trust.
 
-Where it landed: 96 backend tests and a green web suite, import-linter reporting two contracts kept and zero broken, coverage above its 80% floor on both the API and the browser app.
+The uncomfortable half of that is what a green check doesn't cover. The contract can't see whether `disciplines.py` has tests behind its 72%, and it can't see that the syllabus spec skips its own assertion. It proves the walls are where I put them, and it has nothing at all to say about the code living inside them.
+
+Where it landed: 95 backend tests and 62 web tests green, import-linter reporting two contracts kept and zero broken, API coverage at 95% and the browser app at 92% of statements and 81% of branches, all above the 80% floor.
 
 ## What's next
 
 The catalog is the vocabulary; next is using it. Offerings (a discipline taught in a term to a class), enrollments, and the domain events the whole modular design exists for: `EnrollmentCreated` and its siblings, emitted by the core and consumed by a module the core still knows nothing about. That's the first time the event bus from update 1 carries real traffic, and the first module that reacts to the core instead of only reading it.
 
-So here's the question I'll leave with, for anyone who runs an enforced module boundary (import-linter, ArchUnit, eslint boundaries, whatever yours is). Do you check direct imports or the full transitive graph, and once you start adding exceptions for the legitimate crossings, how do you keep that list from quietly becoming the hole in the wall? Mine has exactly one exception now and a probe test standing guard over it. I'd like to know how you keep yours honest.
+A question, then, for anyone who runs an enforced module boundary (import-linter, ArchUnit, eslint boundaries, whatever yours is). Do you check direct imports or the full transitive graph, and once you start adding exceptions for the legitimate crossings, how do you keep that list from quietly becoming the hole in the wall? Mine has exactly one exception now and a probe test standing guard over it. I'd like to know how you keep yours honest.

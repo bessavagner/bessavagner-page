@@ -1,11 +1,13 @@
 ---
 title: "Shouting into an empty room: offerings, enrollments, and the first domain event I shipped with no subscriber"
-description: "Update 4 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1-3 proved tenant isolation at the database, switched it on for real traffic, and built the academic catalog behind a strict import boundary. Update 4 makes the architecture finally do something: offerings (turmas, a discipline taught in a term to a section) and enrollments, two more tenant-scoped tables with forced RLS, plus the first domain event, EnrollmentCreated, emitted onto the event bus that has sat unused since update 1. The honest twist: the event fires into an empty room. No module subscribes yet (that is a later epic); only a test listens. PROTECT keeps a class you actually ran from being deleted by accident, limit_choices_to turns out to guard the form and not the API, and update 3's half-built syllabus revisit gets paid off first. 124 backend tests, 80 web tests, import-linter at two contracts kept and zero broken, coverage near 97% on the API and above the gate on the browser app."
+description: "Update 4 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1-3 proved tenant isolation at the database, switched it on for real traffic, and built the academic catalog behind a strict import boundary. Update 4 makes the architecture finally do something: offerings (turmas, a discipline taught in a term to a section) and enrollments, two more tenant-scoped tables with forced RLS, plus the first domain event, EnrollmentCreated, emitted onto the event bus that has sat unused since update 1. The honest twist: the event fires into an empty room. No module subscribes yet (that is a later epic); only a test listens. Which is lucky, because writing this update is how I discovered the emitter does not do what I designed it to do: it fires inside the still-open request transaction, not after commit, and the in-process test that covers it cannot see the difference. PROTECT keeps a class you actually ran from being deleted by accident, limit_choices_to turns out to guard the form and not the API, and update 3's half-built syllabus revisit gets paid off first. 124 backend tests, 80 web tests, import-linter at two contracts kept and zero broken, coverage near 97% on the API and above the gate on the browser app."
 project: "turmarium"
 update: 4
 pubDate: 2026-07-17T05:00:00-03:00
 tags: ["django", "django-ninja", "postgresql", "row-level-security", "multi-tenancy", "domain-events", "event-driven", "modular-monolith", "react", "tdd", "building-in-public"]
-status: draft
+status: approved
+reviewedAt: 2026-07-10T11:53:28.032Z
+reviewHash: sha256:af27827146efad2c94b8c13c8d95d0fff6bc01ff471193791285129fdfa4bafd
 ---
 
 I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it.
@@ -65,7 +67,7 @@ Same story for enrolling: the student must be same-org and `role=student`. A cro
 
 ## The first event, and the empty room
 
-Here is the one I had been waiting three updates for. When an enrollment is created, and only after the transaction that creates it has committed, `academic` emits a typed event onto the bus that lives in `core`:
+Here is the one I had been waiting three updates for. When an enrollment is created, `academic` emits a typed event onto the bus that lives in `core`:
 
 ```python
 # academic's FIRST domain event. core.events is part of the permitted public seam.
@@ -87,20 +89,36 @@ def emit(event) -> list[Exception]:
     return errors
 ```
 
-Two choices in that tiny function matter more than its size. It emits *after* commit, so the enrollment is already durable when any handler runs: a subscriber reacts to a fact, never to a maybe that might roll back under it. And it collects each handler's exception into a returned list instead of letting it propagate, so one broken subscriber can never fail an enrollment. Today that list comes back empty every time, because nothing subscribes.
+One choice in that tiny function is real, and it's the returned list. Each handler's exception gets collected instead of propagating, so a broken subscriber can never fail an enrollment. Today that list comes back empty every time, because nothing subscribes.
 
-That is the shape of it. `EnrollmentCreated` fires into a room with no one in it. No gamification module reacts, no notification goes out, no analytics row is written. A test subscribes to prove the event carries the right payload, and that test is the only listener in the codebase. I shipped it that way deliberately. The consumer is a later epic; wiring a real module to react is cheap once the seam is proven. What is not cheap to get wrong is the emitter and the contract: the typed payload, the post-commit timing, the failure isolation, and the import boundary staying *kept* while academic touches the bus for the first time. Prove those with the room empty, and the day a module walks in, it just subscribes.
+The other property I believed it had, it doesn't. I sat down to write that the event emits *after* commit, so a subscriber always reacts to a durable fact and never to a maybe that might roll back under it. That is what I designed. It is not what the code does. `create_enrollment` closes its `transaction.atomic()` block and calls `emit` on the very next line, but `ATOMIC_REQUESTS` from update 2 wraps the entire view, so the request's transaction is still open when the handler runs. There is no `transaction.on_commit` anywhere in the API.
+
+I only found out because I went to check. Driving the real endpoint through Django's test `Client`, with a subscriber that reports what it can see:
+
+```text
+handler ran inside open transaction : True
+connection autocommit               : False
+row visible to another connection   : False
+```
+
+The enrollment isn't committed. A second connection can't even see the row yet. And the test I wrote to prove the event fires, `test_enrollment_emits_event`, is structurally incapable of catching that, because it uses Ninja's `TestClient`, the in-process one that skips middleware and the request transaction. That's three updates running now: a superuser hid a dead RLS policy in update 1, an in-process client hid a no-op middleware in update 2, and the same client just hid a commit boundary that isn't there. The fix is `transaction.on_commit`, plus a regression test that uses the real client. It isn't in this slice. It's written down, and it lands before anything subscribes.
+
+That is the shape of it. `EnrollmentCreated` fires into a room with no one in it. No gamification module reacts, no notification goes out, no analytics row is written. A test subscribes to prove the event carries the right payload, and that test is the only listener in the codebase. I shipped it that way deliberately. The consumer is a later epic; wiring a real module to react is cheap once the seam is proven. What is not cheap to get wrong is the emitter and the contract: the typed payload, the failure isolation, the commit boundary, and the import boundary staying *kept* while academic touches the bus for the first time. Three of those four hold today. The commit boundary is the one I got to find out about for free.
 
 There is already a gate waiting for that module. `core` keeps a registry keyed off each organization's `enabled_modules`, so a future consumer is switched on per tenant, not globally. The bus carries the event; the registry decides who, eventually, is allowed to hear it. Last update I teased "the first module that reacts to the core." The event now fires. The reactor is still, on purpose, one epic ahead.
 
 ## What I learned
 
-Emitting a domain event nothing consumes sounds like posting a letter to no address. It is the opposite. The value is fixing the contract while the stakes are low. A wrong payload, or a handler that can roll back a booking, is a nightmare to change once three modules depend on it, and trivial to get right when the only subscriber is a test. Build the emitter and the boundary first, prove them, let the listeners arrive later. It is the RLS lesson from update 1 run forward: do the part you cannot safely retrofit before you need it, not after.
+Emitting a domain event nothing consumes sounds like posting a letter to no address. Writing this update taught me the opposite, in the least comfortable way available. The emitter has been quietly wrong since I wrote it, and it has cost exactly nothing, because the only thing listening was a test.
 
-Where it landed: 124 backend tests and 80 web tests green, import-linter reporting two contracts kept and zero broken (academic reaches the bus without naming a single internal), backend coverage near 97% and the browser app above its 80% floor. The whole flow walks end to end in a real browser: create an offering, assign a teacher, enroll a student, watch the roster row turn Active.
+It's worth being precise about what the bug would actually do, because I nearly overstated it. A subscriber that writes a row through the ORM is fine: it joins the same open transaction, so if the request rolls back, its row rolls back too. The damage is anything that escapes the transaction. A welcome email to a student whose enrollment never committed. A webhook nobody can retract. Above all, a background job enqueued for `enrollment_id=57`, picked up by a worker on another connection a millisecond later, looking for a row that isn't there yet. That last one is the failure my probe printed verbatim: `row visible to another connection : False`.
+
+None of that happened, because the room is empty. Build the emitter, prove the contract, let the listeners arrive afterward. The empty room isn't the price of doing this early. It's what makes doing it early safe.
+
+Where it landed: 124 backend tests and 80 web tests green, import-linter reporting two contracts kept and zero broken (academic reaches the bus without naming a single internal), backend coverage near 97% and the browser app above its 80% floor. The whole flow walks end to end in a real browser: create an offering, assign a teacher, enroll a student, watch the roster row turn Active. I know because I ran it against the dev stack rather than trust the spec, and the spec itself needed a unique section name before it would survive being run twice.
 
 ## What's next
 
 Now that the catalog has turmas with rosters, two epics open in parallel. Scheduling gives an offering a calendar: meeting patterns and the sessions they generate. Grading gives it an outcome: evaluation schemes and the assessments that roll up to a final grade. And somewhere past them is the module that finally subscribes to `EnrollmentCreated` and does something when a student joins a class. That is the update where the empty room gets an occupant.
 
-So the question I will leave with, for anyone running an event-driven or modular system. Do you emit domain events before anything consumes them? I have argued myself into yes: fixing the contract early is worth a stretch of talking to an empty room. But I have also watched "we'll consume it later" rot into events that quietly drift out of sync with reality, because nothing ever exercised them past the test that first asserted them. How do you keep an unconsumed event honest until its listener shows up?
+Which brings me to what I actually want to ask, as someone who just caught his own emitter lying. Do you emit domain events before anything consumes them? I have argued myself into yes: fixing the contract early is worth a stretch of talking to an empty room. But an unconsumed event is also an unexercised one, and mine sat out of sync with its own design for six days, from the commit that introduced it to the afternoon I went to describe it, with a green suite the whole time. If you emit early, what actually keeps the contract honest before its first listener arrives? A test that drives the real transaction, something in CI, or just remembering to look?
