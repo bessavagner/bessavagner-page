@@ -15,6 +15,7 @@
     "search:verify": "astro build && node scripts/assert-pagefind-index.mjs",
     "utm": "node --experimental-strip-types scripts/utm/build-url.ts",
     "utm:audit": "node scripts/utm/assert-no-internal-utm.mjs",
+    "diagram:build": "node scripts/diagrams/render.mjs",
     "post:approve": "node --experimental-strip-types scripts/post.ts approve",
     "post:status": "node --experimental-strip-types scripts/post.ts status",
     "post:lint": "node --experimental-strip-types scripts/post.ts lint",
