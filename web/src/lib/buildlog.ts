@@ -1,21 +1,19 @@
 import { getCollection, type CollectionEntry } from 'astro:content';
 import bpData from '../data/buildProjects.json';
-import {
-  isUpdateVisible,
-  splitUpdateId,
-  sortUpdatesByDateDesc,
-  type BuildProject,
-} from './buildlog-core.ts';
+import { splitUpdateId, sortUpdatesByDateDesc, type BuildProject } from './buildlog-core.ts';
+import { isVisible as isPublicationVisible } from './publication.ts';
+import { hashMatches } from './review-map.ts';
 
 export type BuildUpdate = CollectionEntry<'buildlog'>;
 export { splitUpdateId };
 export type { BuildProject };
 
-const ctx = () => ({ now: Date.now(), prod: import.meta.env.PROD });
-
-/** Visibility for a single update (drafts/future excluded in prod). */
+/** Visibility for a single update, via the one publication rule in publication.ts. */
 export function isVisible(u: BuildUpdate): boolean {
-  return isUpdateVisible(u.data, ctx());
+  return isPublicationVisible(
+    { status: u.data.status, pubDate: u.data.pubDate, hashMatches: hashMatches(u) },
+    { now: Date.now(), prod: import.meta.env.PROD },
+  );
 }
 
 /** All registry projects, active first then shipped, preserving file order within each. */

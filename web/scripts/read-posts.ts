@@ -29,16 +29,6 @@ export interface PostFile {
   data: PostData;
   state: ReturnType<typeof publicationState>;
   item: ReturnType<typeof toDigestItem>;
-  /**
-   * Mirrors the pre-migration `draft: boolean` frontmatter key, which every post in
-   * the content tree still carries — `status` does not exist on disk yet, so every
-   * post's `state` above is 'draft' regardless of this flag (see publication.ts).
-   * Not part of the new publication model; it exists only so digest.ts and
-   * check-publish.ts, whose selection logic Tasks 6/8 own, can keep excluding the
-   * same posts they exclude today until Task 6 migrates the schema and this field
-   * goes away. post:status/post:lint/post:preview ignore it — they report every post.
-   */
-  legacyDraft: boolean;
 }
 
 /** A publishable file whose pubDate could not be parsed. Surfaced, never silently dropped. */
@@ -133,9 +123,8 @@ export function readPosts(now: number = Date.now(), contentDir: string = CONTENT
 
       const state = publicationState({ status, pubDate, hashMatches }, { now, prod: true });
       const item = toDigestItem(relPath, { title: data.title, description: data.description, pubDate });
-      const legacyDraft = raw.draft === true;
 
-      posts.push({ absPath: file, repoPath, body: split.body, data, state, item, legacyDraft });
+      posts.push({ absPath: file, repoPath, body: split.body, data, state, item });
     }
   }
   return { posts, invalid };

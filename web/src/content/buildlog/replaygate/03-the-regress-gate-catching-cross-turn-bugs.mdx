@@ -5,7 +5,9 @@ project: "replaygate"
 update: 3
 pubDate: 2026-07-02T12:00:00-03:00
 tags: ["python", "pydantic", "typer", "llm-agents", "testing", "ci", "tdd", "github-actions", "building-in-public"]
-draft: false
+status: approved
+reviewedAt: 2026-07-02T15:00:00.000Z
+reviewHash: sha256:29b4dc8eed7fee0cc5638333df8e15975be682b5b223615f7fc01386f0f67c6f
 ---
 
 ReplayGate is conversation-level regression testing for multi-turn AI agents. A *cross-turn* regression is a bug that lives between turns, not inside any single reply: the agent books before the user confirmed, re-asks for an order number it was already given, forgets a "no dairy" constraint set two turns back. Per-turn assertions look at one reply at a time and miss every one of them.

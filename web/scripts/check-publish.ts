@@ -1,11 +1,18 @@
 // web/scripts/check-publish.ts
-// Fails when a post whose pubDate has passed is not on origin/main — because it
-// was never committed, or committed and never pushed. Run locally (see the
-// systemd timer in ops/systemd/); CI structurally cannot catch this, since an
-// Action checks out the remote, which by definition lacks the missing file.
+// Guards against the one failure CI structurally cannot see: a post that should be
+// live is not on origin/main — because it was never committed, or committed and
+// never pushed. An Action checks out the remote, which by definition lacks the
+// missing file, so only a local run can catch it. See the systemd timer in
+// ops/systemd/.
 //
-// Offline is a warning, never a silent pass: if origin cannot be reached the
-// script says so, and still reports every untracked post it can see.
+// Its severity model encodes the spec's "better late than wrong": lateness is not
+// an incident. A due post still in `review`, or one whose approval went stale, is
+// the system working as designed — WARN, exit 0. The FAILs (exit 1) are the two
+// states that mean work exists nowhere but this laptop and is at risk of being
+// *lost*: a due, live-eligible post that is untracked or unpushed.
+//
+// Offline is a warning, never a silent pass: if origin cannot be reached the script
+// says so, and still reports every untracked post it can see.
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { utcDateStamp } from '../src/lib/digest-core.ts';
@@ -13,19 +20,6 @@ import { readPosts } from './read-posts.ts';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const CONTENT_DIR = 'web/src/content';
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-/**
- * The publish cron ('5 12 * * *' in .github/workflows/scheduled-publish.yml), as minutes past
- * UTC midnight. A pubDate whose instant falls later in its own UTC day is emailed by that day's
- * digest (which matches on the exact UTC calendar day) but not built until the next day's
- * deploy, because isPublic() gates on the instant. The result is a newsletter link that 404s
- * for a day.
- */
-const CRON_UTC_MINUTES = 12 * 60 + 5;
-
-/** CRON_UTC_MINUTES rendered as zero-padded HH:MM, so the warning text cannot drift from the check. */
-const CRON_UTC_HHMM = `${String(Math.floor(CRON_UTC_MINUTES / 60)).padStart(2, '0')}:${String(CRON_UTC_MINUTES % 60).padStart(2, '0')}`;
 
 /** Run git at the repo root and return stdout. Throws on a non-zero exit. */
 function git(...args: string[]): string {
@@ -63,15 +57,15 @@ try {
 // 3. What content files does git not know about at all? This works offline.
 const untracked = new Set(lines(git('ls-files', '--others', '--exclude-standard', '--', CONTENT_DIR)));
 
-type State = 'ok' | 'untracked' | 'unpushed' | 'unknown';
+type GitState = 'ok' | 'untracked' | 'unpushed' | 'unknown';
 
-function stateOf(repoPath: string): State {
+function gitStateOf(repoPath: string): GitState {
   if (untracked.has(repoPath)) return 'untracked';
   if (onOrigin === null) return 'unknown'; // tracked, but we cannot see the remote
   return onOrigin.has(repoPath) ? 'ok' : 'unpushed';
 }
 
-const EXPLAIN: Record<'untracked' | 'unpushed', string> = {
+const GIT_EXPLAIN: Record<'untracked' | 'unpushed', string> = {
   untracked: 'untracked — never committed',
   unpushed: 'committed but not on origin/main — never pushed',
 };
@@ -84,32 +78,25 @@ for (const bad of invalid) {
   warnings.push(`${bad.repoPath} — unparsable pubDate "${bad.rawPubDate}"; cannot tell whether it is due`);
 }
 
-// legacyDraft mirrors today's behaviour until Task 6 migrates every post from
-// `draft` to `status` — see the field's doc comment in scripts/read-posts.ts.
-for (const { item, repoPath, legacyDraft } of posts) {
-  if (legacyDraft || item === null) continue;
-  const state = stateOf(repoPath);
-  const due = item.pubDate.getTime();
-
-  // Runs for every future post, including ones already 'ok' on origin/main — a
-  // pushed post with a bad time still produces a dead link, so this must not be
-  // skipped by the "nothing left to check" continue below.
-  if (due > now) {
-    // Cron has only minute granularity, so we drop seconds in the comparison.
-    const minutes = item.pubDate.getUTCHours() * 60 + item.pubDate.getUTCMinutes();
-    if (minutes > CRON_UTC_MINUTES) {
-      warnings.push(
-        `${repoPath}\n      pubDate ${item.pubDate.toISOString()} is after the ${CRON_UTC_HHMM} UTC publish cron — it will be emailed a day before it is built`,
-      );
+for (const { data, state, repoPath } of posts) {
+  // Only posts whose date has already passed can be "late". A future post that
+  // isn't yet on origin has time to be pushed before it is due.
+  if (data.pubDate.getTime() > now) continue;
+  if (state === 'published') {
+    // Should be live now. Is it safe on origin, or only on this laptop?
+    const g = gitStateOf(repoPath);
+    if (g === 'untracked' || g === 'unpushed') {
+      failures.push(`${repoPath}\n      due ${utcDateStamp(data.pubDate)} — ${GIT_EXPLAIN[g]}`);
     }
+    continue;
   }
-
-  if (state === 'ok' || state === 'unknown') continue;
-
-  const line = `${repoPath}\n      due ${utcDateStamp(item.pubDate)} — ${EXPLAIN[state]}`;
-
-  if (due <= now) failures.push(line);
-  else if (due <= now + DAY_MS) warnings.push(`${line} (due within 24h)`);
+  // Due but not published: not an incident, just not live yet. Report the state.
+  if (state === 'review') {
+    warnings.push(`${repoPath}\n      due ${utcDateStamp(data.pubDate)} — in review, not approved`);
+  } else if (state === 'stale-approval') {
+    warnings.push(`${repoPath}\n      due ${utcDateStamp(data.pubDate)} — stale-approval, approved then edited`);
+  }
+  // state === 'draft': deliberately held, nothing to report.
 }
 
 for (const w of warnings) console.warn(`WARN  ${w}`);
@@ -117,8 +104,8 @@ for (const f of failures) console.error(`FAIL  ${f}`);
 
 if (failures.length > 0) {
   const n = failures.length;
-  console.error(`\n${n} post${n === 1 ? ' is' : 's are'} due but not on origin/main. Commit and push.`);
+  console.error(`\n${n} due post${n === 1 ? ' is' : 's are'} not on origin/main. Commit and push.`);
   process.exit(1);
 }
 
-console.log(`OK — every due post is on origin/main.${warnings.length > 0 ? ' (with warnings)' : ''}`);
+console.log(`OK — every due, published post is on origin/main.${warnings.length > 0 ? ' (with warnings)' : ''}`);

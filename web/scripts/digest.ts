@@ -46,9 +46,13 @@ async function main() {
   for (const bad of invalid) {
     console.warn(`WARN  ${bad.repoPath} — unparsable pubDate "${bad.rawPubDate}"; skipped`);
   }
-  // legacyDraft mirrors today's behaviour until Task 6 migrates every post from
-  // `draft` to `status` — see the field's doc comment in scripts/read-posts.ts.
-  const items = posts.filter((p) => !p.legacyDraft && p.item !== null).map((p) => p.item!);
+  // Only announce what will actually be live: an approved post whose reviewHash
+  // still matches (`published` if its date has passed, `scheduled` if it lands
+  // later today). Drafts, posts in review, and stale approvals are excluded — the
+  // digest must never link to something the site won't build.
+  const items = posts
+    .filter((p) => (p.state === 'published' || p.state === 'scheduled') && p.item !== null)
+    .map((p) => p.item!);
   const due = selectDue(items, TODAY);
   if (due.length === 0) {
     console.log(`Nothing dated ${TODAY}; not sending.`);

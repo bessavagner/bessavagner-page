@@ -5,7 +5,9 @@ project: "regwatch"
 update: 2
 pubDate: 2026-06-28T08:00:00-03:00
 tags: ["django", "tdd", "httpx", "lxml", "clean-room", "building-in-public", "govtech"]
-draft: false
+status: approved
+reviewedAt: 2026-06-28T11:00:00.000Z
+reviewHash: sha256:8ccc894bea6634e4d64b97623b4f4d9ef1f86b98c1e22fda1368237acda2b842
 ---
 
 In [update #1](/building/regwatch/01-starting-regwatch-clean-room-core/) I chose where RegWatch's data comes from: **INlabs**, the government's own service that hands you each day's Diário Oficial da União as a ZIP of per-article XML — and proved the whole path by hand: login, list a date, download, parse. The next slice would be the real ingestor, turning that validated path into a tested `fetch_editions(date)`. I just did it.

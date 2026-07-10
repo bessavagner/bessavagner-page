@@ -1,20 +1,24 @@
 import { getCollection, type CollectionEntry } from 'astro:content';
+import { isVisible } from './publication.ts';
+import { hashMatches } from './review-map.ts';
 
 export type Post = CollectionEntry<'blog'>;
 
 /**
  * Whether a post is publicly visible.
  *
- * In dev everything shows (so drafts and future posts stay previewable). In a
- * production build a post is visible only when it is not a draft *and* its
- * `pubDate` has arrived — so a scheduled rebuild on the post's date surfaces it
- * automatically, with no flag flip or commit. This is the single source of
- * truth for visibility; the blog index, post pages, and OG routes all use it.
+ * Defers to the one publication rule in `publication.ts`: in dev everything shows,
+ * and in a production build a post is visible only when it is `approved`, its
+ * `reviewHash` still matches its content on disk, and its `pubDate` has arrived. A
+ * scheduled rebuild on the post's date surfaces it automatically. This is the
+ * blog's single entry point to that rule; the index, post pages, and OG routes
+ * all use it.
  */
 export function isPublic(p: Post): boolean {
-  if (!import.meta.env.PROD) return true;
-  if (p.data.draft === true) return false;
-  return p.data.pubDate.getTime() <= Date.now();
+  return isVisible(
+    { status: p.data.status, pubDate: p.data.pubDate, hashMatches: hashMatches(p) },
+    { now: Date.now(), prod: import.meta.env.PROD },
+  );
 }
 
 /** Published posts (drafts/future excluded in production), newest first. */

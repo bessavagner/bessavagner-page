@@ -126,23 +126,6 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 const find = (posts: ReturnType<typeof readPosts>['posts'], repoPath: string) =>
   posts.find((p) => p.repoPath.endsWith(repoPath));
 
-describe('readPosts — draft exclusion', () => {
-  it('flags a draft: true post as legacyDraft, which digest.ts/check-publish.ts filter on', () => {
-    const { posts } = readPosts(Date.now(), contentDir);
-    const draft = find(posts, 'blog/draft-post.mdx');
-    expect(draft?.legacyDraft).toBe(true);
-    // Mirror the exact filter digest.ts and check-publish.ts apply.
-    const digestItems = posts.filter((p) => !p.legacyDraft && p.item !== null);
-    expect(digestItems.some((p) => p.repoPath.endsWith('blog/draft-post.mdx'))).toBe(false);
-  });
-
-  it('does not flag a non-draft post as legacyDraft', () => {
-    const { posts } = readPosts(Date.now(), contentDir);
-    const bare = find(posts, 'blog/bare-date.mdx');
-    expect(bare?.legacyDraft).toBe(false);
-  });
-});
-
 describe('readPosts — pubDate presence and validity', () => {
   it('excludes a post with no pubDate, without reporting it as invalid', () => {
     const { posts, invalid } = readPosts(Date.now(), contentDir);

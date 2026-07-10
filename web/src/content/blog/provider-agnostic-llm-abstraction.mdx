@@ -3,7 +3,7 @@ title: "Write Once, Talk to Any LLM: a Provider-Agnostic Abstraction"
 description: "Every LLM provider has its own message shape, token counting, and errors. Here's how to hide all of it behind one Chatter interface — using mixin composition instead of factory boilerplate."
 pubDate: 2026-07-21T05:00:00-03:00
 tags: ["llm", "architecture", "design-patterns", "python"]
-draft: true
+status: draft
 ---
 
 If you've wired an application to more than one language-model provider, you've felt the friction. OpenAI wants a list of `{"role": ..., "content": ...}` messages. Google's Gemini wants `{"role": ..., "parts": [...]}`. Token counting is a `tiktoken` lookup for one and an API call for the other. The errors are named differently, the clients are constructed differently, and the role vocabularies don't even agree on what to call the model's own turns.

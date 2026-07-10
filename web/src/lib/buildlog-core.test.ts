@@ -3,7 +3,6 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   splitUpdateId,
-  isUpdateVisible,
   sortUpdatesByDateDesc,
   latestUpdate,
   buildProjectToProject,
@@ -14,18 +13,6 @@ test('splitUpdateId separates the project folder from the update slug', () => {
   assert.deepEqual(splitUpdateId('regwatch/01-postgres-fts'), { project: 'regwatch', slug: '01-postgres-fts' });
   assert.deepEqual(splitUpdateId('regwatch/sub/02-foo'), { project: 'regwatch', slug: 'sub/02-foo' });
   assert.deepEqual(splitUpdateId('loose'), { project: 'loose', slug: 'loose' });
-});
-
-test('isUpdateVisible shows everything in dev', () => {
-  assert.equal(isUpdateVisible({ draft: true, pubDate: new Date('2999-01-01') }, { now: 0, prod: false }), true);
-});
-
-test('isUpdateVisible hides drafts and future posts in prod', () => {
-  const now = new Date('2026-06-27').getTime();
-  assert.equal(isUpdateVisible({ draft: false, pubDate: new Date('2026-06-25') }, { now, prod: true }), true);
-  assert.equal(isUpdateVisible({ draft: true, pubDate: new Date('2026-06-25') }, { now, prod: true }), false);
-  assert.equal(isUpdateVisible({ draft: false, pubDate: new Date('2026-06-29') }, { now, prod: true }), false);
-  assert.equal(isUpdateVisible({ pubDate: new Date('2026-06-27') }, { now, prod: true }), true);
 });
 
 test('sortUpdatesByDateDesc orders newest first and does not mutate input', () => {

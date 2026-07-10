@@ -33,27 +33,11 @@ export interface BuildProject {
   work?: BuildWork;
 }
 
-/** Minimal shape of a buildlog update this module reasons about. */
-export interface UpdateLike {
-  id: string;
-  data: { project: string; update: number; pubDate: Date; draft?: boolean };
-}
-
 /** Split a collection id ("regwatch/01-foo") into its project folder + update slug. */
 export function splitUpdateId(id: string): { project: string; slug: string } {
   const i = id.indexOf('/');
   if (i === -1) return { project: id, slug: id };
   return { project: id.slice(0, i), slug: id.slice(i + 1) };
-}
-
-/** In dev everything is visible; in prod, only non-drafts whose pubDate has arrived. */
-export function isUpdateVisible(
-  data: { draft?: boolean; pubDate: Date },
-  ctx: { now: number; prod: boolean },
-): boolean {
-  if (!ctx.prod) return true;
-  if (data.draft === true) return false;
-  return data.pubDate.getTime() <= ctx.now;
 }
 
 /** Newest-first by pubDate. Returns a new array; input is not mutated. */
