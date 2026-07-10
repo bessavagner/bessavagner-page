@@ -13,6 +13,14 @@ const API = 'https://api.buttondown.com/v1';
 const WINDOW_DAYS = 30;
 const CAP = 3;
 
+/**
+ * The instant this publication system went live. Posts published before it are never
+ * announced: eight of them were missed by the old exact-UTC-day `selectDue` and, per the
+ * project's standing rule, a missed digest is never sent retroactively. Buttondown's
+ * dedupe covers the ones that DID go out; this covers the ones that never did.
+ */
+const ANNOUNCE_FROM = Date.parse('2026-07-10T00:00:00Z');
+
 const argv = process.argv.slice(2);
 const DRY_RUN = argv.includes('--dry-run');
 const FORCE = argv.includes('--force');
@@ -97,7 +105,7 @@ async function main() {
     .filter((p) => p.item !== null)
     .map((p) => ({ ...p.item!, state: p.state }));
 
-  let items = selectAnnounceable(candidates, { now: NOW, windowDays: WINDOW_DAYS });
+  let items = selectAnnounceable(candidates, { now: NOW, windowDays: WINDOW_DAYS, notBefore: ANNOUNCE_FROM });
   if (items.length === 0) {
     console.log('Nothing to announce.');
     return;

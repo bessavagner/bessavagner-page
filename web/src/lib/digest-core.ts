@@ -33,18 +33,25 @@ export function utcDateStamp(d: Date): string {
 /** Posts that are actually live (`state === 'published'`, never `scheduled` — a
  *  post can be scheduled for later in its own UTC day than the deploy cron, so
  *  matching on state instead of calendar date is what keeps the digest from
- *  linking to a page the build hasn't shipped yet) and landed within the last
+ *  linking to a page the build hasn't shipped yet), landed within the last
  *  `windowDays` — the back-catalogue guard, so a long-idle digest run doesn't
- *  re-announce everything ever published. Building first, then Blog,
- *  newest-first within each group. */
+ *  re-announce everything ever published — and published at or after
+ *  `notBefore` — the launch cutoff, so posts that predate this publication
+ *  system are never announced (a missed digest is never sent retroactively).
+ *  Building first, then Blog, newest-first within each group. */
 export function selectAnnounceable(
   posts: AnnounceCandidate[],
-  opts: { now: number; windowDays: number },
+  opts: { now: number; windowDays: number; notBefore: number },
 ): AnnounceCandidate[] {
   const rank = { building: 0, blog: 1 } as const;
   const cutoff = opts.now - opts.windowDays * 86_400_000;
   return posts
-    .filter((p) => p.state === 'published' && p.pubDate.getTime() > cutoff)
+    .filter(
+      (p) =>
+        p.state === 'published' &&
+        p.pubDate.getTime() > cutoff &&
+        p.pubDate.getTime() >= opts.notBefore,
+    )
     .sort((a, b) => rank[a.kind] - rank[b.kind] || b.pubDate.getTime() - a.pubDate.getTime());
 }
 

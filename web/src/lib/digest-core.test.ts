@@ -30,28 +30,34 @@ const at = (iso: string): AnnounceCandidate => ({
   state: 'published',
 });
 
+// No launch cutoff in effect — used by tests that predate the `notBefore` guard.
+const NO_CUTOFF = Number.NEGATIVE_INFINITY;
+
 test('includes a post published inside the window', () => {
   assert.equal(
-    selectAnnounceable([at('2026-07-09T11:00:00Z')], { now: NOW, windowDays: 30 }).length,
+    selectAnnounceable([at('2026-07-09T11:00:00Z')], { now: NOW, windowDays: 30, notBefore: NO_CUTOFF }).length,
     1,
   );
 });
 
 test('excludes a post older than the window — the back-catalogue guard', () => {
   assert.equal(
-    selectAnnounceable([at('2026-01-01T00:00:00Z')], { now: NOW, windowDays: 30 }).length,
+    selectAnnounceable([at('2026-01-01T00:00:00Z')], { now: NOW, windowDays: 30, notBefore: NO_CUTOFF }).length,
     0,
   );
 });
 
 test('excludes a post that is not in the published state', () => {
   const scheduled = { ...at('2026-07-09T11:00:00Z'), state: 'scheduled' as const };
-  assert.equal(selectAnnounceable([scheduled], { now: NOW, windowDays: 30 }).length, 0);
+  assert.equal(
+    selectAnnounceable([scheduled], { now: NOW, windowDays: 30, notBefore: NO_CUTOFF }).length,
+    0,
+  );
 });
 
 test('announces a post that was due yesterday but missed — late is fine', () => {
   assert.equal(
-    selectAnnounceable([at('2026-07-08T11:00:00Z')], { now: NOW, windowDays: 30 }).length,
+    selectAnnounceable([at('2026-07-08T11:00:00Z')], { now: NOW, windowDays: 30, notBefore: NO_CUTOFF }).length,
     1,
   );
 });
@@ -61,8 +67,42 @@ test('selectAnnounceable orders Building before Blog', () => {
     { ...at('2026-07-09T11:00:00Z'), kind: 'blog', title: 'b' },
     { ...at('2026-07-09T11:00:00Z'), kind: 'building', title: 'a', path: '/building/x/a/' },
   ];
-  const due = selectAnnounceable(items, { now: NOW, windowDays: 30 });
+  const due = selectAnnounceable(items, { now: NOW, windowDays: 30, notBefore: NO_CUTOFF });
   assert.deepEqual(due.map((i) => i.kind), ['building', 'blog']);
+});
+
+// The launch cutoff: posts from before this publication system went live are never
+// announced, even though they are otherwise `published` and inside the window — a
+// missed digest is never sent retroactively.
+const NOT_BEFORE = Date.parse('2026-07-10T00:00:00Z');
+
+test('excludes a published, in-window post dated before the launch cutoff', () => {
+  assert.equal(
+    selectAnnounceable([at('2026-07-08T11:00:00Z')], { now: NOW, windowDays: 30, notBefore: NOT_BEFORE }).length,
+    0,
+  );
+});
+
+test('includes a published post dated exactly at the launch cutoff — boundary is inclusive', () => {
+  assert.equal(
+    selectAnnounceable([at('2026-07-10T00:00:00Z')], {
+      now: Date.parse('2026-07-10T12:00:00Z'),
+      windowDays: 30,
+      notBefore: NOT_BEFORE,
+    }).length,
+    1,
+  );
+});
+
+test('includes a published, in-window post dated after the launch cutoff', () => {
+  assert.equal(
+    selectAnnounceable([at('2026-07-10T12:00:00Z')], {
+      now: Date.parse('2026-07-10T12:30:00Z'),
+      windowDays: 30,
+      notBefore: NOT_BEFORE,
+    }).length,
+    1,
+  );
 });
 
 test('renderDigest produces a date-stamped subject', () => {
