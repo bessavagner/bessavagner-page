@@ -8,7 +8,7 @@ reviewedAt: 2026-06-23T00:00:00.000Z
 reviewHash: sha256:78e2abc9d6fc23eb8d07ff329967397f5677f9d81ef3a049ffddfdd81c9b005d
 ---
 
-Language models are good at writing code. Ask one to compute a correlation, reshape a dataset, or plot two columns against each other, and it will happily produce a few lines of Python that do exactly that. What it can't do on its own is *run* that code, look at the result, and use it to answer your question. Closing that loop — letting a model write code, execute it, and read the output back — is what turns a chatbot into something that can actually do data analysis.
+Language models are good at writing code. Ask one to compute a correlation, reshape a dataset, or plot two columns against each other, and it will happily produce a few lines of Python that do exactly that. What it can't do on its own is *run* that code, look at the result, and use it to answer your question. Closing that loop — letting a model write code, execute it, and read the output back — is what turns a chatbot into something that can actually do data analysis, and it's the same kind of self-checkable signal I baked into [plans written for a model to execute](/blog/machine-readable-plan-format/): a command it can run and a result it can read.
 
 It's also where things get dangerous. The moment you execute text a model generated, you're running untrusted code on your machine. This post is about how to do that without handing an attacker (or a confused model) the keys to your server.
 
@@ -95,7 +95,7 @@ The model never has to know about your capture mechanism. It writes normal code;
 
 The container is the hard boundary, but it shouldn't be the only one. A small amount of belt-and-suspenders pays off:
 
-- **Constrain the model with the prompt.** Tell it which libraries are allowed and what's off-limits. This keeps it inside the lines *before* the container would have to stop it:
+- **Constrain the model with the prompt.** Tell it which libraries are allowed and what's off-limits. This keeps it inside the lines *before* the container would have to stop it — the same "constrain, then verify" instinct I used [grounding an LLM's extracted fields against the source document](/blog/pulling-structured-data-from-unstructured-documents/) instead of trusting them outright:
 
   ```text
   You may use only: pandas, numpy, matplotlib, seaborn, scipy.
@@ -126,7 +126,7 @@ One practical wrinkle: cold-starting a container with `pandas`, `numpy`, `matplo
 
 ## Why this is worth getting right
 
-This is a recurring shape in modern AI engineering: give a model real computational power without giving it dangerous reach. The durable answers are the same ones that show up across every implementation — disposable containers for isolation, a warm pool for latency, an allowlist plus prompt guardrails for defense in depth, and a backend abstraction so you can run locally or in the cloud without rewriting the agent.
+This is a recurring shape in modern AI engineering: give a model real computational power without giving it dangerous reach. The durable answers are the same ones that show up across every implementation — disposable containers for isolation, a warm pool for latency, an allowlist plus prompt guardrails for defense in depth, and a backend abstraction so you can run locally or in the cloud without rewriting the agent, the same seam-first instinct behind hiding [four different LLM providers](/blog/provider-agnostic-llm-abstraction/) behind one interface.
 
 I used exactly this approach to add a code-execution data agent to an internal analytics application, letting it answer open-ended questions with custom charts while staying safely contained. The specifics differ from project to project, but the principles travel — and they're worth internalizing before you wire a language model up to a Python interpreter.
 

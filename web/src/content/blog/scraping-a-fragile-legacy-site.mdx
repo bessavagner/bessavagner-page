@@ -15,7 +15,7 @@ import coverage from '../../assets/blog/scraping-a-fragile-legacy-site/coverage-
 
 Some data is only available through a website that was clearly never meant to be read by a program. No API, no bulk download, no CSV export — just a form, a dropdown, a search button, and a table that appears after a spinner. If you want the data as a dataset, you have to drive the page like a human and scrape what comes back.
 
-That's fine for a handful of rows. It gets interesting when you need *years* of them. I wanted the full monthly history of the public Brazilian vehicle price table (FIPE — Fundação Instituto de Pesquisas Econômicas), broken down by brand, model, and year, across every reference month the site still served. That's tens of thousands of lookups against a legacy ASP site that times out, throws modal dialogs, and occasionally just stops responding. A naive loop would die somewhere in hour two and lose everything.
+That's fine for a handful of rows. It gets interesting when you need *years* of them — a different kind of hostile from a site actively trying to detect and block you, the problem I wrote about in [beating browser fingerprinting](/blog/beating-browser-fingerprinting/); this site just falls over. I wanted the full monthly history of the public Brazilian vehicle price table (FIPE — Fundação Instituto de Pesquisas Econômicas), broken down by brand, model, and year, across every reference month the site still served. That's tens of thousands of lookups against a legacy ASP site that times out, throws modal dialogs, and occasionally just stops responding. A naive loop would die somewhere in hour two and lose everything.
 
 This post is about how to make that kind of scrape *survivable*: how to checkpoint so a crash costs you minutes instead of hours, how to deal with the modal dialogs a legacy site throws at you, how to retry hard without giving up, and how to land the result as clean columnar data you can analyze instead of a pile of half-broken HTML.
 
@@ -54,7 +54,7 @@ for code, modelo, marca in fipe_codes.values[start:]:
     ...
 ```
 
-There's no separate state file, no database, no "progress.json" to keep in sync with reality. The data *is* the progress. If the parquet exists, the last row in it is the high-water mark; if it doesn't, we start from zero. That property — that re-running produces the same result without redoing finished work — is **idempotency**, and it's the thing that turns a fragile multi-hour job into one you can kill and restart without a second thought.
+There's no separate state file, no database, no "progress.json" to keep in sync with reality. The data *is* the progress. If the parquet exists, the last row in it is the high-water mark; if it doesn't, we start from zero. That property — that re-running produces the same result without redoing finished work — is **idempotency**, and it's the thing that turns a fragile multi-hour job into one you can kill and restart without a second thought. It's the same property I later had to design for on a schedule instead of a crash, in [idempotent monthly resets with Celery Beat](/blog/idempotent-scheduled-jobs-with-celery-beat/).
 
 A couple of details matter for this to actually be safe:
 
@@ -162,7 +162,7 @@ main["preco_medio"].replace(
 main[["preco_medio"]] = main[["preco_medio"]].astype("float")
 ```
 
-The goal of this step is **tidy data** in Hadley Wickham's sense: each variable a column, each observation a row, one type of observational unit per table. A scraped page is the opposite — values fused into display strings, headers carrying accents and punctuation, types implied rather than stated. Pulling those apart now means every downstream query is a one-liner instead of a parsing exercise.
+The goal of this step is **tidy data** in Hadley Wickham's sense: each variable a column, each observation a row, one type of observational unit per table. A scraped page is the opposite — values fused into display strings, headers carrying accents and punctuation, types implied rather than stated. Pulling those apart now means every downstream query is a one-liner instead of a parsing exercise, the same instinct for real, typed columns over a pile of stringly-typed fields that shaped how I modeled a [polymorphic vault in Django REST Framework](/blog/polymorphic-vaults-in-drf/).
 
 Finally, the result lands as [Apache Parquet](https://parquet.apache.org/docs/) rather than CSV. Parquet is a columnar format: it stores types, compresses well, and reads fast when you only need a couple of columns out of many — which is exactly the access pattern for "average price over time by brand." Writing and reading it from pandas is one call each:
 

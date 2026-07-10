@@ -15,7 +15,7 @@ import forecast from '../../assets/blog/giving-an-llm-agent-memory/forecast-vs-a
 
 Ask a fresh language model "how am I doing on spending this month?" and it has nothing to say. It doesn't know who you are, what you bought last week, or that your dining-out habit has been creeping up since March. Every conversation starts from zero. That's fine for a one-shot question, but it's the opposite of what makes an *assistant* feel like an assistant: the sense that it remembers you.
 
-The fix isn't a bigger context window. It's giving the agent two different kinds of memory, each doing a job the other can't. This post is about how those two systems fit together, with real code from an expense-tracking agent built on [Mastra](https://mastra.ai/).
+The fix isn't a bigger context window (I wrote about the limits of that approach, and what to do instead, in [pruning chat context by summarization](/blog/pruning-chat-context-by-summarization/)). It's giving the agent two different kinds of memory, each doing a job the other can't. This post is about how those two systems fit together, with real code from an expense-tracking agent built on [Mastra](https://mastra.ai/).
 
 ## Why retrieval alone isn't memory
 
@@ -112,7 +112,7 @@ const memory = new Memory({
 });
 ```
 
-The template is the whole trick. It's not a database schema and it's not prompt boilerplate. It's a [block of Markdown the agent owns](https://mastra.ai/docs/memory/working-memory) and rewrites over time. Start it empty, as above, and the fields fill in as the agent learns: the first time the user mentions they're saving for a house, `Financial Goals` gets that line; as transactions accumulate, `Transaction Patterns` might grow to "dines out 3-4×/week, groceries weekly at the same store."
+The template is the whole trick. It's not a database schema and it's not prompt boilerplate. It's a [block of Markdown the agent owns](https://mastra.ai/docs/memory/working-memory) and rewrites over time — the same idea of handing an agent a structured, tagged artifact instead of loose prose that made [plans a model can actually execute](/blog/machine-readable-plan-format/) reliable, just applied to what the agent remembers instead of what it does next. Start it empty, as above, and the fields fill in as the agent learns: the first time the user mentions they're saving for a house, `Financial Goals` gets that line; as transactions accumulate, `Transaction Patterns` might grow to "dines out 3-4×/week, groceries weekly at the same store."
 
 Two things make this different from just throwing more history at the model:
 
@@ -125,7 +125,7 @@ Crucially, this is also where the two systems divide labor. Working memory holds
 
 There's a wrinkle that memory makes more important, not less: people don't hand an expense agent clean data. They type "spent 50 on lunch yesterday," or forward a PDF bank statement, or dictate a voice note on the way out of a store, or photograph a receipt. If each of those flowed into memory in its own shape, the agent's history would be a mess, and embeddings over inconsistent text recall badly.
 
-So everything is funneled through one normalization step *before* it touches memory. Audio and documents are converted to text first (Whisper for speech, PDF extraction or OCR for documents), and then a single parser turns that text into one canonical transaction shape, regardless of where it came from:
+So everything is funneled through one normalization step *before* it touches memory. Audio and documents are converted to text first ([Whisper for speech](/blog/local-whisper-transcription-pipeline/), PDF extraction or OCR for documents — the same family of techniques I wrote about in [pulling structured data out of unstructured documents](/blog/pulling-structured-data-from-unstructured-documents/)), and then a single parser turns that text into one canonical transaction shape, regardless of where it came from:
 
 ```typescript
 export const parseTransactionTool = createTool({

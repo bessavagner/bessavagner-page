@@ -25,7 +25,7 @@ The first trap is **a table per type with no shared base**. Every cross-cutting 
 
 The second trap is the opposite overcorrection: **one wide table with a pile of nullable columns**, or its cousin, the **Entity-Attribute-Value (EAV)** model: a generic `(entity, attribute, value)` table where every property is a row. EAV looks infinitely flexible, which is exactly why it's a well-documented anti-pattern: Bill Karwin catalogues it in [*SQL Antipatterns*](https://pragprog.com/titles/bksqla/sql-antipatterns/) under logical-design mistakes. You lose the things a relational database is *for*: you can't put a `NOT NULL` or a foreign-key constraint on a value that's stored as a string in a shared column, the database can't type-check anything, and even simple queries turn into self-joins. Flexibility bought by throwing away integrity is a bad trade.
 
-The move that works is the middle path: a **shared base model** carrying everything the shapes have in common, plus a small **typed extension** per shape that holds only what's special. One endpoint, real columns, real constraints.
+The move that works is the middle path: a **shared base model** carrying everything the shapes have in common, plus a small **typed extension** per shape that holds only what's special. One endpoint, real columns, real constraints — the same bet I made hiding four different LLM providers behind [one interface](/blog/provider-agnostic-llm-abstraction/) instead of branching on which one was live.
 
 ## A polymorphic base
 
@@ -67,7 +67,7 @@ class Item(models.Model):
 
 Tags, search fields (`title`, `summary`, `content`, `url`), favoriting, ownership, timestamps, and a loose `metadata` JSON field for genuinely shape-specific scalars all live here once. The composite index on `(owner, kind, created_at)` is the one the timeline and the per-kind filters will lean on. Notice there's no nullable `servings` or `prep_time` here. Those don't belong on a bookmark.
 
-The shape-specific data lives in an **extension model** joined back to `Item` with a `OneToOneField`. A recipe is the richest example, because it isn't flat. It has ordered steps and a list of ingredients, each its own table:
+The shape-specific data lives in an **extension model** joined back to `Item` with a `OneToOneField`. A recipe is the richest example, because it isn't flat. It has ordered steps and a list of ingredients, each its own table — the same shape I later had to pull back out of a messy free-form document in [pulling structured data out of unstructured documents](/blog/pulling-structured-data-from-unstructured-documents/):
 
 ```python
 class Recipe(models.Model):
@@ -123,7 +123,7 @@ class RecipeSerializer(serializers.ModelSerializer):
         read_only_fields = ("id",)
 ```
 
-That declaration gives you nested *reads* for free: a `GET` returns the recipe with its steps and ingredients inlined. Nested *writes* are the catch, and it's a deliberate one. DRF's [serializer docs](https://www.django-rest-framework.org/api-guide/serializers/) are explicit: "the default `ModelSerializer` `.create()` and `.update()` methods do not include support for writable nested representations," because "the behavior of nested creates and updates can be ambiguous, and may require complex dependencies between related models." So DRF makes you "write these methods explicitly." That's not a limitation to route around. It's the framework refusing to guess how a `PUT` to a recipe should reconcile the steps you sent against the steps already in the database. You're the one who knows.
+That declaration gives you nested *reads* for free: a `GET` returns the recipe with its steps and ingredients inlined. Nested *writes* are the catch, and it's a deliberate one. DRF's [serializer docs](https://www.django-rest-framework.org/api-guide/serializers/) are explicit: "the default `ModelSerializer` `.create()` and `.update()` methods do not include support for writable nested representations," because "the behavior of nested creates and updates can be ambiguous, and may require complex dependencies between related models." So DRF makes you "write these methods explicitly." That's not a limitation to route around. It's the framework refusing to guess how a `PUT` to a recipe should reconcile the steps you sent against the steps already in the database. You're the one who knows — the same reason a plan meant for a model to execute has to spell out the merge instead of trusting it to infer one, an idea I came back to in [writing plans a model can actually execute](/blog/machine-readable-plan-format/).
 
 ## Writing across tables atomically
 
@@ -198,7 +198,7 @@ The naive bars climb with the page size; the eager-loaded bars are a flat line. 
 
 I built exactly this in a personal-registry app: a polymorphic `Item` base, one-to-one extensions for the shapes that need them (`Recipe` with its steps and ingredients, grocery lists with entries), nested serializers with hand-written atomic create/update, and eager-loaded querysets on every list endpoint. The payoff is that the entire vault lives behind one coherent REST surface (one place for tags, search, favorites, and a unified timeline) while each shape still gets real columns and real constraints.
 
-The lesson that travels past this particular app: heterogeneous data doesn't force you into either a sprawl of endpoints or a structureless EAV blob. A shared base plus typed extensions gives you one surface *and* integrity. The two things you cannot skip are wrapping multi-table writes in `transaction.atomic` so a half-written object is impossible, and eager-loading your relationships so the read path doesn't degrade into an N+1 storm. Get those two right, and the polymorphic model is a genuine pleasure to work with.
+The lesson that travels past this particular app: heterogeneous data doesn't force you into either a sprawl of endpoints or a structureless EAV blob. A shared base plus typed extensions gives you one surface *and* integrity. The two things you cannot skip are wrapping multi-table writes in `transaction.atomic` so a half-written object is impossible, and eager-loading your relationships so the read path doesn't degrade into an N+1 storm. That same demand for correctness under partial failure shows up on the scheduling side too, just against duplicate executions instead of a crashed transaction — see [idempotent monthly resets with Celery Beat](/blog/idempotent-scheduled-jobs-with-celery-beat/). Get those two right, and the polymorphic model is a genuine pleasure to work with.
 
 ## References and further reading
 

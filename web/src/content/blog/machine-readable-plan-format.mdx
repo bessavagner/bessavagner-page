@@ -48,7 +48,7 @@ The checklist that proves the goal was reached.
 </verification>
 ```
 
-A model can locate "the goal" or "task 2" by tag in one hop. Buried in three paragraphs of prose, the same facts are something it has to *reconstruct* — and reconstruction is where it drifts.
+A model can locate "the goal" or "task 2" by tag in one hop. Buried in three paragraphs of prose, the same facts are something it has to *reconstruct* — and reconstruction is where it drifts. It's the same reason I gave an agent a tagged, structured Markdown block instead of loose prose to hold what it remembers about a user, in [giving an LLM agent memory](/blog/giving-an-llm-agent-memory/).
 
 ## Atomic edits
 
@@ -96,7 +96,7 @@ return store.create(...)
 </task>
 ```
 
-This isn't only tidier; it's measurably cheaper. I wrote one small two-step plan two ways — as a natural-language memo that explains the same find/replace/verify shape twice, and as the structured-and-referenced version above — and counted the tokens with tiktoken's `cl100k_base` encoding:
+This isn't only tidier; it's measurably cheaper — the same reason a reliable code generator [parses a request into a validated spec once](/blog/spec-driven-scaffolding/) instead of re-explaining the shape of the project in every stage. I wrote one small two-step plan two ways — as a natural-language memo that explains the same find/replace/verify shape twice, and as the structured-and-referenced version above — and counted the tokens with tiktoken's `cl100k_base` encoding:
 
 <Image src={tokens} alt="Bar chart comparing token counts for the same two-step plan: the prose memo costs 285 tokens, the structured plan 202 tokens, a 29 percent reduction." />
 
@@ -121,7 +121,7 @@ In a plan, that means every task ends with a checklist of concrete, runnable che
 
 Each line is a command and an expected result. "Run this, expect that string" beats "verify the feature works" the same way a unique `find` block beats a vague one — it removes the judgment call. And folding the commit message into the checklist turns the plan into a record of intent: when the step passes, the model knows exactly what to write down and why.
 
-This even has a structured-state angle. The same docs recommend tracking progress in machine-readable form — a `tests.json` of pass/fail states, git as a checkpoint log — so an agent working across a long task can see what's done without re-deriving it. A verification checklist is the per-step version of that idea. The richer cousin of this is a constrained output schema, like OpenAI's Structured Outputs, which guarantees a response "adhere[s] to a JSON schema you define" so there's "no need to validate or retry incorrectly formatted responses" ([OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)). Same instinct, different layer: pin down the shape of "correct" so the machine can check itself.
+This even has a structured-state angle. The same docs recommend tracking progress in machine-readable form — a `tests.json` of pass/fail states, git as a checkpoint log — so an agent working across a long task can see what's done without re-deriving it. A verification checklist is the per-step version of that idea. The richer cousin of this is a constrained output schema, like OpenAI's Structured Outputs, which guarantees a response "adhere[s] to a JSON schema you define" so there's "no need to validate or retry incorrectly formatted responses" ([OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)) — the same schema-plus-grounding discipline I leaned on [pulling structured data out of unstructured documents](/blog/pulling-structured-data-from-unstructured-documents/). Same instinct, different layer: pin down the shape of "correct" so the machine can check itself. And when the check itself is "run this snippet and read the result," the snippet needs somewhere safe to run — which is its own problem, one I wrote about in [running LLM-generated code safely](/blog/running-llm-generated-code-safely/).
 
 ## The plan becomes the artifact
 

@@ -8,7 +8,7 @@ status: draft
 
 If you've wired an application to more than one language-model provider, you've felt the friction. OpenAI wants a list of `{"role": ..., "content": ...}` messages. Google's Gemini wants `{"role": ..., "parts": [...]}`. Token counting is a `tiktoken` lookup for one and an API call for the other. The errors are named differently, the clients are constructed differently, and the role vocabularies don't even agree on what to call the model's own turns.
 
-Leave that difference exposed and it metastasizes: every feature that calls a model grows an `if provider == "openai"` branch, and adding a fifth provider means editing a dozen call sites. The fix is old and boring and works — put an adapter in front of the mess so application code talks to *one* interface and never branches on provider. This post is about a specific, slightly unusual way to build that adapter: with mixins instead of factories.
+Leave that difference exposed and it metastasizes: every feature that calls a model grows an `if provider == "openai"` branch, and adding a fifth provider means editing a dozen call sites. The fix is old and boring and works — put an adapter in front of the mess so application code talks to *one* interface and never branches on provider, the same bet that let me store recipes, bookmarks, and groceries behind [one polymorphic REST endpoint](/blog/polymorphic-vaults-in-drf/) instead of one per shape. This post is about a specific, slightly unusual way to build that adapter: with mixins instead of factories.
 
 ## Four providers, four shapes
 
@@ -151,7 +151,7 @@ The honest framing: the *implementation* still costs a mixin either way — abst
 
 ## Where I used this
 
-I built this for an agent library that needed to survive provider outages and pricing changes without rewrites. Because every chatter answers to the same `answer(prompt)` contract, the surrounding code — retry logic, conversation summarization when history overflows the context window, the agent loop itself — is written exactly once and runs against all of them. When one provider rate-limits or degrades, falling back to another is swapping the class behind the interface, not rewriting the caller. (The fallback machinery itself is a separate concern; I wrote about graceful provider degradation and circuit breakers in an [earlier post](/blog/sub-second-llm-triage).)
+I built this for an agent library that needed to survive provider outages and pricing changes without rewrites. Because every chatter answers to the same `answer(prompt)` contract, the surrounding code — retry logic, [conversation summarization when history overflows the context window](/blog/pruning-chat-context-by-summarization/), the agent loop itself — is written exactly once and runs against all of them. When one provider rate-limits or degrades, falling back to another is swapping the class behind the interface, not rewriting the caller. (The fallback machinery itself is a separate concern; I wrote about graceful provider degradation and circuit breakers in an [earlier post](/blog/sub-second-llm-triage).)
 
 One caveat worth stating plainly: the `g4f`/Bing backend in the matrix is an *unofficial* route to a model and depends on undocumented endpoints. It's useful for tinkering, but it can break without notice and may run afoul of a provider's terms of service — respect the ToS and don't build anything load-bearing on it. The abstraction's value is exactly that swapping it out for an official provider is a one-line change.
 
