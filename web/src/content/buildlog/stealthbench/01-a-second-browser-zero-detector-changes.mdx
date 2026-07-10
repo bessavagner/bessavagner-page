@@ -6,13 +6,15 @@ update: 1
 pubDate: 2026-07-10T09:00:00-03:00
 tags: ["python", "playwright", "camoufox", "firefox", "ports-and-adapters", "hexagonal-architecture", "protocol", "browser-automation", "stealth", "tdd", "building-in-public"]
 status: approved
-reviewedAt: 2026-07-10T18:37:06.577Z
-reviewHash: sha256:bfa8549ae06a844604bdb3f4eca0fa234f5352bedc0d9e6779ef7ef3501a53b2
+reviewedAt: 2026-07-10T18:48:51.246Z
+reviewHash: sha256:6343547ce905f5b266b92caa9f0d76f328d5e14eaadcf4bbbccc211d772169f0
 ---
 
 import { Image } from 'astro:assets';
 import passRate from '../../../assets/buildlog/stealthbench/pass-rate-3-trials.png';
+import ThemedFigure from '../../../components/ThemedFigure.astro';
 import archSeam from '../../../assets/buildlog/stealthbench/architecture-seam.png';
+import archSeamDark from '../../../assets/buildlog/stealthbench/architecture-seam-dark.png';
 
 Which automated-browser setup is actually the stealthiest? People argue about it constantly, usually with vibes. **stealthbench** is my attempt to replace the argument with a number.
 
@@ -39,7 +41,7 @@ Every detector speaks only that. It calls `handle.evaluate("return window.__TELL
 
 Here's the whole shape on one page. `run_bench` walks every config × detector cell; each `Config.build` (the one side that imports a driver SDK) hands back a `BrowserHandle`, and every `Detector.measure` sees only that Protocol. The measurement folds into a versioned `BenchResult`, then the table and chart.
 
-<Image src={archSeam} alt="Architecture flowchart. run_bench (configs, detectors, metadata) drives, per matrix cell, into a driver-agnostic seam. Inside the seam: Config.build, labelled 'imports a driver SDK', builds a BrowserHandle (goto, evaluate, quit), which is passed to Detector.measure, labelled 'Protocol-only'. The measurement leaves the seam to a versioned BenchResult, which feeds a report (table plus chart). Config.build is the only node touching a browser SDK." class="rounded-2xl border border-primary/20 my-8 w-full h-auto" />
+<ThemedFigure light={archSeam} dark={archSeamDark} alt="Architecture flowchart. run_bench (configs, detectors, metadata) drives, per matrix cell, into a driver-agnostic seam. Inside the seam: Config.build, labelled 'imports a driver SDK', builds a BrowserHandle (goto, evaluate, quit), which is passed to Detector.measure, labelled 'Protocol-only'. The measurement leaves the seam to a versioned BenchResult, which feeds a report (table plus chart). Config.build is the only node touching a browser SDK." />
 
 ## The adapter that speaks two dialects of "evaluate"
 

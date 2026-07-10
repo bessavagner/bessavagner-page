@@ -1,0 +1,25 @@
+flowchart TB
+    accTitle: stealthbench Protocol-Seam Architecture
+    accDescr: run_bench drives a config-by-detector matrix where each Config builds a driver-agnostic BrowserHandle and each Detector measures against that Protocol, producing a versioned BenchResult and report; only configs import a browser SDK.
+
+    runner([🔄 run_bench<br/>configs · detectors · metadata])
+
+    subgraph seam ["🧩 Driver-agnostic seam"]
+        direction LR
+        config_build[⚙️ Config.build<br/>imports a driver SDK] -->|builds| handle[[🌐 BrowserHandle<br/>goto · evaluate · quit]]
+        handle -->|passed to| detector_measure[🧪 Detector.measure<br/>Protocol-only]
+    end
+
+    runner -->|per matrix cell| config_build
+    detector_measure -->|measurement| result([📦 BenchResult])
+    result -->|versioned| report([📊 report<br/>table + chart])
+
+    classDef provider fill:#3b2410,stroke:#f59e0b,stroke-width:2px,color:#fdba74
+    classDef seam_node fill:#2b2150,stroke:#a78bfa,stroke-width:2px,color:#ddd6fe
+    classDef pure fill:#152944,stroke:#60a5fa,stroke-width:2px,color:#bfdbfe
+    classDef output fill:#12301e,stroke:#4ade80,stroke-width:2px,color:#bbf7d0
+
+    class config_build provider
+    class handle seam_node
+    class detector_measure,runner pure
+    class result,report output
