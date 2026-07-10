@@ -8,7 +8,7 @@ const handle = newsletterUrl.replace(/\/+$/, '').split('/').pop() ?? '';
 const action = handle ? `https://buttondown.com/api/emails/embed-subscribe/${handle}` : '';
 ---
 {action && (
-  <section class:list={["rounded-2xl border border-base-content/10 bg-base-200/40 p-6", className]}>
+  <section id="subscribe" class:list={["rounded-2xl border border-base-content/10 bg-base-200/40 p-6", className]}>
     <h2 class="font-header-5 font-bold">{heading}</h2>
     <p class="font-base text-sm text-base-content/60 mt-1">
       Build-in-public updates and new posts, delivered as a digest. Double opt-in · no spam · unsubscribe anytime · handled by Buttondown.

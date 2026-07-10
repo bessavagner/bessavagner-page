@@ -25,6 +25,8 @@ export const EVENTS = {
   SERIES_NAV: 'series_nav',
   /** Related-posts module click. Param: collection = blog|buildlog. */
   RELATED_CLICK: 'related_click',
+  /** End-of-post CTA click. Params: goal = <cta goal>, location = post_end. */
+  CTA_CLICK: 'cta_click',
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];
