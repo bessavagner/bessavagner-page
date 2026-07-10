@@ -8,6 +8,8 @@ import {
   REGISTRY_HEADER,
   UTM_SOURCES,
   UTM_MEDIUMS,
+  UTM_PLACEMENTS,
+  composePlacementContent,
 } from './utm-core.ts';
 
 test('closed vocabulary is exactly {linkedin} / {social, paid-social}', () => {
@@ -116,4 +118,21 @@ test('registry header and row share one column order', () => {
   });
   assert.equal(row.split(',').length, header.length);
   assert.ok(row.startsWith('https://bessavagner.com/blog/polymorphic-vaults-in-drf,linkedin,social,'));
+});
+
+test('placement vocabulary is exactly {post-body, first-comment, profile-featured}', () => {
+  assert.deepEqual([...UTM_PLACEMENTS], ['post-body', 'first-comment', 'profile-featured']);
+});
+
+test('composePlacementContent joins date-slot + placement into one valid slug', () => {
+  const content = composePlacementContent('2026-07-09-am', 'first-comment');
+  assert.equal(content, '2026-07-09-am-first-comment');
+  // the compound value must still pass the generator unchanged
+  const url = buildTaggedUrl({ destination: '/buildlog/regwatch', campaign: 'regwatch-deploy', content });
+  assert.ok(url.endsWith('utm_content=2026-07-09-am-first-comment'));
+});
+
+test('composePlacementContent rejects an out-of-vocab placement or a non-slug date-slot', () => {
+  assert.throws(() => composePlacementContent('2026-07-09-am', 'sidebar'), /out of vocabulary/);
+  assert.throws(() => composePlacementContent('2026-07-09 am', 'post-body'), /lowercase hyphenated slug/);
 });

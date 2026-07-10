@@ -103,6 +103,34 @@ export function buildTaggedUrl(input: UtmInput): string {
   return url.toString();
 }
 
+/**
+ * Link-placement A/B variants (E3) — the dimension GA4 will decide. Encoded as a
+ * suffix on utm_content so the one field carries both the date-slot and the
+ * placement (there is no spare UTM field). Closed vocab: a typo throws, same as
+ * UTM_SOURCES / UTM_MEDIUMS.
+ */
+export const UTM_PLACEMENTS = ['post-body', 'first-comment', 'profile-featured'] as const;
+export type UtmPlacement = (typeof UTM_PLACEMENTS)[number];
+
+const isPlacement = (v: string): v is UtmPlacement =>
+  (UTM_PLACEMENTS as readonly string[]).includes(v);
+
+/**
+ * Compose the compound utm_content that carries both the date-slot and the A/B
+ * placement, e.g. ('2026-07-09-am','first-comment') → '2026-07-09-am-first-comment'.
+ * Throws on a non-slug date-slot or an out-of-vocab placement, so the result is
+ * guaranteed to still match SLUG_RE and pass buildTaggedUrl.
+ */
+export function composePlacementContent(dateSlot: string, placement: string): string {
+  if (!SLUG_RE.test(dateSlot)) {
+    throw new Error(`date-slot "${dateSlot}" must be a lowercase hyphenated slug (${SLUG_RE})`);
+  }
+  if (!isPlacement(placement)) {
+    throw new Error(`utm placement "${placement}" is out of vocabulary; allowed: ${UTM_PLACEMENTS.join(', ')}`);
+  }
+  return `${dateSlot}-${placement}`;
+}
+
 /** Column order for registry.csv — asserted against formatRegistryRow in the test. */
 export const REGISTRY_HEADER = 'destination_url,source,medium,campaign,content,tagged_url,date_posted';
 
