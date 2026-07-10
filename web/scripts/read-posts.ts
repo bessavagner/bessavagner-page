@@ -7,7 +7,6 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { splitFrontmatter, toDigestItem } from '../src/lib/content-core.ts';
-import type { DigestItem } from '../src/lib/digest-core.ts';
 import { publicationState, type PublicationStatus } from '../src/lib/publication.ts';
 import { reviewHashOf, UnresolvedAssetError } from '../src/lib/review-verify.ts';
 
