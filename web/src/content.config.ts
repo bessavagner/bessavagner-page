@@ -21,6 +21,7 @@ const blog = defineCollection({
   schema: ({ image }) =>
     z.object({
       ...publicationFields,
+      cta: z.enum(['lets-talk', 'cv', 'follow-build', 'subscribe']).optional(),
       heroImage: image().optional(),
       heroImageDark: image().optional(),
     }),
@@ -33,6 +34,7 @@ const buildlog = defineCollection({
       ...publicationFields,
       project: z.string(),
       update: z.number(),
+      cta: z.enum(['lets-talk', 'cv', 'follow-build', 'subscribe']).optional(),
       heroImage: image().optional(),
     }),
 });
