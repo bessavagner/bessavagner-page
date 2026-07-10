@@ -80,7 +80,7 @@ const breadcrumb = {
     ) : (
       <Image src={post.data.heroImage} alt={post.data.title} class="rounded-2xl border border-primary/20 mt-8 w-full h-auto" />
     ))}
-    {headings.length > 0 && <TableOfContents headings={headings} class="mt-8" />}
+    <TableOfContents headings={headings} class="mt-8" />
     <div class="prose prose-lg max-w-none mt-8">
       <Content />
     </div>
