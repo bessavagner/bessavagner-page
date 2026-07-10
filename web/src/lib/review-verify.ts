@@ -18,12 +18,14 @@ export interface PostFrontmatter {
 }
 
 export class UnresolvedAssetError extends Error {
-  constructor(
-    readonly specifier: string,
-    readonly from: string,
-  ) {
+  readonly specifier: string;
+  readonly from: string;
+
+  constructor(specifier: string, from: string) {
     super(`cannot resolve asset "${specifier}" referenced by ${from}`);
     this.name = 'UnresolvedAssetError';
+    this.specifier = specifier;
+    this.from = from;
   }
 }
 
