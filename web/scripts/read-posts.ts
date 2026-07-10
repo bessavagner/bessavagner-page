@@ -84,12 +84,16 @@ function toDate(raw: unknown): Date | null {
  * Every post under both content roots, with its parsed frontmatter and
  * PublicationState, plus any post whose pubDate could not be parsed at all
  * (surfaced as `invalid`, never silently dropped).
+ *
+ * `contentDir` defaults to the real `web/src/content` (resolved from this
+ * file, never from cwd) so production callers are unaffected; tests pass a
+ * fixture tree instead.
  */
-export function readPosts(now: number = Date.now()): PostScan {
+export function readPosts(now: number = Date.now(), contentDir: string = CONTENT_DIR): PostScan {
   const posts: PostFile[] = [];
   const invalid: InvalidPost[] = [];
   for (const root of ROOTS) {
-    const dir = `${CONTENT_DIR}/${root}`;
+    const dir = `${contentDir}/${root}`;
     for (const file of listMdx(dir)) {
       const relPath = `${root}/${file.slice(dir.length + 1)}`;
       const repoPath = `web/src/content/${relPath}`;
