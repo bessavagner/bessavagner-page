@@ -152,40 +152,43 @@
     {
       "id": "expense-tracker-ai",
       "name": "Expense Tracker AI",
-      "tagline": "Conversational personal finance, powered by AI agents",
-      "summary": "A modern, AI-powered personal finance app: manage transactions, budgets, accounts and goals, create entries in natural language, and get AI-driven insights and spending forecasts.",
-      "body": "Expense Tracker AI is a modern personal-finance application that lets people manage money the way they actually think about it — in plain language. Built on React 18, TypeScript and Vite with a Prisma/PostgreSQL backend, it turns sentences such as 'I spent $50 on groceries' into structured transactions through a Mastra-based agent orchestrator that reaches roughly 93% natural-language accuracy. Beyond entry, it handles budgets, accounts, goals and installment tracking, then layers AI-driven insights, smart categorization and balance projections on top. A demo mode generates realistic data so anyone can explore the full experience with no backend, and the mobile-first UI ships with light, dark and custom themes. It is a compact showcase of agentic AI applied to an everyday consumer product rather than a back-office tool.",
-      "problem": "Personal-finance apps make logging tedious and rarely turn the data into forward-looking insight.",
-      "approach": "A React/TypeScript app with a Mastra agent orchestrator for natural-language entry, plus budgets, goals and balance projections on a Prisma/PostgreSQL backend.",
-      "outcome": "An active app with ~93% NL-orchestration accuracy and a zero-backend demo mode for instant evaluation.",
-      "kind": "modern-web-app",
-      "role": "Full-stack developer",
+      "tagline": "Conversational bookkeeping from voice notes and receipt photos",
+      "summary": "A production Django app for household finance with a PydanticAI assistant that turns plain language, voice notes and photographed receipts into categorized entries.",
+      "body": "Expense Tracker AI (\"Ledger\") is a real, daily-driven personal-finance app that replaced a tangle of spreadsheets for running a family's money. It is a hybrid Django 6 monolith: HTMX and Alpine.js drive the CRUD-heavy pages while React 18 islands (Vite) power the analytics dashboard and the AI chat widget, all served from one ASGI process. At its core is a single, provider-agnostic PydanticAI agent that turns natural language, transcribed voice notes and photographed receipts into structured, categorized entries — resolving category, payment method and credit-card billing month before saving. A vision model extracts receipt line items while deterministic Python prorates discounts so the split always sums to the amount paid; the guiding principle is that the LLM decides intent but Python does every bit of the arithmetic. Per-user rules are stored as pgvector embeddings for semantic memory that persists across sessions, and the product ships as a PWA wrapped in an Android TWA. The Brazilian-Portuguese UI models real R$ conventions and credit-card invoice cycles; the codebase, with 817 passing tests, runs on Cloud Run + Supabase.",
+      "problem": "Tracking real household spending in spreadsheets is tedious, and the friction of manual entry is what kills the habit.",
+      "approach": "A hybrid Django 6 + DRF monolith (HTMX for CRUD pages, React islands for the dashboard and chat) with a single provider-agnostic PydanticAI agent. Voice notes and receipt photos are parsed by transcription and vision models; the LLM resolves intent while deterministic Python handles all money math, and per-user rules live as pgvector embeddings.",
+      "outcome": "A production app used every day to run a family's finances — installed on Android as a PWA/TWA, deployed on Cloud Run + Supabase, with 817 passing tests.",
+      "kind": "full-stack-ai",
+      "role": "Solo full-stack developer",
       "featured": true,
       "order": 3,
-      "year": 2025,
+      "year": 2026,
       "status": "active",
       "private": false,
       "stack": [
+        "Python 3.12",
+        "Django 6",
+        "Django REST Framework",
+        "HTMX",
         "React 18",
-        "TypeScript",
-        "Vite",
-        "TanStack Query",
-        "DaisyUI",
-        "Mastra AI agents",
-        "PostgreSQL",
-        "Prisma"
+        "Tailwind CSS v4",
+        "PydanticAI",
+        "OpenAI",
+        "PostgreSQL + pgvector",
+        "Docker",
+        "Google Cloud Run"
       ],
       "highlights": [
-        "Natural-language transaction input (\"I spent $50 on groceries\")",
-        "AI-powered insights, smart categorization and balance projections",
-        "Budgets, accounts, goals and installment tracking with visual dashboards",
-        "Demo mode — explore with generated data, no backend required",
-        "Mobile-first responsive UI with light/dark/custom themes"
+        "Conversational bookkeeping — describe a purchase in plain Portuguese and the assistant resolves category, payment method and billing month before saving",
+        "Receipt OCR — photograph a receipt; a vision model extracts line items and Python prorates discounts deterministically so the split always reconciles",
+        "Voice notes — record a memo; it is transcribed and routed through the same registration flow, with media processed then discarded",
+        "Semantic memory — per-user rules stored as pgvector embeddings and recalled across sessions",
+        "Hybrid architecture — HTMX for CRUD pages, React islands for the dashboard and chat, shipped as an installable Android PWA/TWA"
       ],
       "metrics": [
         {
-          "label": "Orchestrator NL accuracy",
-          "value": "~93%"
+          "label": "Automated tests",
+          "value": "817 passing"
         }
       ],
       "links": {
