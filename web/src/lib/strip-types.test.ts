@@ -16,12 +16,12 @@
 //   - src/lib/review-verify.ts
 //   - src/lib/content-core.ts
 //   - src/lib/digest-core.ts
+//   - scripts/read-posts.ts
 //
-// Deliberately NOT covered: scripts/check-publish.ts and scripts/digest.ts —
-// both execute real work (git commands, network calls) as soon as they're
-// imported, so spawning them here would make this test slow and non-hermetic.
-// When Task 5 rewrites scripts/read-posts.ts into a pure module, add it to the
-// list below.
+// Deliberately NOT covered: scripts/check-publish.ts, scripts/digest.ts, and
+// scripts/post.ts — all three execute real work (git commands, network calls,
+// or file writes) as soon as they're imported, so spawning them here would
+// make this test slow and non-hermetic.
 import { describe, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -32,6 +32,7 @@ const modules = [
   'review-verify.ts',
   'content-core.ts',
   'digest-core.ts',
+  '../../scripts/read-posts.ts',
 ];
 
 describe('modules load under node --experimental-strip-types', () => {

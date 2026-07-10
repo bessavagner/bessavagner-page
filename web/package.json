@@ -14,7 +14,11 @@
     "astro": "astro",
     "search:verify": "astro build && node scripts/assert-pagefind-index.mjs",
     "utm": "node --experimental-strip-types scripts/utm/build-url.ts",
-    "utm:audit": "node scripts/utm/assert-no-internal-utm.mjs"
+    "utm:audit": "node scripts/utm/assert-no-internal-utm.mjs",
+    "post:approve": "node --experimental-strip-types scripts/post.ts approve",
+    "post:status": "node --experimental-strip-types scripts/post.ts status",
+    "post:lint": "node --experimental-strip-types scripts/post.ts lint",
+    "post:preview": "node --experimental-strip-types scripts/post.ts preview"
   },
   "dependencies": {
     "@astrojs/mdx": "^7.0.0",
@@ -25,7 +29,8 @@
     "astro-pagefind": "^2.0.1",
     "pagefind": "^1.5.2",
     "satori": "^0.26.0",
-    "sharp": "^0.35.2"
+    "sharp": "^0.35.2",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",

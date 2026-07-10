@@ -84,7 +84,10 @@ for (const bad of invalid) {
   warnings.push(`${bad.repoPath} — unparsable pubDate "${bad.rawPubDate}"; cannot tell whether it is due`);
 }
 
-for (const { item, repoPath } of posts) {
+// legacyDraft mirrors today's behaviour until Task 6 migrates every post from
+// `draft` to `status` — see the field's doc comment in scripts/read-posts.ts.
+for (const { item, repoPath, legacyDraft } of posts) {
+  if (legacyDraft || item === null) continue;
   const state = stateOf(repoPath);
   const due = item.pubDate.getTime();
 

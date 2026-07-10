@@ -46,7 +46,10 @@ async function main() {
   for (const bad of invalid) {
     console.warn(`WARN  ${bad.repoPath} — unparsable pubDate "${bad.rawPubDate}"; skipped`);
   }
-  const due = selectDue(posts.map((p) => p.item), TODAY);
+  // legacyDraft mirrors today's behaviour until Task 6 migrates every post from
+  // `draft` to `status` — see the field's doc comment in scripts/read-posts.ts.
+  const items = posts.filter((p) => !p.legacyDraft && p.item !== null).map((p) => p.item!);
+  const due = selectDue(items, TODAY);
   if (due.length === 0) {
     console.log(`Nothing dated ${TODAY}; not sending.`);
     return;
