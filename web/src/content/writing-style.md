@@ -170,6 +170,22 @@ These are habits the early posts already show; lean into them, don't sand them o
   subtitle is the substance. Titles don't drive the URL (the slug comes from the
   `NN-slug` filename), so retitling a draft is free.
 
+## Internal linking (every post earns its place in the web)
+Before publishing any post, run this checklist so the post is stitched into the
+site, not a dead-end:
+- **3–8 descriptive contextual in-body links per post.** Link where the sentence
+  already refers to another thing I wrote or built, not as a footer dump. The
+  related-posts module and series nav are separate; these are *in-prose* links.
+- **Descriptive, varied anchor text.** The anchor names the destination
+  ("how I gave the agent memory", "the RegWatch deploy"), never "click here",
+  "this post", or a bare URL. Vary the wording across links.
+- **Link real, existing URLs only** — `/blog/<slug>/` for posts,
+  `/building/<project>/<slug>/` for updates. No links to unwritten posts.
+- **Link the project or CV where it's natural** — when a post grew out of a build,
+  point to the build hub; when it demonstrates the kind of work I do, the CV/contact.
+- **Don't over-link.** One link per idea; the same destination once. If a
+  paragraph has three links it probably has none worth keeping.
+
 ## Publishing mechanics (so a post doesn't go live early)
 `pubDate` is enforced in production: a post whose `pubDate` is in the future is
 filtered out of the prod build until that moment arrives (see `isUpdateVisible` /
