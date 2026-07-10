@@ -9,6 +9,7 @@ const cta = resolveCta(goal, collection);
 // config- or page-specific: the CV asset, and the current project's hub.
 let href = cta.href;
 if (cta.goal === 'cv') href = asset(portfolio.profile.links.cv);
+if (cta.goal === 'cv' && !href) href = '/#section-contact';
 if (cta.goal === 'follow-build' && projectHub) href = projectHub;
 const email = portfolio.profile.links.email;
 const external = cta.goal === 'cv';
