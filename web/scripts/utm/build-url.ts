@@ -15,6 +15,7 @@ import {
   buildTaggedUrl,
   resolveDestination,
   formatRegistryRow,
+  composePlacementContent,
   REGISTRY_HEADER,
   type RegistryRow,
 } from '../../src/lib/utm-core.ts';
@@ -31,6 +32,7 @@ const has = (name: string): boolean => argv.includes(name);
 const destination = flag('--path') ?? flag('--url');
 const campaign = flag('--campaign');
 const content = flag('--content');
+const placement = flag('--placement');
 const source = flag('--source') ?? 'linkedin';
 const medium = has('--paid') ? 'paid-social' : (flag('--medium') ?? 'social');
 const datePosted = flag('--date') ?? new Date().toISOString().slice(0, 10);
@@ -38,6 +40,7 @@ const dryRun = has('--dry-run');
 
 const USAGE =
   'usage: pnpm utm --path </blog/slug> --campaign <asset-slug> --content <date-slot> ' +
+  '[--placement <post-body|first-comment|profile-featured>] ' +
   '[--paid | --medium <social|paid-social>] [--source linkedin] [--date YYYY-MM-DD] [--dry-run]';
 
 if (!destination || !campaign || !content) {
@@ -47,8 +50,12 @@ if (!destination || !campaign || !content) {
 
 let taggedUrl: string;
 let destinationUrl: string;
+let resolvedContent: string;
 try {
-  taggedUrl = buildTaggedUrl({ destination, source, medium, campaign, content });
+  // Optional A/B placement: fold it into utm_content as <date-slot>-<placement>.
+  // composePlacementContent throws (caught below) on an out-of-vocab placement.
+  resolvedContent = placement ? composePlacementContent(content, placement) : content;
+  taggedUrl = buildTaggedUrl({ destination, source, medium, campaign, content: resolvedContent });
   destinationUrl = resolveDestination(destination);
 } catch (err) {
   console.error(`refused: ${err instanceof Error ? err.message : String(err)}`);
@@ -67,7 +74,7 @@ const row: RegistryRow = {
   source: 'linkedin',
   medium: medium as RegistryRow['medium'],
   campaign,
-  content,
+  content: resolvedContent,
   taggedUrl,
   datePosted,
 };
