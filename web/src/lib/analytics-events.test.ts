@@ -1,5 +1,5 @@
 // web/src/lib/analytics-events.test.ts
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { EVENTS, type EventName } from './analytics-events.ts';
 

@@ -1,5 +1,5 @@
 // web/src/lib/analytics-core.test.ts
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { track, trackParams, trackAndGo, type AnalyticsGlobals } from './analytics-core.ts';
 
