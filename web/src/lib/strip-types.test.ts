@@ -32,6 +32,7 @@ const modules = [
   'review-verify.ts',
   'content-core.ts',
   'digest-core.ts',
+  '../lib/clock.ts',
   '../../scripts/read-posts.ts',
 ];
 

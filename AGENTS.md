@@ -21,12 +21,18 @@ build-log update or blog post — first person, honest, concrete, **never fabric
 
 - Build-log updates: `web/src/content/buildlog/<project>/NN-slug.mdx` (keep the
   `NN-slug` ordering). Frontmatter needs `title`, `description`, `project`,
-  `update`, `pubDate`, `tags`, `draft` (see `web/src/content.config.ts`).
+  `update`, `pubDate`, `tags`, `status` (see `web/src/content.config.ts`).
 - Blog posts: `web/src/content/blog/<slug>.mdx`.
-- Scheduling: a future `pubDate` keeps a post hidden in the production build until
-  that moment, so it's safe to merge/push ahead of go-live. Use a full ISO
-  timestamp (e.g. `2026-06-28T08:00:00-03:00`) to pin the hour; a bare date is UTC
-  midnight. `draft: true` hides it unconditionally. `astro dev` shows everything.
+- Post visibility: frontmatter `status` controls publication. Use `status: draft`
+  (or omit it; defaults to `draft`), `status: review`, or `status: approved`. Only
+  `approved` posts that have a current `pubDate` and whose content hash matches the
+  stored `reviewHash` are visible in production; run `pnpm post:approve <path>` to
+  stamp a post as approved (it computes and stores `reviewHash` and `reviewedAt`
+  automatically—never hand-edit these fields). Check post status with `pnpm post:status`
+  and validate frontmatter with `pnpm post:lint`.
+- Scheduling: a future `pubDate` keeps a post hidden until that moment, so it's safe to
+  merge/push ahead of go-live. Use a full ISO timestamp (e.g. `2026-06-28T08:00:00-03:00`)
+  to pin the hour; a bare date is UTC midnight. `astro dev` shows everything.
 
 ## Documentation
 
