@@ -11,19 +11,12 @@ name: Scheduled publish (daily rebuild + digest)
 #     deliberately no release-date list here: the schedule lives in exactly one
 #     place, each post's own `pubDate` frontmatter. A second copy of that data
 #     would only drift, and silently skip the posts missing from it.
-#   * The digest self-gates the same way. `digest.ts` sends only posts whose
-#     pubDate falls on today's UTC date, prints "Nothing dated <date>" otherwise,
-#     and is idempotent against its date-stamped subject, so a repeated run
-#     cannot double-send.
-#   * Timing: the cron fires at 12:05 UTC so it runs AFTER any morning-BRT
-#     pubDate (e.g. 08:00 -03:00 = 11:00 UTC). A cron earlier than a post's
-#     pubDate would rebuild before the post is due and silently hide it. The
-#     mirror case: a pubDate whose instant falls LATER than 12:05 UTC in its
-#     own UTC day is still emailed that day (the digest matches the exact UTC
-#     calendar date) but isn't built until the next day's deploy (the build
-#     gates on the instant), so the link it sends 404s for about a day.
-#     web/scripts/check-publish.ts warns locally when a post is scheduled
-#     that way.
+#   * The `digest` job runs the deploy job via `uses:` and only starts once it
+#     succeeds (`needs: deploy`), so the digest never fires against a build that
+#     is still in flight or that failed. `digest.ts` itself selects only
+#     `published` posts, HEADs each URL before naming it, and dedupes against
+#     what Buttondown has actually sent — see web/src/lib/digest-core.ts and
+#     web/scripts/digest.ts for the guards.
 #
 # To change a release date: edit that post's `pubDate`. That is the whole ritual.
 # To publish ad hoc: trigger this workflow manually (workflow_dispatch).
@@ -38,22 +31,17 @@ on:
     - cron: '5 12 * * *' # 12:05 UTC daily, after morning-BRT pubDates
   workflow_dispatch: {}
 
-permissions:
-  actions: write # required to trigger deploy-web-cloudrun.yml via the API
-
 jobs:
-  publish:
-    name: Rebuild the site and send any digest due today
-    runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - name: Trigger the Cloud Run deploy workflow
-        # --repo is required: this step runs before checkout, so gh has no local
-        # git context to infer the repository from and would otherwise exit 1.
-        run: gh workflow run deploy-web-cloudrun.yml --ref main --repo "$GITHUB_REPOSITORY"
+  deploy:
+    uses: ./.github/workflows/deploy-web-cloudrun.yml
+    secrets: inherit
 
-      - name: Check out the repository (for the digest script)
+  digest:
+    name: Send the digest for anything now provably live
+    needs: deploy # only runs if the deploy succeeded
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Node
@@ -61,7 +49,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Send today's content digest
+      - name: Send the content digest
         env:
           BUTTONDOWN_KEY: ${{ secrets.BUTTONDOWN_KEY }}
         run: node --experimental-strip-types web/scripts/digest.ts

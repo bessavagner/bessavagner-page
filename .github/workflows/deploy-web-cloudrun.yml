@@ -46,9 +46,11 @@ jobs:
     steps:
       - name: Resolve publish_at
         id: resolve
+        env:
+          PUBLISH_AT_INPUT: ${{ inputs.publish_at }}
         run: |
-          if [ -n "${{ inputs.publish_at }}" ]; then
-            echo "publish_at=${{ inputs.publish_at }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$PUBLISH_AT_INPUT" ]; then
+            echo "publish_at=$PUBLISH_AT_INPUT" >> "$GITHUB_OUTPUT"
           else
             echo "publish_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           fi

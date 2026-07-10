@@ -3,9 +3,10 @@ import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   utcDateStamp,
-  selectDue,
+  selectAnnounceable,
   renderDigest,
   type DigestItem,
+  type AnnounceCandidate,
 } from './digest-core.ts';
 
 const item = (over: Partial<DigestItem>): DigestItem => ({
@@ -22,22 +23,45 @@ test('utcDateStamp formats a Date as UTC YYYY-MM-DD', () => {
   assert.equal(utcDateStamp(new Date('2026-06-27T23:59:59Z')), '2026-06-27');
 });
 
-test('selectDue keeps only items dated today', () => {
-  const items = [
-    item({ title: 'today-blog', pubDate: new Date('2026-06-27') }),
-    item({ title: 'yesterday', pubDate: new Date('2026-06-26') }),
-    item({ title: 'future', pubDate: new Date('2026-06-29') }),
-  ];
-  const due = selectDue(items, '2026-06-27');
-  assert.deepEqual(due.map((i) => i.title), ['today-blog']);
+const NOW = Date.parse('2026-07-09T12:00:00Z');
+const at = (iso: string): AnnounceCandidate => ({
+  ...item({}),
+  pubDate: new Date(iso),
+  state: 'published',
 });
 
-test('selectDue orders Building before Blog', () => {
-  const items = [
-    item({ kind: 'blog', title: 'b', pubDate: new Date('2026-06-27') }),
-    item({ kind: 'building', title: 'a', pubDate: new Date('2026-06-27'), path: '/building/x/a/' }),
+test('includes a post published inside the window', () => {
+  assert.equal(
+    selectAnnounceable([at('2026-07-09T11:00:00Z')], { now: NOW, windowDays: 30 }).length,
+    1,
+  );
+});
+
+test('excludes a post older than the window — the back-catalogue guard', () => {
+  assert.equal(
+    selectAnnounceable([at('2026-01-01T00:00:00Z')], { now: NOW, windowDays: 30 }).length,
+    0,
+  );
+});
+
+test('excludes a post that is not in the published state', () => {
+  const scheduled = { ...at('2026-07-09T11:00:00Z'), state: 'scheduled' as const };
+  assert.equal(selectAnnounceable([scheduled], { now: NOW, windowDays: 30 }).length, 0);
+});
+
+test('announces a post that was due yesterday but missed — late is fine', () => {
+  assert.equal(
+    selectAnnounceable([at('2026-07-08T11:00:00Z')], { now: NOW, windowDays: 30 }).length,
+    1,
+  );
+});
+
+test('selectAnnounceable orders Building before Blog', () => {
+  const items: AnnounceCandidate[] = [
+    { ...at('2026-07-09T11:00:00Z'), kind: 'blog', title: 'b' },
+    { ...at('2026-07-09T11:00:00Z'), kind: 'building', title: 'a', path: '/building/x/a/' },
   ];
-  const due = selectDue(items, '2026-06-27');
+  const due = selectAnnounceable(items, { now: NOW, windowDays: 30 });
   assert.deepEqual(due.map((i) => i.kind), ['building', 'blog']);
 });
 

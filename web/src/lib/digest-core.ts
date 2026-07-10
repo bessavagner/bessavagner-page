@@ -1,7 +1,9 @@
 // web/src/lib/digest-core.ts
-// Pure logic for the email digest: selecting the day's new items and rendering
+// Pure logic for the email digest: selecting announceable items and rendering
 // the Markdown email. No I/O and no `astro:content`, so it is unit-testable
 // under `node --test`.
+
+import type { PublicationState } from './publication.ts';
 
 export interface DigestItem {
   kind: 'building' | 'blog';
@@ -10,6 +12,12 @@ export interface DigestItem {
   path: string; // site-relative, e.g. "/blog/foo/" or "/building/regwatch/01-foo/"
   pubDate: Date;
   project?: string;
+}
+
+/** A candidate for the digest, carrying the PublicationState that decides whether
+ *  it is safe to announce at all. */
+export interface AnnounceCandidate extends DigestItem {
+  state: PublicationState;
 }
 
 export interface Digest {
@@ -22,12 +30,21 @@ export function utcDateStamp(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Items whose pubDate falls on `today` (UTC YYYY-MM-DD); Building first, then Blog,
+/** Posts that are actually live (`state === 'published'`, never `scheduled` — a
+ *  post can be scheduled for later in its own UTC day than the deploy cron, so
+ *  matching on state instead of calendar date is what keeps the digest from
+ *  linking to a page the build hasn't shipped yet) and landed within the last
+ *  `windowDays` — the back-catalogue guard, so a long-idle digest run doesn't
+ *  re-announce everything ever published. Building first, then Blog,
  *  newest-first within each group. */
-export function selectDue(items: DigestItem[], today: string): DigestItem[] {
+export function selectAnnounceable(
+  posts: AnnounceCandidate[],
+  opts: { now: number; windowDays: number },
+): AnnounceCandidate[] {
   const rank = { building: 0, blog: 1 } as const;
-  return items
-    .filter((i) => utcDateStamp(i.pubDate) === today)
+  const cutoff = opts.now - opts.windowDays * 86_400_000;
+  return posts
+    .filter((p) => p.state === 'published' && p.pubDate.getTime() > cutoff)
     .sort((a, b) => rank[a.kind] - rank[b.kind] || b.pubDate.getTime() - a.pubDate.getTime());
 }
 
