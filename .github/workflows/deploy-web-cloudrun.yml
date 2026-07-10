@@ -89,6 +89,13 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # A post with no `status` key is silently a draft: content.config.ts defaults it
+      # rather than failing the build, so one other post's typo can never take the whole
+      # deploy down. That leniency only works if something else insists the key is there.
+      # This is that something.
+      - name: Every post declares a status
+        run: pnpm post:lint
+
       - name: Build
         run: pnpm build
 
