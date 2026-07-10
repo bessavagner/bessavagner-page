@@ -16,13 +16,24 @@ scripts/diagrams/buildlog/stealthbench/architecture-seam.mmd
   -> src/assets/buildlog/stealthbench/architecture-seam.png
 ```
 
-Then in the post:
+## Light + dark variants (theme-aware figures)
+
+A single baked PNG can't read on both page themes (dark text vanishes on the dark
+base). So a diagram ships as two files: `<name>.mmd` (light) and a sibling
+`<name>-dark.mmd`. The renderer bakes each onto its theme's `base-100` surface —
+light on `#f7fafc`, dark rendered with mermaid's `dark` theme on `#121621` — so
+the figure sits seamlessly inside its bordered card. Keep the two sources
+structurally identical; they differ only in the `classDef` palette.
+
+Then in the post, render both through `ThemedFigure`, which shows the one that
+matches `[data-theme]` (same swap pattern as `blog/PostCard.astro`):
 
 ```mdx
+import ThemedFigure from '../../../components/ThemedFigure.astro';
 import archSeam from '../../../assets/buildlog/stealthbench/architecture-seam.png';
+import archSeamDark from '../../../assets/buildlog/stealthbench/architecture-seam-dark.png';
 
-<Image src={archSeam} alt="…describe the diagram…"
-  class="rounded-2xl border border-primary/20 my-8 w-full h-auto" />
+<ThemedFigure light={archSeam} dark={archSeamDark} alt="…describe the diagram…" />
 ```
 
 ## Rendering

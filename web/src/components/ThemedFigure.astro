@@ -1,0 +1,29 @@
+---
+// A figure that swaps between a light and a dark image with the site theme,
+// mirroring the card-cover pattern in blog/PostCard.astro and FeaturedPost.astro:
+// both images render, CSS shows the one matching [data-theme]. Use for diagrams
+// (see scripts/diagrams/) where a single baked PNG can't read on both themes.
+import { Image } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+
+interface Props {
+  light: ImageMetadata;
+  dark: ImageMetadata;
+  alt: string;
+  class?: string;
+}
+
+const { light, dark, alt, class: className = '' } = Astro.props;
+const imgClass = `fig-themed w-full h-auto rounded-2xl border border-primary/20 ${className}`.trim();
+---
+
+<figure class="my-8">
+  <Image src={light} alt={alt} class={`fig-light ${imgClass}`} />
+  <Image src={dark} alt={alt} class={`fig-dark ${imgClass}`} />
+</figure>
+
+<style>
+  .fig-dark { display: none; }
+  :global([data-theme="custom-dark"]) .fig-light { display: none; }
+  :global([data-theme="custom-dark"]) .fig-dark { display: block; }
+</style>

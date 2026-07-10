@@ -32,9 +32,18 @@ const PPTR_CONFIG = join(scriptDir, 'puppeteer-config.json');
 // rerender is reproducible. Bump deliberately.
 const MMDC = ['dlx', '@mermaid-js/mermaid-cli@11.16.0'];
 
-// Tuned for crisp, white-background figure cards that match the site's <Image>
-// convention (rounded border, shown on both light and dark page themes).
-const RENDER_OPTS = ['-b', 'white', '-w', '1600', '-s', '2', '-p', PPTR_CONFIG];
+// Per-theme render options. A sibling `<name>-dark.mmd` renders with mermaid's
+// dark theme on the dark page surface; every other source renders light. The
+// background is baked to the page's base-100 so the figure sits seamlessly
+// inside its bordered <ThemedFigure> card on each theme.
+const LIGHT_BASE = '#f7fafc'; // custom      base-100
+const DARK_BASE = '#121621'; //  custom-dark base-100
+function renderOpts(mmd) {
+  const common = ['-w', '1600', '-s', '2', '-p', PPTR_CONFIG];
+  return /-dark\.mmd$/.test(mmd)
+    ? ['-t', 'dark', '-b', DARK_BASE, ...common]
+    : ['-b', LIGHT_BASE, ...common];
+}
 
 /** Recursively collect *.mmd files, skipping dotdirs and node_modules. */
 function findMmd(dir) {
@@ -77,7 +86,7 @@ for (const mmd of sources) {
   const out = outputFor(mmd);
   mkdirSync(dirname(out), { recursive: true });
   process.stdout.write(`${relative(webRoot, mmd)} -> ${relative(webRoot, out)} ... `);
-  const res = spawnSync('pnpm', [...MMDC, '-i', mmd, '-o', out, ...RENDER_OPTS], {
+  const res = spawnSync('pnpm', [...MMDC, '-i', mmd, '-o', out, ...renderOpts(mmd)], {
     stdio: ['ignore', 'pipe', 'pipe'],
     encoding: 'utf8',
   });
