@@ -1,0 +1,68 @@
+---
+title: "Some of my stealth scores don't repeat: putting error bars on the benchmark"
+description: "Update 2 of the stealthbench build log. stealthbench scores browser-automation stealth setups against self-hosted bot detectors on your own localhost and commits every result. Update 1 reported one number per config. This update ran each config ten times instead of three and drew the spread on the chart, which showed that two of the four scores don't repeat: stock Selenium and undetected-chromedriver wobble run to run (undetected-chromedriver even hits a clean 100% on some trials), while selenium-stealth and camoufox land on the exact same number every time. The bars are computed as descriptive spread (min/max/mean/population stdev), deliberately not a confidence interval. Alongside the chart change: the results schema bumped to v2 while still reading every v1 snapshot (new fields optional, an old file pinned as a regression fixture), a history layer now aggregates committed snapshots into a trend, and run metadata records browser and driver versions read from the environment (numbers only, no IP or fingerprint)."
+project: "stealthbench"
+update: 2
+pubDate: 2026-07-14T09:00:00-03:00
+tags: ["python", "statistics", "matplotlib", "reproducibility", "pydantic", "schema-versioning", "browser-automation", "stealth", "building-in-public"]
+status: draft
+---
+
+import { Image } from 'astro:assets';
+import tellsSpread from '../../../assets/buildlog/stealthbench/tells-spread.png';
+
+**stealthbench** is my benchmark for browser-automation stealth: it scores stealth setups (configs) against open, self-hosted bot detectors on my own `localhost`, and commits every result so anyone can rerun it. In [update 1](/building/stealthbench/01-a-second-browser-zero-detector-changes/) I added a stealth Firefox and printed a table: one number per config, `82`, `94`, like a fact.
+
+Then I ran the bench again and got different numbers. Not wildly different, but different. That is the whole problem with reporting a single figure for something that doesn't repeat: you can't tell a score that means "this config is like this" from a score that means "this config was like this, once." So this week I stopped trusting one run. I bumped the trials from three to ten, and I drew the spread on the chart.
+
+## The bar chart was hiding the wobble
+
+Here's the new chart. Bar height is the mean tells-panel score over ten trials, colour is the BotD verdict (red caught, green passed), and the whisker is the min-to-max range across those ten runs.
+
+<Image src={tellsSpread} alt="Bar chart of four configs' automation-tells score over ten trials. vanilla ~85% with a whisker from 82 to 88 and a red bar (caught). selenium-stealth 94% with no whisker, red (caught). undetected-chromedriver ~95% with a whisker reaching up to 100, green (passed). camoufox 82% with no whisker, green (passed)." class="rounded-2xl border border-primary/20 my-8 w-full h-auto" />
+
+The whiskers are the point. Two of them barely exist and two of them are real, and that split is the thing the old single-number table couldn't say.
+
+`selenium-stealth` and `camoufox` land on `94` and `82` every single time. Ten runs, same answer, no whisker. `vanilla` (stock Selenium) swings from `82` to `88`, and `undetected-chromedriver` runs from `94` all the way to a clean `100` on its best trials. In the update-1 table those two looked like solid numbers. They aren't. `undetected-chromedriver`'s "95%" is really "somewhere between 94 and 100 depending on the run," and if I'd quoted the trial where it hit 100 I'd have been quietly lying with a real number.
+
+## Steady on purpose, or steady by luck
+
+I didn't expect the split to line up so cleanly, but once it was on the chart it made sense. The two configs that hold still are the two that rewrite the fingerprint deterministically: `selenium-stealth` applies a fixed set of patches, and `camoufox` spoofs its fingerprint the same way on every launch. Same inputs, same output, so the tells panel sees the same thing each run.
+
+The two that wobble don't do that. `vanilla` is stock Selenium with nothing hiding the automation, so what the panel catches shifts with whatever the browser happens to expose that run. `undetected-chromedriver` patches things at runtime, and runtime is exactly where timing and load leak in. The wobble isn't noise I need to average away. It's the honest shape of a config that behaves a little differently every time you start it, and that is worth knowing before you trust it in production.
+
+## What "± 3" means here, and what it doesn't
+
+The table under the chart now carries the same spread in text, `mean ± stdev [min–max]`:
+
+| Config | Tells % | BotD | CreepJS lies |
+|---|---|---|:---:|
+| vanilla | 85 ± 3 [82–88] | caught (selenium) | 0 |
+| selenium-stealth | 94 ± 0 [94–94] | caught (selenium) | 2 |
+| undetected-chromedriver | 95 ± 2 [94–100] | passed | 0 |
+| camoufox | 82 ± 0 [82–82] | passed | 0 |
+
+One thing I was careful about: that `± 3` is descriptive, not a confidence interval. It's the actual min, max, mean, and standard deviation of the ten numbers I saw, nothing more. Ten runs from one machine on one afternoon is not a sample I can make a real inferential claim from, and putting a "95% CI" on it would overstate what those ten runs support. So the report says spread and stops.
+
+The implementation uses `statistics.pstdev` (population) instead of `stdev` (sample). Sample stdev divides by `n - 1`, which blows up on a single value; population stdev divides by `n` and gives a clean `0.0`. That matters because a `--trials 1` run should print `± 0`, not crash, and `test_spread_single_trial_has_zero_stdev` pins exactly that.
+
+## Keeping the old numbers readable
+
+Adding spread and version metadata meant changing the shape of the results file, and update 1's whole pitch was that every number traces to a committed `results/*.json`. That promise breaks the day new code can't open an old file. So the rule for the v2 schema was: every new field is optional or defaulted.
+
+```python
+class RunMetadata(BaseModel):
+    schema_version: int = SCHEMA_VERSION  # now 2
+    single_ip_caveat: bool = True
+    components: dict[str, str] = {}        # driver versions; absent in v1, so it defaults
+```
+
+A v1 snapshot has no `components` key, so it parses because the field defaults to empty. I pinned the oldest snapshot in the repo as a regression fixture, `results/20260706T155231.json`, from back when the bench was three Chrome configs and no Camoufox, and a test refuses to let any future change stop it from loading. The `components` map, while I was there, records the versions that actually ran (`chrome 149`, `playwright 1.59.0`, `camoufox 0.4.11`, and so on), read from the environment with `importlib.metadata.version(...)`. Numbers only: driver versions and a browser major, no IP and no fingerprint. And because that reads package metadata by name rather than importing the SDK, it doesn't touch the provider seam from update 1.
+
+The last piece is a small history layer that walks every committed snapshot and plots tells-percentage over time, so update 1's "today's pass can be caught next week" becomes something I can actually see instead of just assert. It's honest about being young: three snapshots over two days is a couple of points, not a trend line yet. A config missing from an older run is drawn as a gap, never a fabricated zero. The machinery is in; the history fills itself in one committed run at a time.
+
+## What's next
+
+The measurement side is in decent shape now: scores that admit how much they move, a schema that reads its own past, a trend that will grow on its own. The thin part is still the detector side, more signals to score against, and a headful CI run so the snapshots regenerate on a schedule instead of when I remember to.
+
+The question this update left me with, for anyone who benchmarks something non-deterministic: how many runs do you do before you believe a spread? I did ten because it was enough to separate the steady configs from the wobbly ones on this panel, but I don't have a principled number, just a chart that stopped surprising me. The repo is at [github.com/bessavagner/stealthbench](https://github.com/bessavagner/stealthbench) if you want to see the runs behind the bars.

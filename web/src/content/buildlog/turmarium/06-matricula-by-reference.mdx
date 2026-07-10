@@ -1,0 +1,131 @@
+---
+title: "Matrícula by reference: one enrollment number, one home, and the rule a CHECK constraint couldn't hold"
+description: "Update 6 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Update 6 builds the curso: a Course, its matriz curricular (disciplines attached to periods, level-guarded), and student registration that assigns a matrícula (the enrollment number a Brazilian student carries). The número lives on exactly one row (CourseEnrollment), the old Membership.enrollment_number is dropped, and every turma enrollment reads the matrícula through a foreign key instead of copying it. The sequence looks like a calendar and isn't: it's continuous per org, allocated under a locked Organization row so concurrent registrations can't collide. The cross-level guard (a discipline may only sit in a course of its own level) can't be a single-row CHECK constraint because it compares two tables, so it lives in the service with a red-first reject test and a UI that never offers the wrong choice. Discipline.level migrates from free-text to a shared enum through a pure-function backfill map that carries its own unit test. academic fires its second domain event, CourseEnrollmentCreated, still with no subscriber. 162 backend tests green at 95.22% coverage, 163 web tests green at 89.09%, import-linter two contracts kept and zero broken."
+project: "turmarium"
+update: 6
+pubDate: 2026-07-22T05:00:00-03:00
+tags: ["django", "postgres", "multi-tenant", "rls", "data-migration", "concurrency", "check-constraint", "domain-events", "i18n", "tdd", "building-in-public"]
+status: draft
+---
+
+I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it. It's English-first because I build in the open, with Brazilian Portuguese as a first-class locale because that's who I want to sell it to.
+
+This update builds the *curso*. A **course** is a program of study at one level (say *Ensino Médio*, Brazilian secondary school); its **matriz curricular** is the set of disciplines attached to periods; and when a student registers, they get a **matrícula**: the enrollment number a Brazilian student carries for the life of their studies, printed on every document. Three tables (`Course`, `CourseDiscipline`, `CourseEnrollment`), one data migration on a field that already shipped, and the screens to drive them.
+
+The previous five updates built the parts you can't retrofit. [Update 1](/building/turmarium/01-proving-tenant-isolation-at-the-database/) proved tenant isolation at the database with Postgres row-level security. [Update 4](/building/turmarium/04-shouting-into-an-empty-room/) added offerings and enrollments and fired the first domain event. [Update 5](/building/turmarium/05-white-on-white-design-system/) turned the scaffold into a real design system. This one is a feature epic on those rails, and it turned out to be one long argument about the same question: for every rule this feature can't afford to break, where does the rule live?
+
+## One number, and only one place it can hold it
+
+A matrícula is an identity. If two rows can claim to hold it, one of them is lying, and you find out which the day a transcript comes out wrong. So the first decision was where the número lives, and the rule I gave myself was: exactly one row, everyone else points at it.
+
+That row is `CourseEnrollment`, one per `(student, course)`. It carries the number and the uniqueness that protects it:
+
+```python
+class CourseEnrollment(TenantScoped):
+    course = models.ForeignKey(Course, on_delete=models.PROTECT, related_name="enrollments")
+    student = models.ForeignKey(Membership, on_delete=models.CASCADE, ...)
+    number = models.CharField(max_length=30)
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["organization", "student", "course"], name="uniq_course_enrollment"),
+            models.UniqueConstraint(fields=["organization", "number"], name="uniq_matricula_number"),
+        ]
+```
+
+The turma enrollment (a student in one class of one discipline) does **not** copy the number. It reads it through a foreign key:
+
+```python
+course_enrollment = models.ForeignKey(
+    "academic.CourseEnrollment", on_delete=models.PROTECT, null=True, blank=True, ...
+)
+```
+
+By reference, never by value. A copied matrícula is a bug with a delay on it: the two rows agree until the day something updates one and not the other, and then you have two answers to a question that must have one. The FK keeps the number in a single cell, and every screen that shows it is quoting that cell.
+
+That decision had a demolition attached. An earlier slice of the app had stashed an `enrollment_number` field on `Membership`, from before courses existed. Leaving it there would have created exactly the second source of truth I was avoiding, so this update **hard-dropped it**:
+
+```python
+migrations.RemoveField(model_name="membership", name="enrollment_number")
+```
+
+Keeping a superseded column "just for history" is how a schema grows two answers to the same question. If the número now lives on `CourseEnrollment`, the old field isn't history, it's a liability with a familiar name. It goes.
+
+## The sequence that looks like a calendar and isn't
+
+The matrícula format is `YYYY-H-NNNNN`: year, half (1 or 2 for the intake semester), then a five-digit sequence. `2026-1-00042`. It reads like a per-year counter, and that was the first thing I had to decide and the first place my intuition was wrong.
+
+The open question from planning was whether the sequence resets per year, per year-and-half, or runs continuously. I picked **continuous per org**: `00042` is the 42nd student that school has ever registered, not the 42nd this year. The year and half in the string are a *label* on the intake, not the thing that makes the number unique. The uniqueness is the org-wide sequence, and I wrote it down that way so nobody later "fixes" the format into a per-year reset and quietly breaks the invariant.
+
+Continuous-per-org has a sharp edge: two admins registering students at the same instant can both read the same "last sequence" and both write `00043`. That's not a cosmetic clash. A duplicate matrícula is the exact integrity break the whole feature exists to prevent. So allocation is serialized on a lock the two registrations have to queue for:
+
+```python
+with transaction.atomic():
+    # Serialize matrícula allocation per org so the continuous sequence
+    # never collides under concurrent registrations.
+    Organization.objects.select_for_update().get(id=organization_id)
+    last = CourseEnrollment.objects.filter(organization_id=organization_id).aggregate(m=Max("seq"))["m"]
+    seq = (last or 0) + 1
+    number = f"{current.year}-{term_half}-{seq:05d}"
+```
+
+`select_for_update()` on the **organization** row is the trick. Two registrations in the same tenant contend on that row and take turns; different tenants never touch each other's lock, so a busy school never slows down a quiet one. The unique constraint on `(organization, number)` is the backstop underneath: even if the lock reasoning were wrong, the database refuses the duplicate rather than store it. Lock so the happy path is correct; constrain so a wrong lock is loud instead of silent.
+
+## The rule a CHECK constraint couldn't hold
+
+Here's the one that argued back. The matriz curricular has a rule: a discipline may only be attached to a course of its **own level**. A secondary-school discipline can't land in a university course. My plan, written before I looked closely, said enforce it in two places, the serializer *and* a database `CHECK` constraint, belt and suspenders.
+
+The database refused the suspenders, for a good reason. A `CHECK` constraint sees one row. This rule compares two: the level on the `Course` and the level on the `Discipline`, joined through the link. There is no single-row expression for `course.level == discipline.level`, because neither is a column on the link row. To make it a `CHECK` I'd have to write a trigger, or copy the level onto the link row so a single row could compare against itself, and that copy is the two-sources-of-truth trap from the top of this post wearing a different hat: a denormalized `level` is one migration away from disagreeing with the course it's supposed to match.
+
+So the guard lives in the service, red-first:
+
+```python
+if course.level != discipline.level:
+    raise HttpError(422, "cross_level_link")
+```
+
+```python
+def test_cross_level_link_rejected(client, ctx):
+    # attach a fundamental discipline to a médio course
+    r = client.post(...)
+    assert r.status_code == 422
+    assert r.json()["code"] == "cross_level_link"
+```
+
+The front end enforces the same rule a second time, not as a duplicate check but as a courtesy: the discipline picker only offers eligible options, `disciplines.filter((d) => d.level === courseLevel)`, so a user can't select a wrong-level discipline to begin with. That's the honest shape of this invariant: the server is the authority (the 422 is the truth), the UI is the good manners (never show a choice that'll be rejected), and the database backstops the parts it *can* express (the uniqueness of a link, one per `(course, discipline)`) rather than the part it can't. The plan wanted the DB to hold every rule. Some rules don't fit in one row, and pretending they do with a copied column is worse than admitting they don't.
+
+## Migrating a field that already shipped
+
+`Discipline.level` existed before this epic as free-text. Courses need it to be a real enum so the cross-level comparison means something, so both `Course` and `Discipline` now bind to one shared `Level`. Changing the type is the easy half; not losing the data that's already in the column is the whole job.
+
+The rule I hold for a migration that touches shipped data: **the migration carries no logic I haven't tested on its own**. The mapping from old free-text to enum member is a pure function, unit-tested away from the migration machinery:
+
+```python
+_LEGACY_LEVEL_MAP = {
+    "fundamental i": Level.ENSINO_FUNDAMENTAL.value,
+    "fundamental ii": Level.ENSINO_FUNDAMENTAL.value,
+    "médio": Level.ENSINO_MEDIO.value,
+}
+
+def map_legacy_level(raw: str) -> str:
+    return _LEGACY_LEVEL_MAP.get((raw or "").strip().lower(), "")
+```
+
+The `RunPython` step imports that function and calls it; it does no thinking of its own. And the fallback is deliberate: an unmapped value maps to `""`, an explicit empty bucket, not a blind default onto some plausible-looking level. A wrong guess is a mis-classified discipline nobody notices until it won't attach to the right course; an empty value is visibly incomplete, which is the failure mode you want: loud, not quiet. A test proves each known value lands on its member and the unknowns land in the bucket, before the migration ever touches a real row.
+
+## The second event, still shouting into an empty room
+
+Registering a student emits `CourseEnrollmentCreated` on the same in-process bus [update 4](/building/turmarium/04-shouting-into-an-empty-room/) built for the first event: a typed, frozen dataclass, asserted through a test subscriber, with no real subscriber in the app yet. Same discipline as update 4. Publish the event when the fact is true, so the day something needs to react (a welcome email, a seat count, an audit trail) the subscriber is the only new code. Cheap to lay now, expensive to retrofit later.
+
+## What I learned
+
+This whole update was one question asked at every turn: where does each rule live? Uniqueness in a DB constraint, allocation behind a per-org lock, the cross-level rule in the service (it spans two tables, and a single-row `CHECK` can't reach the other one), the level mapping in a tested pure function. Picking the home *is* the design, and the wrong home is usually the comfortable one: the copied column, the kept-for-history field, the constraint that would be tidy if only the rule fit in one row.
+
+A `CHECK` constraint is a promise the database keeps for you. A service-layer check is a promise you keep for the database. When a rule spans two tables, the second is the honest one, and pretending otherwise by denormalizing a column just moves the lie somewhere quieter.
+
+Where it landed: 162 backend tests green (up from 130 last update) at 95.22% coverage and 163 web tests green (up from 144) at 89.09% statement, 81.02% branch, both above their 80% gates; import-linter still reports two contracts kept and zero broken (the three new tables and the second event stayed inside `academic`, importing only `core`'s public seam); every new `TenantScoped` table is forced-RLS with a cross-tenant test proving org A can't read org B; and the create-course → build-matriz → register-student → see-matrícula path walks green end-to-end in the browser, asserting on a real `YYYY-H-NNNNN` number.
+
+## What's next
+
+The `curso` is the last shared foundation the two big epics were waiting on. With `Course`, the matriz, and the matrícula-by-reference FK in place, **scheduling** (turning an offering into a calendar of sessions) and **grading** (turning it into evaluation schemes and a final grade) can finally run as parallel worktrees instead of blocking on each other.
+
+So the question I'll leave with, for anyone who has enforced a cross-table invariant in a relational schema. Did you reach for a trigger, denormalize a column and guard it, or keep the rule in the application layer and let the DB hold only what a single row can? Every option trades a different kind of safety for a different kind of complexity, and I'm not sure I picked the one I'd defend in a year. I'd like to hear what held up in yours.

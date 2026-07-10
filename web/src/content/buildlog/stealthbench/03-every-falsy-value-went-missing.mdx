@@ -1,0 +1,71 @@
+---
+title: "Every falsy value went missing: adding nodriver to the stealth bench"
+description: "Update 3 of the stealthbench build log. stealthbench scores browser-automation stealth setups against self-hosted bot detectors on your own localhost and commits every result. This update widens the matrix: two more detectors (a Sannysoft-style panel and rebrowser-bot-detector) and a fifth config, nodriver. nodriver is async and the bench's BrowserHandle contract is sync, so the new handle drives each call to completion on a private event loop. Wiring it in surfaced a real bug: nodriver's tab.evaluate(return_by_value=True) drops falsy results (its unwrap tests `if remote_object.value:`, so 0/false/'' vanish) and leaves plain objects wrapped in a RemoteObject, so detector signals came back as None or garbage. The fix is to stop fighting its unwrap: wrap the script in JSON.stringify and json.loads the returned string, which round-trips every value faithfully. With that fixed, the two new panels mostly corroborate the tells ranking (undetected-chromedriver and nodriver ace both, vanilla and selenium-stealth get dinged), and camoufox runs only 9 of rebrowser's 10 tests because one is Chrome-specific."
+project: "stealthbench"
+update: 3
+pubDate: 2026-07-18T09:00:00-03:00
+tags: ["python", "asyncio", "nodriver", "chrome-devtools-protocol", "browser-automation", "stealth", "debugging", "building-in-public"]
+status: draft
+---
+
+**stealthbench** scores browser-automation stealth setups (configs) against open, self-hosted bot detectors on my own `localhost`, and commits every result. So far the fleet had four configs measured against three detectors. This update widens both sides: two more detectors to be caught by, and a fifth config to catch.
+
+The detectors are a [Sannysoft](https://bot.sannysoft.com/)-style panel and [rebrowser-bot-detector](https://github.com/rebrowser/rebrowser-bot-detector), both vendored and self-hosted like the others. The config is [nodriver](https://github.com/ultrafunkamsterdam/nodriver), the successor to undetected-chromedriver from the same author, which drives Chrome straight over the DevTools Protocol with no Selenium in the loop. Adding the detectors was routine, they slot in behind the same `Detector` Protocol as the rest. nodriver is where I lost an afternoon, and the reason is a good one.
+
+## A fifth config that speaks async
+
+Every other config in the bench is synchronous. nodriver isn't: its whole API is `async`, and the `BrowserHandle` contract the detectors call is sync (`goto`, `evaluate`, `quit`, no `await`). So the new `NodriverHandle` holds a private event loop and drives each async call to completion on it:
+
+```python
+def _run(self, coro):
+    return self._loop.run_until_complete(coro)
+
+def goto(self, url: str) -> None:
+    self._run(self._tab.get(url))
+```
+
+That's the whole async-to-sync bridge: a dedicated loop, and every method runs its coroutine to the end before returning. The detectors never know they're talking to an async library. This part I expected, and it worked on the first try.
+
+## The values that went missing were all falsy
+
+Then the detector results started coming back wrong, and wrong in a way that took me a while to see because it wasn't random. A detector asks the browser a question by running a script that returns a value, `return navigator.webdriver`, `return window.__TELLS__`. Through nodriver, some of those answers came back as `None`, and the panels that survived came back with their numbers scrambled.
+
+The pattern was the tell. Everything that went missing was *falsy*. A check that should return `false` returned `None`. A count that should return `0` returned `None`. The answers that came through fine were the truthy ones. And the signal objects, the `{passed: 16, total: 18}` dicts detectors hand back, weren't plain dicts anymore.
+
+The cause is two quirks in how nodriver unwraps a `tab.evaluate(return_by_value=True)` result. Its unwrap logic tests `if remote_object.value:`, so a legitimately falsy value (`0`, `false`, `""`) fails the truthiness check and gets dropped on the floor. And its default deep-serialization leaves a plain object wrapped in a `RemoteObject` rather than handing back a clean dict. Neither is wrong exactly, but both corrupt exactly the kind of values a bot detector traffics in: `navigator.webdriver` is *supposed* to be `false` on a good config, and "false went missing" is the difference between "this config passed" and "this detector returned nothing."
+
+## Stop fighting the unwrap
+
+I could have special-cased falsy values on the way out, but that's chasing the symptom, and it wouldn't fix the wrapped objects. The cleaner move is to never let nodriver's unwrap touch the real value. So the handle wraps every script in `JSON.stringify` and parses the result back:
+
+```python
+# before: the raw expression, whose value nodriver then mangles
+return f"(() => {{ {script} }})()"
+
+# after: return a JSON *string*, which nodriver relays untouched
+return f"JSON.stringify((() => {{ {script} }})())"
+```
+
+A JSON string is a truthy primitive, so nodriver's `if remote_object.value:` unwrap passes it through verbatim, and `json.loads` on the Python side reconstructs the exact value: `0`, `false`, `""`, and nested dicts all round-trip faithfully. The one edge is a script that evaluates to JS `undefined`, which `JSON.stringify` renders as the bare word `undefined` (not a string); the handle catches the non-string and returns `None`, which the detectors already treat as an unusable signal rather than a pass. The headful run that found the bug is now a unit test with a falsy-`0` regression baked in, so it can't come back.
+
+## What the wider net caught
+
+With nodriver reporting honestly, here's the full matrix, five configs against five detectors. The tells panel is ~17 individual automation giveaways; I show it and rebrowser as a fraction of checks passed, Sannysoft as checks passed, and CreepJS as its count of locally-detected lies:
+
+| Config | Tells % | BotD | Sannysoft | rebrowser | CreepJS lies |
+|---|---|:---:|:---:|:---:|:---:|
+| vanilla | 84 ± 2 [82–88] | caught (selenium) | 16/18 | 9/10 | 0 |
+| selenium-stealth | 94 ± 0 [94–94] | caught (selenium) | 16/18 | 9/10 | 2 |
+| undetected-chromedriver | 94 ± 0 [94–94] | **passed** | 18/18 | 10/10 | 0 |
+| camoufox | 82 ± 0 [82–82] | **passed** | 17/18 | 9/9 | 0 |
+| nodriver | 95 ± 2 [94–100] | **passed** | 18/18 | 10/10 | 0 |
+
+Unlike the tells score, Sannysoft and rebrowser returned the same counts on almost every trial, so those columns show flat fractions rather than a spread. The wider net mostly agreed with what I already had, which is its own kind of result. The two new panels ranked the configs the same way the tells panel did: `undetected-chromedriver` and `nodriver` pass everything cleanly, `vanilla` and `selenium-stealth` get dinged on the same handful of checks that already caught them, and `camoufox` sits just behind the Chrome leaders. A new detector that overturns your ranking is exciting; a new detector that confirms it is evidence the ranking was measuring something real.
+
+Two details are worth calling out. `nodriver` joins `undetected-chromedriver` as a runtime-patching config that occasionally aces the tells panel outright (`[94–100]`), and it aces both new panels too, so the DevTools-Protocol approach holds up under more scrutiny, not less. And `camoufox` runs only **9** of rebrowser's 10 tests (8 on one of the ten trials): at least one test is Chrome-specific and a real Firefox has nothing to answer it with, the same honest gap I hit in [update 1](/building/stealthbench/01-a-second-browser-zero-detector-changes/) where camoufox "fails" three Chrome-only tells. A panel written to catch Chrome automation has blind spots on Firefox by construction, and that shows up as a smaller denominator, not a worse score.
+
+## What's next
+
+The matrix is 5 by 5 now. nodriver went in as one config plus one handle, the two detectors as two files, same import guard extended to cover nodriver's SDK. The parts still on the list are the same two from last time, a headful CI run so the snapshot regenerates on a schedule, and eventually a detector that disagrees with the others enough to be interesting.
+
+A question for anyone who's wrapped an async browser library behind a sync interface: did you hit the same class of quirk, where the transport quietly reshapes your return values, and how did you catch it? Mine only showed up because a bot detector's answers are mostly `false` and `0`, so the corruption was loud. In a codebase where the return values are usually truthy, I might not have noticed for weeks. The repo is at [github.com/bessavagner/stealthbench](https://github.com/bessavagner/stealthbench).

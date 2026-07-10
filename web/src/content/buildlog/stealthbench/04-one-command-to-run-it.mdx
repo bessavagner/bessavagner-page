@@ -1,0 +1,94 @@
+---
+title: "Reproducible in principle, not in practice: one command to run the bench"
+description: "Update 4 of the stealthbench build log. stealthbench scores browser-automation stealth setups against self-hosted bot detectors on your own localhost and commits every result. For three updates I'd pitched it as 'anyone can rerun this,' but the actual bring-up was a five-step shell ritual I'd memorized: npm ci and serve the panels on :8901, git clone CreepJS and serve its docs on :8902, then run. This update collapses that to one command, `python -m stealthbench.serve`, a stdlib-only module (http.server, subprocess, urllib, no new deps) that runs npm ci, fetches CreepJS once, serves both roots, and health-checks each URL until it returns 200 before it says ready. That surfaced a real design question: the whole project rests on 'detectors self-hosted on localhost only,' yet serve does a `git clone` from GitHub. I drew the line at setup versus run time: the fetch is a one-time, idempotent setup step (skipped if the dir exists), and the bench itself still contacts only localhost. The other landed story is `--config`/`--detector` flags to run a subset, built so a bare run is byte-for-byte the old matrix (the no-selection path returns the same list object, identity, so the numbers can't move), a de-selected cell is absent and never a fabricated 0, and an unknown name errors at parse time. The third story, PyPI packaging, I cut."
+project: "stealthbench"
+update: 4
+pubDate: 2026-07-22T09:00:00-03:00
+tags: ["python", "cli", "argparse", "http-server", "reproducibility", "developer-experience", "browser-automation", "stealth", "building-in-public"]
+status: draft
+---
+
+How many commands does it take to reproduce a benchmark you've published? For three updates I'd been answering "anyone can rerun this," and I believed it, because every score traces to a committed `results/*.json`. Then I opened a clean shell and actually counted the steps from nothing to a running bench. Five. I knew them by heart, which is exactly why I'd stopped seeing them.
+
+**stealthbench** scores browser-automation stealth setups (configs) against open, self-hosted bot detectors on my own `localhost`, and commits every result. The measurement side is honest: the numbers are real, the runs are committed, the spread is on the chart. But "reproducible" had quietly come to mean "reproducible by me, on this machine, from muscle memory." This update is about closing the gap between reproducible in principle and reproducible in practice.
+
+## The ritual I'd memorized
+
+Here's what standing the bench up used to take, straight from the old README:
+
+```bash
+uv run camoufox fetch                                    # 0. one-time browser fetch
+( cd src/stealthbench/detectors/assets && npm ci && python3 -m http.server 8901 ) &
+git clone --depth 1 https://github.com/abrahamjuliot/creepjs.git /tmp/creepjs
+( cd /tmp/creepjs/docs && python3 -m http.server 8902 ) &
+uv run python -m stealthbench --trials 3                 # finally, the run
+```
+
+Two servers on two ports, one of them behind an `npm ci`, the other behind a `git clone` into `/tmp`, both backgrounded with `&`, and no signal that either was actually serving before I fired the run at it. It worked because I never got it wrong. A stranger cloning the repo gets it wrong on the second line.
+
+## One command that waits until it's ready
+
+The replacement is a single stdlib-only module. No new dependency: `http.server`, `subprocess`, `urllib`, `threading`, that's the whole toolbox.
+
+```bash
+uv run python -m stealthbench.serve &
+uv run python -m stealthbench --trials 3
+```
+
+`serve` runs the `npm ci` (only if `node_modules` is missing), serves the vendored panels on `:8901`, fetches CreepJS if it isn't already local, serves its `docs/` on `:8902`, then does the thing the old ritual couldn't: it waits. Each server gets health-checked before the module reports ready.
+
+```python
+def healthcheck(url, attempts=20, delay=0.25):
+    """GET url until it returns 200; raise once attempts are exhausted."""
+    for _ in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=2) as resp:
+                if resp.status == 200:
+                    return True
+        except (urllib.error.URLError, OSError):
+            pass  # server not bound yet, try again
+        time.sleep(delay)
+    raise RuntimeError(f"health check failed for {url}")
+```
+
+That loop is the difference between "I started two processes" and "two servers are answering." The old `&`-backgrounded version had a race baked in: nothing stopped me from launching the bench into a port that hadn't finished binding. "Ready" now means a `200` came back, not that a process exists.
+
+## The line I didn't want to cross
+
+Wiring this up forced a question I'd been able to dodge while it lived in a README code block: this project's whole credibility rests on one invariant, *detectors are self-hosted on localhost only*. No third-party anti-bot service sees my traffic. And yet `serve` runs `git clone https://github.com/abrahamjuliot/creepjs.git`. That's network egress, to GitHub, from the tool that's supposed to talk to nothing but `localhost`.
+
+I drew the line at setup versus run time. The clone is a one-time setup convenience, the same open MIT bundle the README already told you to fetch by hand, and it's idempotent: if the directory is already there, `serve` skips it and reuses the copy.
+
+```python
+def ensure_creepjs(creep_dir, run=subprocess.run):
+    creep_dir = Path(creep_dir)
+    if not creep_dir.exists():
+        run(["git", "clone", "--depth", "1", CREEPJS_REPO, str(creep_dir)], check=True)
+    return creep_dir / "docs"
+```
+
+At *run* time, when the bench is actually measuring, it contacts only the two `localhost` servers. The fetch moved from my hands into the tool, but it didn't move across the line. Automating a convenience is fine; automating it must not quietly relax the invariant the convenience sits next to.
+
+## Running less than the whole matrix
+
+The other landed piece is smaller and I almost didn't write a section for it, except it turned into a good test of the never-fabricate rule. `--config` and `--detector` let you run a subset instead of the full five-by-five: `--config vanilla --detector tells --trials 1` to iterate on one cell.
+
+The constraint was that adding this must not disturb the measurement. So the no-selection path is a true identity: pass no flags and the filter returns the *same list object* it was handed, and a test pins that with `is`, not equality.
+
+```python
+def filter_configs(configs, names):
+    if names is None:
+        return configs          # identity: a bare run is the old matrix, untouched
+    labels = {CONFIG_NAMES[n] for n in names}
+    return [c for c in configs if c.label in labels]
+```
+
+A bare `python -m stealthbench` runs the exact code path it ran last week, so the published numbers can't move. Two more small decisions fell out of the never-fabricate spine. A de-selected cell is *absent* from the results, rendered `n/a`, never a fabricated `0`, because "I didn't run this" and "this scored zero" are different facts and the file has to keep them apart. And a typo'd name (`--config vanila`) errors at parse time with the valid list printed, before any browser launches, rather than silently running an empty matrix and writing a hollow snapshot.
+
+## What I cut, and what's next
+
+This was a three-story sprint and I shipped two. The third was packaging: console scripts, a wheel, a tag-triggered TestPyPI release. I dropped it, and not for lack of time so much as lack of a point yet. `pip install stealthbench` would hand you a CLI that still can't run: you'd need Chrome, Camoufox's patched Firefox, Node, and the detector servers before a single number came out. Install would not equal ready-to-run, and shipping a package that implies otherwise is its own small dishonesty. It waits until the thing it installs is actually usable on its own.
+
+Still open is the thread I've carried since update 2: a headful CI run so the snapshot regenerates on a schedule instead of when I remember to. `serve` was the prerequisite I'd been missing. A CI job can now bring the whole stack up with one command it doesn't have to understand.
+
+A question for anyone who's shipped a benchmark or a reproducible artifact: where do you draw the self-host line when a convenience wants to reach the network? I'm satisfied that a one-time setup clone is on the right side of it and a run-time call would not be, but I'd like to hear how others police that boundary once it's automated instead of typed. The repo is at [github.com/bessavagner/stealthbench](https://github.com/bessavagner/stealthbench).

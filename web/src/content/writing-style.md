@@ -169,6 +169,44 @@ These are habits the early posts already show; lean into them, don't sand them o
   let the colon-subtitle carry the concrete specifics. The play is the hook; the
   subtitle is the substance. Titles don't drive the URL (the slug comes from the
   `NN-slug` filename), so retitling a draft is free.
+- **Write as the builder, not a columnist narrating to a stranger.** The failure
+  mode isn't formality, it's *distance*: prose that reads like an outside observer
+  explaining my codebase back to me, rather than me at the terminal having just run
+  the thing. Stay in first-person *doing* ("I bumped the trials to ten and drew the
+  spread"), not first-person *narrating* ("A new pure history layer walks every
+  committed snapshot"). Report what I looked at, what surprised me, what I chose and
+  the tradeoff. The reader is a stranger to the project (so still define terms), but
+  the *voice* is the person who did the work, not a documentarian of it.
+- **Don't mythologize the work with mic-drop aphorisms.** The two-part contrast
+  landing (above) is a real tool, but it turns into a tell the moment *every* section
+  ends on a quotable image. Lines like "a confidence interval you haven't earned is a
+  smoke detector you painted onto the ceiling" read as generated blog polish, not as
+  me talking. Use at most one such landing in a post, prefer the plain sentence, and
+  never let the flourish stand in for the concrete point it's decorating. Same family
+  as "show, don't announce": a tidy aphorism is often announcing insight instead of
+  showing the work that earned it.
+- **Show the plot.** A build-log update about a metric, a chart, or any visual output
+  needs the actual figure embedded, not just a table describing it. Import it with
+  Astro's `<Image>` (see `blog/beating-browser-fingerprinting.mdx`; assets live under
+  `src/assets/<collection>/<slug>/`), and make the figure earn its place: it should
+  *show* the post's thesis, not merely decorate it. A post arguing "the spread
+  matters" whose only picture has no error bars is hollow, so fix the picture.
+- **Cut trivial code dumps.** A three-line helper that a sentence can describe
+  ("min/max/mean and population stdev") does not earn a fenced code block. Reserve
+  snippets for genuinely load-bearing code (a non-obvious mechanism, an interface, the
+  one line that carries the decision) and describe the rest in prose. Pasting simple
+  functions is filler that makes a post read as padded.
+- **Lead with the finding, not the plumbing.** Open on the interesting thing (what the
+  data said, the surprise, the decision), and demote the supporting machinery (schema
+  versioning, formatting helpers, config wiring) to a compressed section later or a
+  single sentence. If the genuinely interesting content is buried under setup, the post
+  reads as a chore log instead of a discovery.
+- **Audit each update against the last for repeated shape.** Reinforces "vary the
+  shape" above, but specifically across *consecutive* updates: before publishing, check
+  the new post isn't the same arc as the previous one. Two updates in a row that both
+  land on "my design/discipline held up" makes the series feel formulaic even when each
+  is individually fine. Rotate the frame (discovery, decision, honest grind,
+  struggle→breakthrough) deliberately.
 
 ## Internal linking (every post earns its place in the web)
 Before publishing any post, run this checklist so the post is stitched into the

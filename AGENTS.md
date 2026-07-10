@@ -14,6 +14,29 @@ astro dev --background
 
 Manage the background server with `astro dev stop`, `astro dev status`, and `astro dev logs`.
 
+## Code intelligence (codegraph)
+
+This repo is indexed by **codegraph** — a live SQLite knowledge graph of every
+symbol, edge, and file, served through the `codegraph` MCP tools and kept fresh
+by a background daemon (the `.codegraph/` dir is machine-local and gitignored;
+never commit it). Reads are sub-millisecond and the index auto-syncs ~1s behind
+edits.
+
+**Use it BEFORE reading or editing code, not during** — it is the pre-built
+search index, so a `codegraph_explore` call is Read-equivalent and beats a
+manual grep-then-read loop:
+
+- "How does X work" / "where is X" / architecture / tracing a flow →
+  `codegraph_explore` (one call; pass a natural-language question or a bag of
+  symbol/file names — it returns the verbatim source grouped by file, and is
+  usually the only call you need).
+- "What calls this?" / "what does this call?" / "what breaks if I change this?"
+  → `codegraph_callers` / `codegraph_callees` / `codegraph_impact`.
+- Just a symbol's location → `codegraph_search`.
+
+It indexes **code** (`.ts`/`.astro`/etc.), not MDX content — reach for the file
+tools directly when working on `src/content/`.
+
 ## Writing content (blog + build log)
 
 Follow the writing guide at `web/src/content/writing-style.md` before drafting any
