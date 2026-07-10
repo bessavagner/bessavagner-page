@@ -7,11 +7,23 @@
 import { selectAnnounceable, renderDigest, utcDateStamp, type AnnounceCandidate } from '../src/lib/digest-core.ts';
 import { resolvePublishAt } from '../src/lib/clock.ts';
 import { readPosts } from './read-posts.ts';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
 const SITE_URL = 'https://bessavagner.com';
 const API = 'https://api.buttondown.com/v1';
 const WINDOW_DAYS = 30;
 const CAP = 3;
+const LIVENESS_TIMEOUT_MS = 10_000;
+/** Buttondown's `/v1/emails` list is expected to be a handful of pages. A cap
+ *  bounds a runaway `next` loop (e.g. the API looping a `next` link back on
+ *  itself) so the nightly job can't hang forever. Hitting the cap throws
+ *  rather than returning what was paged so far: a truncated sent-history
+ *  would make an already-announced post look un-announced, and dedupe would
+ *  re-announce it — the exact double-send this system exists to prevent. So
+ *  the safe failure here is "the whole run aborts", not "silently proceed
+ *  with partial data". */
+const MAX_SENT_EMAIL_PAGES = 50;
 
 /**
  * The instant this publication system went live. Posts published before it are never
@@ -37,9 +49,12 @@ async function filterLive(items: AnnounceCandidate[]): Promise<AnnounceCandidate
     const url = `${SITE_URL}${item.path}`;
     let ok = false;
     try {
-      const res = await fetch(url, { method: 'HEAD' });
+      const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(LIVENESS_TIMEOUT_MS) });
       ok = res.status === 200;
     } catch (err) {
+      // Covers both a network failure and a timeout (AbortSignal.timeout aborts with
+      // a DOMException here) — either way the page's liveness is unproven, so fail
+      // safe and drop it rather than block the rest of the sequential loop.
       console.warn(`DROP  ${item.path} — HEAD request failed: ${(err as Error).message}`);
       continue;
     }
@@ -57,20 +72,36 @@ async function filterLive(items: AnnounceCandidate[]): Promise<AnnounceCandidate
 async function sentEmailBodies(key: string): Promise<string[]> {
   const bodies: string[] = [];
   let url: string | null = `${API}/emails`;
+  let pages = 0;
   while (url) {
+    if (pages >= MAX_SENT_EMAIL_PAGES) {
+      throw new Error(
+        `sentEmailBodies: exceeded ${MAX_SENT_EMAIL_PAGES} pages of /v1/emails without reaching the end — ` +
+          'refusing to proceed with a truncated sent-history (that would make an already-sent post look ' +
+          'un-announced and get re-announced).',
+      );
+    }
     const res = await fetch(url, { headers: { Authorization: `Token ${key}` } });
     if (!res.ok) throw new Error(`list emails failed: ${res.status} ${await res.text()}`);
     const data = (await res.json()) as { results?: { body?: string }[]; next?: string | null };
     for (const e of data.results ?? []) if (e.body) bodies.push(e.body);
     url = data.next ?? null;
+    pages++;
   }
   return bodies;
 }
 
 /** Drop any item whose path already appears in a previously-sent email body.
  *  Buttondown is the only system that knows what actually reached subscribers,
- *  so it is the source of truth for dedupe, not our own local state. */
-function dedupeAgainstSent(items: AnnounceCandidate[], sentBodies: string[]): AnnounceCandidate[] {
+ *  so it is the source of truth for dedupe, not our own local state.
+ *
+ *  Assumption: this digest system is the only thing that ever puts one of these
+ *  URLs into a Buttondown email body. If a post's URL were ever pasted into a
+ *  manually-composed email (e.g. linked in prose), that post would match here
+ *  and be silently skipped forever. The failure direction this assumption
+ *  buys us is deliberate and one-way: a broken assumption causes a silent
+ *  skip, never a double-send. */
+export function dedupeAgainstSent(items: AnnounceCandidate[], sentBodies: string[]): AnnounceCandidate[] {
   return items.filter((item) => {
     const alreadySent = sentBodies.some((body) => body.includes(item.path));
     if (alreadySent) console.warn(`DROP  ${item.path} — already appears in a sent email`);
@@ -155,7 +186,15 @@ async function main() {
   console.log(`Sent digest "${subject}" (${items.length} item(s)).`);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Only run the digest when this file is the process entry point (`node
+// scripts/digest.ts ...`), not when it's imported for its functions — e.g. by
+// scripts/digest.test.ts, which unit-tests dedupeAgainstSent directly and must
+// not trigger a real (network-touching, potentially mail-sending) run on import.
+const isMain = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+if (isMain) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
