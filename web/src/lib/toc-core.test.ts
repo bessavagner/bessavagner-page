@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import type { MarkdownHeading } from 'astro';
 import { tocEntries, shouldRenderToc } from './toc-core.ts';

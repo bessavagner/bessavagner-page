@@ -78,7 +78,7 @@ test('buildProjectToProject falls back to blurb and defaults when work is sparse
 
 const upd = (id: string, update: number): UpdateLike => ({
   id,
-  data: { project: 'p', update, pubDate: new Date('2026-01-01'), draft: false },
+  data: { project: 'p', update, pubDate: new Date('2026-01-01') },
 });
 
 test('seriesNeighbors returns the lower-numbered prev and higher-numbered next', () => {

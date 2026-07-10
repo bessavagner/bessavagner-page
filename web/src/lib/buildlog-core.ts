@@ -50,11 +50,18 @@ export function latestUpdate<T extends { data: { pubDate: Date } }>(updates: T[]
   return sortUpdatesByDateDesc(updates)[0];
 }
 
+/** Minimal shape `seriesNeighbors` needs: a stable id and an ordering number.
+ *  `CollectionEntry<'buildlog'>` satisfies it structurally. */
+export interface UpdateLike {
+  id: string;
+  data: { project: string; update: number; pubDate: Date };
+}
+
 /** Prev/next siblings of an update within its project, by ascending `update`
  *  number. `prev` = the closest earlier update (lower number), `next` = the
  *  closest later one. Robust to unsorted input and gaps in numbering; returns
  *  `{}` when `current` is not in `projectUpdates`, and an undefined side when it
- *  is first (no prev) or last (no next). Pure — unit-tested under `node --test`. */
+ *  is first (no prev) or last (no next). Pure — unit-tested. */
 export function seriesNeighbors<T extends UpdateLike>(
   current: T,
   projectUpdates: T[],
