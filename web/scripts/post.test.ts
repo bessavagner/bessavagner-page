@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { approvePost, cmdLint, rewriteKeys, detectEol } from './post.ts';
+import { approvePost, cmdLint, cmdPreview, rewriteKeys, detectEol } from './post.ts';
 import { readPosts } from './read-posts.ts';
 
 let root = '';
@@ -161,5 +161,45 @@ describe('cmdLint fixture sanity', () => {
     );
     const { invalid } = readPosts(Date.now(), contentDir);
     expect(invalid.some((i) => i.rawPubDate === 'not-a-date')).toBe(true);
+  });
+});
+
+describe('cmdPreview — includes stale-approval posts regardless of date', () => {
+  it('includes a stale-approval post outside the 7-day window in the preview', () => {
+    const now = Date.now();
+
+    // Create an approved post with an invalid hash (stale-approval state)
+    // and a pubDate 30 days in the future (well outside the 7-day window)
+    const pubDate = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
+    writeFileSync(
+      join(contentDir, 'blog', 'stale-post.mdx'),
+      ['---', 'title: Stale Approval Post', 'description: A post with stale approval', `pubDate: ${pubDate}`, 'status: approved', 'reviewHash: invalid-hash-that-wont-match', '---', '', 'Body content.', ''].join('\n'),
+    );
+
+    // Create a normal scheduled post within 7 days for comparison
+    const scheduledPubDate = new Date(now + 3 * 24 * 60 * 60 * 1000).toISOString();
+    writeFileSync(
+      join(contentDir, 'blog', 'scheduled-post.mdx'),
+      ['---', 'title: Scheduled Post', 'description: A scheduled post', `pubDate: ${scheduledPubDate}`, 'status: approved', 'reviewHash: sha256:0000000000000000000000000000000000000000000000000000000000000000', '---', '', 'Different body.', ''].join('\n'),
+    );
+
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg: string) => {
+      logs.push(msg);
+    });
+
+    cmdPreview(['--days', '7'], contentDir);
+
+    logSpy.mockRestore();
+
+    const out = logs.join('\n');
+
+    // Stale approval post should appear even though it's 30 days in the future
+    expect(out).toContain('Stale Approval Post');
+    expect(out).toContain('stale-approval');
+
+    // Scheduled post should also appear (sanity check that preview works)
+    expect(out).toContain('Scheduled Post');
+    expect(out).toContain('scheduled');
   });
 });

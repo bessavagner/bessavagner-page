@@ -155,12 +155,14 @@ function parseDays(argv: string[]): number {
   return 7;
 }
 
-function cmdPreview(argv: string[]): void {
+/** `contentDir` is exposed only so tests can point this at a fixture tree; the
+ *  CLI always calls this with no argument, which resolves the real content dir. */
+export function cmdPreview(argv: string[], contentDir?: string): void {
   const days = parseDays(argv);
   const now = Date.now();
   const windowEnd = now + days * 24 * 60 * 60 * 1000;
 
-  const { posts } = readPosts(now);
+  const { posts } = readPosts(now, contentDir);
   const upcoming = posts.filter((p) => {
     const due = p.data.pubDate.getTime();
     return p.state === 'stale-approval' || (due >= now && due <= windowEnd);

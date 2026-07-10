@@ -1,0 +1,48 @@
+name: Weekly publication preview
+
+# Monday 08:00 BRT (UTC-3) = 11:00 UTC. Also manually triggerable.
+on:
+  schedule:
+    - cron: '0 11 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+
+jobs:
+  preview:
+    name: Compose and open preview issue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.15.1
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compose the preview
+        run: |
+          node --experimental-strip-types web/scripts/post.ts preview --days 7 > preview.md
+
+      - name: Open the preview issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          WEEK_OF=$(date -u +%Y-%m-%d)
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Publication preview — week of $WEEK_OF" \
+            --assignee bessavagner \
+            --body-file preview.md
