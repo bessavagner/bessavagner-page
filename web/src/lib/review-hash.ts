@@ -32,14 +32,16 @@ const isLocal = (spec: string): boolean => spec.startsWith('.') || spec.startsWi
  * nothing legitimate is lost.
  *
  * Fenced lines are replaced with empty lines rather than deleted to preserve
- * line numbers and line boundaries; a line before the fence is not physically
- * concatenated onto a line after it. However, the import regex's [^'"]*
- * negated character class still spans blank lines freely. What actually
- * prevents fabrication is MDX itself: any top-level line beginning with
- * `import` is parsed as an ESM statement by acorn, so a prose line like
- * `import maps are a neat trick, let me show you.` cannot exist in a post that
- * compiles. This was verified against @mdx-js/mdx 3.1.1 — such a line is
- * rejected with `Could not parse import/exports with acorn`.
+ * line numbers and line boundaries, and blank lines double as the block
+ * separators `extractAssetSpecifiers` splits on below.
+ *
+ * The import regex's `[^'"]*` negated character class spans newlines freely,
+ * so scanning the whole body would let a line beginning with `import` in the
+ * middle of a paragraph bridge forward into an unrelated later `from '...'`
+ * line and fabricate a specifier. `extractAssetSpecifiers` guards against that
+ * by only scanning blocks whose first line begins with `import` — the same
+ * rule MDX itself uses to decide whether a line is an ESM statement. A
+ * mid-paragraph `import` is prose to MDX, and is now prose to us too.
  */
 function stripFencedCode(body: string): string {
   const lines = body.split('\n');
@@ -81,8 +83,20 @@ export function extractAssetSpecifiers(
 ): string[] {
   const found = new Set<string>();
   const importRe = /^\s*import\s+[^'"]*from\s*['"]([^'"]+)['"]/gm;
-  for (const m of stripFencedCode(body).matchAll(importRe)) {
-    if (isLocal(m[1])) found.add(m[1]);
+  // MDX only treats a line beginning with `import` as ESM when that line
+  // begins a block (document start, or right after a blank line) — so only
+  // scan blocks whose first line begins with `import`. A mid-paragraph line
+  // starting with the word "import" is prose and must not be scanned.
+  for (const rawBlock of stripFencedCode(body).split(/\n(?:[ \t]*\n)+/)) {
+    // A leading blank line (e.g. right after frontmatter) survives the split
+    // as part of the first block instead of being consumed as a separator,
+    // since there's no preceding block for it to separate from. Trim it so
+    // the block-start check below looks at the block's first real line.
+    const block = rawBlock.replace(/^(?:[ \t]*\n)+/, '');
+    if (!/^[ \t]{0,3}import\b/.test(block)) continue;
+    for (const m of block.matchAll(importRe)) {
+      if (isLocal(m[1])) found.add(m[1]);
+    }
   }
   for (const hero of [frontmatter.heroImage, frontmatter.heroImageDark]) {
     if (hero) found.add(hero);

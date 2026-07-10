@@ -112,6 +112,40 @@ describe('extractAssetSpecifiers', () => {
     ].join('\n');
     expect(extractAssetSpecifiers(body, {})).toEqual([]);
   });
+
+  it('does not fabricate a specifier from a mid-paragraph line beginning with "import"', () => {
+    // A line beginning with "import" only starts an ESM statement to MDX when
+    // it begins a block (document start, or after a blank line). Mid-paragraph,
+    // it's prose — and the old whole-body regex let [^'"]* bridge from that
+    // prose line to an unrelated later `from '...'` line.
+    const body = [
+      'Here is some prose.',
+      'import the logic works like this',
+      '',
+      "we source from './fab.svg' here",
+    ].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual([]);
+  });
+
+  it('does not fabricate a specifier from soft-wrapped prose starting with "import"', () => {
+    const body = [
+      'To use the helper you must',
+      'import the module before you can',
+      '',
+      "read it from './fab.svg' at build time",
+    ].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual([]);
+  });
+
+  it('still finds a multi-line import whose specifier is on a later line', () => {
+    const body = ["import {", '  Chart,', "} from '../../assets/x.svg';", '', 'Text.'].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['../../assets/x.svg']);
+  });
+
+  it('finds two imports that share a single block', () => {
+    const body = ["import a from './a.svg';", "import b from './b.svg';", '', 'Text.'].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./a.svg', './b.svg']);
+  });
 });
 
 describe('computeReviewHash', () => {
