@@ -163,6 +163,33 @@ describe('extractAssetSpecifiers', () => {
     expect(extractAssetSpecifiers(body, {})).toEqual(['../../assets/blog/x/chart.svg']);
   });
 
+  it('finds a real import in a lone-CR body (a bare \\r is a CommonMark line ending too)', () => {
+    // CommonMark treats a bare \r not followed by \n as a line ending, so this
+    // document is legal and MDX compiles it. A normalization pass that only
+    // maps \r\n (not a lone \r) leaves the \n-based block split never firing:
+    // the whole document becomes one block, the import-at-block-start gate
+    // fails on its literal first line, and nothing is found.
+    const body = [
+      'Some intro prose.',
+      '',
+      "import Chart from '../../assets/blog/x/chart.svg';",
+      '',
+      'Closing prose.',
+    ].join('\r');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['../../assets/blog/x/chart.svg']);
+  });
+
+  it('finds a real import in the same body with plain LF endings', () => {
+    const body = [
+      'Some intro prose.',
+      '',
+      "import Chart from '../../assets/blog/x/chart.svg';",
+      '',
+      'Closing prose.',
+    ].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['../../assets/blog/x/chart.svg']);
+  });
+
   it('ignores a block comment inside an import statement and finds the real specifier', () => {
     const body = "import x /* from './fake.svg' nonsense */ from './real.svg';";
     expect(extractAssetSpecifiers(body, {})).toEqual(['./real.svg']);
@@ -186,6 +213,24 @@ describe('extractAssetSpecifiers', () => {
   it('does not mangle a bare https:// specifier into a false local match', () => {
     const body = "import x from 'https://cdn.example/x.js';";
     expect(extractAssetSpecifiers(body, {})).toEqual([]);
+  });
+
+  it('does not mangle a specifier that contains a /* substring', () => {
+    // A comment-stripping pass that does not track string literals sees `/*`
+    // inside the quoted specifier and mistakes it for the start of a real
+    // block comment, deleting everything up to the next `*/` — including the
+    // rest of the specifier and the closing quote.
+    const body = "import x from './a/*mid*/b.svg';";
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./a/*mid*/b.svg']);
+  });
+
+  it('does not mangle a specifier whose // is preceded by whitespace', () => {
+    // A regex that only strips `//` when preceded by whitespace assumes a
+    // specifier's own `//` is always preceded by a non-whitespace character.
+    // That assumption is false for a path segment that happens to have a
+    // space before a `//`, which is a legal (if unusual) local specifier.
+    const body = "import x from './a //b.svg';";
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./a //b.svg']);
   });
 });
 

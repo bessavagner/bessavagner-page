@@ -78,19 +78,66 @@ function stripFencedCode(body: string): string {
  * import declaration) can't have its own quoted text mistaken for the real
  * specifier, and so a commented-out `from '...'` can't hide the real one.
  *
- * Block comments are removed outright — `/*` is not a legal substring of a
- * file path. Line comments are removed only where `//` is preceded by
- * start-of-line or whitespace, and only that whitespace is kept in place of
- * the match: a specifier's own `//` (a path segment boundary, e.g.
- * `./a//b.svg`, or a URL scheme, e.g. `https://cdn/x.js`) is always preceded
- * by a non-whitespace character and is left untouched.
+ * This is a small scanner, not a regex, and it tracks string-literal state
+ * (single, double, and backtick quotes, with backslash escapes) as it goes,
+ * so a comment-opening or comment-closing sequence that appears inside a
+ * quoted specifier is left alone; only such sequences seen outside of a
+ * string are treated as the start or end of a comment. Backticks are tracked
+ * too, since a template literal can itself contain a line-comment-opening
+ * sequence.
  *
- * This is regex-based, not a real JS tokenizer, so it does not understand
- * string literals: a `//` or `/*` that happens to sit inside some other part
- * of the statement (outside the specifier itself) could still be misread.
+ * A comment is replaced by a single space, never deleted outright, so
+ * removing it can't join two adjacent tokens into a new one. An unterminated
+ * block comment consumes to the end of the block - that input is a JS syntax
+ * error regardless, so MDX itself rejects the post, which is a loud failure
+ * rather than a silent one.
+ *
+ * One residual limit: this scanner only tracks quotes and comments, not full
+ * JS grammar, so a regex literal whose pattern text contains a comment
+ * delimiter, sitting outside of a string, could still be misread as a
+ * comment. That shape has never appeared in an import statement's specifier
+ * and isn't expected to.
  */
 function stripComments(block: string): string {
-  return block.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/[^\n]*/g, '$1');
+  let out = '';
+  let i = 0;
+  let quote: string | null = null;
+  while (i < block.length) {
+    const c = block[i];
+    const d = block[i + 1];
+    if (quote) {
+      out += c;
+      if (c === '\\' && i + 1 < block.length) {
+        out += d;
+        i += 2;
+        continue;
+      }
+      if (c === quote) quote = null;
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      quote = c;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === '/' && d === '*') {
+      i += 2;
+      while (i < block.length && !(block[i] === '*' && block[i + 1] === '/')) i++;
+      i += 2;
+      out += ' ';
+      continue;
+    }
+    if (c === '/' && d === '/') {
+      while (i < block.length && block[i] !== '\n') i++;
+      out += ' ';
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
 }
 
 /**
@@ -104,12 +151,14 @@ export function extractAssetSpecifiers(
 ): string[] {
   const found = new Set<string>();
   const importRe = /^\s*import\s+[^'"]*from\s*['"]([^'"]+)['"]/gm;
-  // Normalize CRLF to LF first, same as normalizeBody: the block-splitting
-  // regex below only recognizes \n-bounded blank lines, and a CRLF blank line
-  // is \r\n\r\n (\n \r \n) — the stray \r blocks the split, so an
-  // un-normalized CRLF body never splits into blocks at all and no import
-  // anywhere in it is found.
-  const normalized = body.replace(/\r\n/g, '\n');
+  // Normalize all three CommonMark line-ending forms (\r\n, lone \r, \n) to
+  // \n first, same as normalizeBody: the block-splitting regex below only
+  // recognizes \n-bounded blank lines. CommonMark treats a bare \r not
+  // followed by \n as a line ending too, so a document using lone \r is
+  // legal and MDX compiles it — but without this normalization its blank
+  // lines never match, the whole document becomes one block, the
+  // import-at-block-start gate fails, and no import anywhere in it is found.
+  const normalized = body.replace(/\r\n?/g, '\n');
   // MDX only treats a line beginning with `import` as ESM when that line
   // begins a block (document start, or right after a blank line) — so only
   // scan blocks whose first line begins with `import`. A mid-paragraph line
