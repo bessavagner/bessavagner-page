@@ -30,6 +30,16 @@
       "startDate": "2026-07-02",
       "status": "active",
       "stack": ["Django", "django-ninja", "PostgreSQL", "Postgres RLS", "JWT"]
+    },
+    {
+      "slug": "stealthbench",
+      "title": "stealthbench",
+      "tagline": "A reproducible benchmark that puts numbers on browser-automation stealth",
+      "blurb": "Scores browser-automation stealth setups (configs) against open, self-hosted bot detectors on your own localhost, then commits a versioned results file and a regenerable report. It measures detectability only: no crawler, no login, no target site, and every detector runs offline.",
+      "repo": "https://github.com/bessavagner/stealthbench",
+      "startDate": "2026-07-06",
+      "status": "active",
+      "stack": ["Python", "Selenium", "Playwright", "Camoufox", "pytest", "matplotlib"]
     }
   ]
 }
