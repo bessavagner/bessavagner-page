@@ -41,6 +41,18 @@ describe('hashAssets', () => {
       expect((err as UnresolvedAssetError).specifier).toBe('../../assets/blog/gone.svg');
     }
   });
+
+  it('throws UnresolvedAssetError when specifier is a directory', () => {
+    expect(() => hashAssets(post(), ['../../assets/blog'])).toThrow(UnresolvedAssetError);
+    try {
+      hashAssets(post(), ['../../assets/blog']);
+    } catch (err) {
+      const error = err as UnresolvedAssetError;
+      expect(error.specifier).toBe('../../assets/blog');
+      expect(error.cause).toBeDefined();
+      expect((error.cause as { code?: string }).code).toBe('EISDIR');
+    }
+  });
 });
 
 describe('reviewHashOf', () => {

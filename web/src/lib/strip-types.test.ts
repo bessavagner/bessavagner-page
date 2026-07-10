@@ -22,7 +22,7 @@
 // imported, so spawning them here would make this test slow and non-hermetic.
 // When Task 5 rewrites scripts/read-posts.ts into a pure module, add it to the
 // list below.
-import { describe, it, expect } from 'vitest';
+import { describe, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 

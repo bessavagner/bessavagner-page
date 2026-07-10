@@ -9,6 +9,15 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { computeReviewHash, extractAssetSpecifiers, type AssetDigest } from './review-hash.ts';
 
+/**
+ * Raw frontmatter as read from an .mdx file's YAML header.
+ *
+ * The fields `heroImage` and `heroImageDark` are strings as they appear in the
+ * file — paths to image assets. Do NOT pass an Astro `CollectionEntry`'s `data`
+ * directly to `hashAssets()`, as Astro's `image()` schema helper in
+ * `web/src/content.config.ts` resolves those strings to `ImageMetadata` objects
+ * at parse time, which would produce incorrect specifiers or a crash.
+ */
 export interface PostFrontmatter {
   title: string;
   description: string;
@@ -21,8 +30,8 @@ export class UnresolvedAssetError extends Error {
   readonly specifier: string;
   readonly from: string;
 
-  constructor(specifier: string, from: string) {
-    super(`cannot resolve asset "${specifier}" referenced by ${from}`);
+  constructor(specifier: string, from: string, options?: ErrorOptions) {
+    super(`cannot resolve asset "${specifier}" referenced by ${from}`, options);
     this.name = 'UnresolvedAssetError';
     this.specifier = specifier;
     this.from = from;
@@ -33,12 +42,12 @@ export class UnresolvedAssetError extends Error {
 export function hashAssets(postAbsPath: string, specifiers: string[]): AssetDigest[] {
   const base = dirname(postAbsPath);
   return specifiers.map((specifier) => {
-    const abs = resolve(base, specifier);
     let bytes: Buffer;
     try {
+      const abs = resolve(base, specifier);
       bytes = readFileSync(abs);
-    } catch {
-      throw new UnresolvedAssetError(specifier, postAbsPath);
+    } catch (err) {
+      throw new UnresolvedAssetError(specifier, postAbsPath, { cause: err });
     }
     return { specifier, sha256: createHash('sha256').update(bytes).digest('hex') };
   });
