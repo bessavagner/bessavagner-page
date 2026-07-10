@@ -128,7 +128,7 @@ test('composePlacementContent joins date-slot + placement into one valid slug', 
   const content = composePlacementContent('2026-07-09-am', 'first-comment');
   assert.equal(content, '2026-07-09-am-first-comment');
   // the compound value must still pass the generator unchanged
-  const url = buildTaggedUrl({ destination: '/buildlog/regwatch', campaign: 'regwatch-deploy', content });
+  const url = buildTaggedUrl({ destination: '/building/regwatch/04-deploying-regwatch-to-cloud-run', campaign: 'regwatch-deploy', content });
   assert.ok(url.endsWith('utm_content=2026-07-09-am-first-comment'));
 });
 
