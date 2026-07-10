@@ -50,6 +50,21 @@ export function latestUpdate<T extends { data: { pubDate: Date } }>(updates: T[]
   return sortUpdatesByDateDesc(updates)[0];
 }
 
+/** Prev/next siblings of an update within its project, by ascending `update`
+ *  number. `prev` = the closest earlier update (lower number), `next` = the
+ *  closest later one. Robust to unsorted input and gaps in numbering; returns
+ *  `{}` when `current` is not in `projectUpdates`, and an undefined side when it
+ *  is first (no prev) or last (no next). Pure — unit-tested under `node --test`. */
+export function seriesNeighbors<T extends UpdateLike>(
+  current: T,
+  projectUpdates: T[],
+): { prev?: T; next?: T } {
+  const ordered = [...projectUpdates].sort((a, b) => a.data.update - b.data.update);
+  const i = ordered.findIndex((u) => u.id === current.id);
+  if (i === -1) return {};
+  return { prev: ordered[i - 1], next: ordered[i + 1] };
+}
+
 /** Map a shipped registry entry into a synthetic portfolio Project (graduation). */
 export function buildProjectToProject(bp: BuildProject): Project {
   const w = bp.work ?? {};

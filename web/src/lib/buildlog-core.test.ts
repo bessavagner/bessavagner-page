@@ -5,8 +5,10 @@ import {
   splitUpdateId,
   sortUpdatesByDateDesc,
   latestUpdate,
+  seriesNeighbors,
   buildProjectToProject,
   type BuildProject,
+  type UpdateLike,
 } from './buildlog-core.ts';
 
 test('splitUpdateId separates the project folder from the update slug', () => {
@@ -72,4 +74,37 @@ test('buildProjectToProject falls back to blurb and defaults when work is sparse
   assert.equal(p.featured, false);
   assert.equal(p.order, 999);
   assert.equal(p.links.buildlog, '/building/regwatch/');
+});
+
+const upd = (id: string, update: number): UpdateLike => ({
+  id,
+  data: { project: 'p', update, pubDate: new Date('2026-01-01'), draft: false },
+});
+
+test('seriesNeighbors returns the lower-numbered prev and higher-numbered next', () => {
+  const list = [upd('p/01', 1), upd('p/02', 2), upd('p/03', 3)];
+  const { prev, next } = seriesNeighbors(list[1], list);
+  assert.equal(prev?.id, 'p/01');
+  assert.equal(next?.id, 'p/03');
+});
+
+test('seriesNeighbors gives the first update no prev and the last no next', () => {
+  const list = [upd('p/01', 1), upd('p/02', 2), upd('p/03', 3)];
+  assert.equal(seriesNeighbors(list[0], list).prev, undefined);
+  assert.equal(seriesNeighbors(list[0], list).next?.id, 'p/02');
+  assert.equal(seriesNeighbors(list[2], list).next, undefined);
+  assert.equal(seriesNeighbors(list[2], list).prev?.id, 'p/02');
+});
+
+test('seriesNeighbors is order-independent (sorts by update number, not array order)', () => {
+  const shuffled = [upd('p/03', 3), upd('p/01', 1), upd('p/02', 2)];
+  const { prev, next } = seriesNeighbors(shuffled[0], shuffled); // the update=3 entry
+  assert.equal(prev?.id, 'p/02');
+  assert.equal(next, undefined);
+});
+
+test('seriesNeighbors returns empty neighbors when the update is absent or alone', () => {
+  const list = [upd('p/01', 1)];
+  assert.deepEqual(seriesNeighbors(list[0], list), { prev: undefined, next: undefined });
+  assert.deepEqual(seriesNeighbors(upd('p/99', 99), list), {});
 });
