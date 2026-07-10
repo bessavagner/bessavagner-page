@@ -1,6 +1,7 @@
 import { getCollection, type CollectionEntry } from 'astro:content';
 import { isVisible } from './publication.ts';
 import { hashMatches } from './review-map.ts';
+import { resolvePublishAt } from './clock.ts';
 
 export type Post = CollectionEntry<'blog'>;
 
@@ -17,7 +18,7 @@ export type Post = CollectionEntry<'blog'>;
 export function isPublic(p: Post): boolean {
   return isVisible(
     { status: p.data.status, pubDate: p.data.pubDate, hashMatches: hashMatches(p) },
-    { now: Date.now(), prod: import.meta.env.PROD },
+    { now: resolvePublishAt(process.env, Date.now()), prod: import.meta.env.PROD },
   );
 }
 

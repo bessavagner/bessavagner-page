@@ -15,6 +15,12 @@ on:
       - 'web/**'
       - '.github/workflows/deploy-web-cloudrun.yml'
   workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      publish_at:
+        description: 'ISO instant to pin as "now" for publication visibility (optional).'
+        required: false
+        type: string
 
 env:
   PROJECT_ID: bessavagner-page
@@ -32,12 +38,30 @@ env:
   PUBLIC_GA4_MEASUREMENT_ID: G-0X4F4KLDSB
 
 jobs:
+  clock:
+    name: Pin the publish instant
+    runs-on: ubuntu-latest
+    outputs:
+      publish_at: ${{ steps.resolve.outputs.publish_at }}
+    steps:
+      - name: Resolve publish_at
+        id: resolve
+        run: |
+          if [ -n "${{ inputs.publish_at }}" ]; then
+            echo "publish_at=${{ inputs.publish_at }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          fi
+
   check:
     name: Type check & build
+    needs: clock
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: web
+    env:
+      PUBLISH_AT: ${{ needs.clock.outputs.publish_at }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -67,7 +91,7 @@ jobs:
         run: pnpm build
 
   deploy:
-    needs: check
+    needs: [clock, check]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -98,6 +122,7 @@ jobs:
             --build-arg PUBLIC_ANALYTICS_SRC="${PUBLIC_ANALYTICS_SRC}" \
             --build-arg PUBLIC_BUTTONDOWN_URL="${PUBLIC_BUTTONDOWN_URL}" \
             --build-arg PUBLIC_GA4_MEASUREMENT_ID="${PUBLIC_GA4_MEASUREMENT_ID}" \
+            --build-arg PUBLISH_AT="${{ needs.clock.outputs.publish_at }}" \
             -t "$IMG" \
             -t "${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${IMAGE}:latest" \
             web

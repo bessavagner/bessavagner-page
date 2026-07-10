@@ -3,6 +3,7 @@ import bpData from '../data/buildProjects.json';
 import { splitUpdateId, sortUpdatesByDateDesc, type BuildProject } from './buildlog-core.ts';
 import { isVisible as isPublicationVisible } from './publication.ts';
 import { hashMatches } from './review-map.ts';
+import { resolvePublishAt } from './clock.ts';
 
 export type BuildUpdate = CollectionEntry<'buildlog'>;
 export { splitUpdateId };
@@ -12,7 +13,7 @@ export type { BuildProject };
 export function isVisible(u: BuildUpdate): boolean {
   return isPublicationVisible(
     { status: u.data.status, pubDate: u.data.pubDate, hashMatches: hashMatches(u) },
-    { now: Date.now(), prod: import.meta.env.PROD },
+    { now: resolvePublishAt(process.env, Date.now()), prod: import.meta.env.PROD },
   );
 }
 
