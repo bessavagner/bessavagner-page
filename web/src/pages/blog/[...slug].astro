@@ -7,14 +7,19 @@ import TableOfContents from '../../components/blog/TableOfContents.astro';
 import { readingTime, isPublic } from '../../lib/blog';
 import SubscribeForm from '../../components/SubscribeForm.astro';
 import AuthorByline from '../../components/blog/AuthorByline.astro';
+import RelatedPosts from '../../components/blog/RelatedPosts.astro';
 import { jsonLd } from '../../lib/jsonld';
+import { relatedPosts } from '../../lib/related-core.ts';
 
 export async function getStaticPaths() {
   const posts = await getCollection('blog', isPublic);
-  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post, related: relatedPosts(post, posts, 3) },
+  }));
 }
 
-const { post } = Astro.props;
+const { post, related } = Astro.props;
 const { Content, headings } = await render(post);
 const minutes = readingTime(post.body ?? '');
 const siteHref = (Astro.site?.href ?? 'https://bessavagner.com/').replace(/\/$/, '');
@@ -81,6 +86,7 @@ const breadcrumb = {
     <div class="mt-12 pt-8 border-t border-base-content/10">
       <a href="/#section-contact" class="btn btn-primary btn-sm font-base">Work with me →</a>
     </div>
+    <RelatedPosts items={related} collection="blog" />
     <AuthorByline class="mt-10" />
     <SubscribeForm class="mt-10" />
   </article>

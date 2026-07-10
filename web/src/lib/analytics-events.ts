@@ -23,6 +23,8 @@ export const EVENTS = {
   EMAIL_CLICK: 'email_click',
   /** Buildlog series prev/next/hub nav. Param: direction = prev|next|hub. */
   SERIES_NAV: 'series_nav',
+  /** Related-posts module click. Param: collection = blog|buildlog. */
+  RELATED_CLICK: 'related_click',
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];

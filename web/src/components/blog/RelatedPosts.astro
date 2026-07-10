@@ -1,0 +1,30 @@
+---
+import type { CollectionEntry } from 'astro:content';
+import { splitUpdateId } from '../../lib/buildlog';
+import { formatDate } from '../../lib/blog';
+import { EVENTS } from '../../lib/analytics-events';
+type Item = CollectionEntry<'blog'> | CollectionEntry<'buildlog'>;
+interface Props { items: Item[]; collection: 'blog' | 'buildlog'; class?: string; }
+const { items, collection, class: className = '' } = Astro.props;
+const hrefFor = (it: Item) => {
+  if (collection === 'blog') return `/blog/${it.id}/`;
+  const { project, slug } = splitUpdateId(it.id);
+  return `/building/${project}/${slug}/`;
+};
+---
+{items.length > 0 && (
+  <section class:list={["mt-12 pt-8 border-t border-base-content/10", className]} aria-label="Keep reading">
+    <h2 class="font-header-5 font-bold">Keep reading</h2>
+    <ul class="mt-4 space-y-4">
+      {items.map((it) => (
+        <li>
+          <a href={hrefFor(it)} data-track={EVENTS.RELATED_CLICK} data-track-collection={collection} class="group block">
+            <span class="font-base font-semibold text-base-content/90 group-hover:text-primary">{it.data.title}</span>
+            <span class="block font-base text-sm text-base-content/60 mt-0.5 line-clamp-1">{it.data.description}</span>
+            <span class="ubuntu-mono-regular text-xs text-base-content/50 mt-0.5 block">{formatDate(it.data.pubDate)}</span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}

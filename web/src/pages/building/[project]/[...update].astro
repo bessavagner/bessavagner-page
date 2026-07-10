@@ -9,7 +9,9 @@ import { isVisible, splitUpdateId, getBuildProject, seriesNeighbors } from '../.
 import SubscribeForm from '../../../components/SubscribeForm.astro';
 import AuthorByline from '../../../components/blog/AuthorByline.astro';
 import SeriesNav from '../../../components/building/SeriesNav.astro';
+import RelatedPosts from '../../../components/blog/RelatedPosts.astro';
 import { jsonLd } from '../../../lib/jsonld';
+import { relatedPosts } from '../../../lib/related-core.ts';
 
 export async function getStaticPaths() {
   const updates = await getCollection('buildlog', isVisible);
@@ -23,11 +25,11 @@ export async function getStaticPaths() {
   return updates.map((u) => {
     const { project, slug } = splitUpdateId(u.id);
     const { prev, next } = seriesNeighbors(u, byProject.get(project)!);
-    return { params: { project, update: slug }, props: { update: u, prev, next } };
+    return { params: { project, update: slug }, props: { update: u, prev, next, related: relatedPosts(u, updates, 3) } };
   });
 }
 
-const { update, prev, next } = Astro.props;
+const { update, prev, next, related } = Astro.props;
 const { Content, headings } = await render(update);
 const { project: projectSlug } = splitUpdateId(update.id);
 const project = getBuildProject(projectSlug);
@@ -99,6 +101,7 @@ const breadcrumb = {
       <Content />
     </div>
     <SeriesNav prev={prev} next={next} hubUrl={`/building/${projectSlug}/`} hubTitle={project?.title ?? 'this build'} />
+    <RelatedPosts items={related} collection="buildlog" />
     <div class="mt-12 pt-8 border-t border-base-content/10 flex flex-wrap gap-3">
       <a href={`/building/${projectSlug}/`} class="btn btn-ghost btn-sm font-base">← All updates</a>
       <a href="/#section-contact" class="btn btn-primary btn-sm font-base">Work with me →</a>
