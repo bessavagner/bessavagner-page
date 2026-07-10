@@ -146,6 +146,47 @@ describe('extractAssetSpecifiers', () => {
     const body = ["import a from './a.svg';", "import b from './b.svg';", '', 'Text.'].join('\n');
     expect(extractAssetSpecifiers(body, {})).toEqual(['./a.svg', './b.svg']);
   });
+
+  it('finds a real import in a CRLF body (a CRLF blank line must still split blocks)', () => {
+    // A CRLF blank line is \r\n\r\n — i.e. \n \r \n — so a block-splitting
+    // regex that only recognizes \n-bounded blank lines never splits a CRLF
+    // body at all, and the whole document becomes one block gated on its
+    // literal first line. Prose-opening posts (all of them) then fail the
+    // gate and no import anywhere is found.
+    const body = [
+      'Some intro prose.',
+      '',
+      "import Chart from '../../assets/blog/x/chart.svg';",
+      '',
+      'Closing prose.',
+    ].join('\r\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['../../assets/blog/x/chart.svg']);
+  });
+
+  it('ignores a block comment inside an import statement and finds the real specifier', () => {
+    const body = "import x /* from './fake.svg' nonsense */ from './real.svg';";
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./real.svg']);
+  });
+
+  it('ignores a line comment inside an import statement and finds the real specifier', () => {
+    const body = ["import x // was './old.svg'", "  from './real.svg';"].join('\n');
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./real.svg']);
+  });
+
+  it('ignores a trailing line comment after a real import statement', () => {
+    const body = "import x from './real.svg'; // see './other.svg'";
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./real.svg']);
+  });
+
+  it('does not mangle a specifier that legitimately contains //', () => {
+    const body = "import x from './a//b.svg';";
+    expect(extractAssetSpecifiers(body, {})).toEqual(['./a//b.svg']);
+  });
+
+  it('does not mangle a bare https:// specifier into a false local match', () => {
+    const body = "import x from 'https://cdn.example/x.js';";
+    expect(extractAssetSpecifiers(body, {})).toEqual([]);
+  });
 });
 
 describe('computeReviewHash', () => {

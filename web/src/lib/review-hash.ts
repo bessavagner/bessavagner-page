@@ -73,6 +73,27 @@ function stripFencedCode(body: string): string {
 }
 
 /**
+ * Strip JS comments from an import-led block before the import regex runs, so
+ * a comment sitting between `import` and the specifier (valid whitespace in an
+ * import declaration) can't have its own quoted text mistaken for the real
+ * specifier, and so a commented-out `from '...'` can't hide the real one.
+ *
+ * Block comments are removed outright — `/*` is not a legal substring of a
+ * file path. Line comments are removed only where `//` is preceded by
+ * start-of-line or whitespace, and only that whitespace is kept in place of
+ * the match: a specifier's own `//` (a path segment boundary, e.g.
+ * `./a//b.svg`, or a URL scheme, e.g. `https://cdn/x.js`) is always preceded
+ * by a non-whitespace character and is left untouched.
+ *
+ * This is regex-based, not a real JS tokenizer, so it does not understand
+ * string literals: a `//` or `/*` that happens to sit inside some other part
+ * of the statement (outside the specifier itself) could still be misread.
+ */
+function stripComments(block: string): string {
+  return block.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/[^\n]*/g, '$1');
+}
+
+/**
  * Every local asset the post depends on, deduplicated and sorted — import order is
  * not content. Sources: the body's `import x from '<spec>'` statements outside
  * fenced code blocks, and the heroImage / heroImageDark frontmatter fields.
@@ -83,18 +104,24 @@ export function extractAssetSpecifiers(
 ): string[] {
   const found = new Set<string>();
   const importRe = /^\s*import\s+[^'"]*from\s*['"]([^'"]+)['"]/gm;
+  // Normalize CRLF to LF first, same as normalizeBody: the block-splitting
+  // regex below only recognizes \n-bounded blank lines, and a CRLF blank line
+  // is \r\n\r\n (\n \r \n) — the stray \r blocks the split, so an
+  // un-normalized CRLF body never splits into blocks at all and no import
+  // anywhere in it is found.
+  const normalized = body.replace(/\r\n/g, '\n');
   // MDX only treats a line beginning with `import` as ESM when that line
   // begins a block (document start, or right after a blank line) — so only
   // scan blocks whose first line begins with `import`. A mid-paragraph line
   // starting with the word "import" is prose and must not be scanned.
-  for (const rawBlock of stripFencedCode(body).split(/\n(?:[ \t]*\n)+/)) {
+  for (const rawBlock of stripFencedCode(normalized).split(/\n(?:[ \t]*\n)+/)) {
     // A leading blank line (e.g. right after frontmatter) survives the split
     // as part of the first block instead of being consumed as a separator,
     // since there's no preceding block for it to separate from. Trim it so
     // the block-start check below looks at the block's first real line.
     const block = rawBlock.replace(/^(?:[ \t]*\n)+/, '');
     if (!/^[ \t]{0,3}import\b/.test(block)) continue;
-    for (const m of block.matchAll(importRe)) {
+    for (const m of stripComments(block).matchAll(importRe)) {
       if (isLocal(m[1])) found.add(m[1]);
     }
   }
