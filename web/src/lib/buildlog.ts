@@ -1,12 +1,17 @@
 import { getCollection, type CollectionEntry } from 'astro:content';
 import bpData from '../data/buildProjects.json';
-import { splitUpdateId, sortUpdatesByDateDesc, type BuildProject } from './buildlog-core.ts';
+import {
+  splitUpdateId,
+  seriesNeighbors,
+  sortUpdatesByDateDesc,
+  type BuildProject,
+} from './buildlog-core.ts';
 import { isVisible as isPublicationVisible } from './publication.ts';
 import { hashMatches } from './review-map.ts';
 import { resolvePublishAt } from './clock.ts';
 
 export type BuildUpdate = CollectionEntry<'buildlog'>;
-export { splitUpdateId };
+export { splitUpdateId, seriesNeighbors };
 export type { BuildProject };
 
 /** Visibility for a single update, via the one publication rule in publication.ts. */

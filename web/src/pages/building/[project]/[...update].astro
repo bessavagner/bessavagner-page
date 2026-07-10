@@ -5,20 +5,29 @@ import Base from '../../../layouts/Base.astro';
 import UpdateMeta from '../../../components/building/UpdateMeta.astro';
 import TableOfContents from '../../../components/blog/TableOfContents.astro';
 import { readingTime } from '../../../lib/blog';
-import { isVisible, splitUpdateId, getBuildProject } from '../../../lib/buildlog';
+import { isVisible, splitUpdateId, getBuildProject, seriesNeighbors } from '../../../lib/buildlog';
 import SubscribeForm from '../../../components/SubscribeForm.astro';
 import AuthorByline from '../../../components/blog/AuthorByline.astro';
+import SeriesNav from '../../../components/building/SeriesNav.astro';
 import { jsonLd } from '../../../lib/jsonld';
 
 export async function getStaticPaths() {
   const updates = await getCollection('buildlog', isVisible);
+  const byProject = new Map<string, typeof updates>();
+  for (const u of updates) {
+    const { project } = splitUpdateId(u.id);
+    const list = byProject.get(project);
+    if (list) list.push(u);
+    else byProject.set(project, [u]);
+  }
   return updates.map((u) => {
     const { project, slug } = splitUpdateId(u.id);
-    return { params: { project, update: slug }, props: { update: u } };
+    const { prev, next } = seriesNeighbors(u, byProject.get(project)!);
+    return { params: { project, update: slug }, props: { update: u, prev, next } };
   });
 }
 
-const { update } = Astro.props;
+const { update, prev, next } = Astro.props;
 const { Content, headings } = await render(update);
 const { project: projectSlug } = splitUpdateId(update.id);
 const project = getBuildProject(projectSlug);
@@ -89,6 +98,7 @@ const breadcrumb = {
     <div class="prose prose-lg max-w-none mt-8">
       <Content />
     </div>
+    <SeriesNav prev={prev} next={next} hubUrl={`/building/${projectSlug}/`} hubTitle={project?.title ?? 'this build'} />
     <div class="mt-12 pt-8 border-t border-base-content/10 flex flex-wrap gap-3">
       <a href={`/building/${projectSlug}/`} class="btn btn-ghost btn-sm font-base">← All updates</a>
       <a href="/#section-contact" class="btn btn-primary btn-sm font-base">Work with me →</a>

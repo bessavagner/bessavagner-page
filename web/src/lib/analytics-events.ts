@@ -21,6 +21,8 @@ export const EVENTS = {
   HERO_CTA_WORK: 'hero_cta_work',
   /** Email address click (hero + contact). */
   EMAIL_CLICK: 'email_click',
+  /** Buildlog series prev/next/hub nav. Param: direction = prev|next|hub. */
+  SERIES_NAV: 'series_nav',
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];

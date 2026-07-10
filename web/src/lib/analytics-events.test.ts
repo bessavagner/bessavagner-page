@@ -15,14 +15,14 @@ test('the live GA4 key events keep their exact names (never rename)', () => {
   assert.equal(EVENTS.NEWSLETTER_SIGNUP, 'newsletter_signup');
 });
 
-test('taxonomy covers all seven wired actions with unique names', () => {
+test('taxonomy covers all wired actions with unique names', () => {
   const values = Object.values(EVENTS);
-  assert.equal(values.length, 7);
-  assert.equal(new Set(values).size, 7, 'event names must be unique');
+  assert.equal(values.length, 8);
+  assert.equal(new Set(values).size, 8, 'event names must be unique');
   assert.deepEqual(
     [...values].sort(),
     ['cv_download', 'email_click', 'generate_lead', 'hero_cta_contact',
-     'hero_cta_work', 'newsletter_signup', 'whatsapp_click'],
+     'hero_cta_work', 'newsletter_signup', 'series_nav', 'whatsapp_click'],
   );
 });
 

@@ -1,0 +1,29 @@
+---
+import type { BuildUpdate } from '../../lib/buildlog';
+import { splitUpdateId } from '../../lib/buildlog';
+import { EVENTS } from '../../lib/analytics-events';
+interface Props { prev?: BuildUpdate; next?: BuildUpdate; hubUrl: string; hubTitle: string; class?: string; }
+const { prev, next, hubUrl, hubTitle, class: className = '' } = Astro.props;
+const href = (u: BuildUpdate) => {
+  const { project, slug } = splitUpdateId(u.id);
+  return `/building/${project}/${slug}/`;
+};
+---
+<nav class:list={["grid gap-4 sm:grid-cols-2 mt-12 pt-8 border-t border-base-content/10", className]} aria-label="Build-log series navigation">
+  {prev ? (
+    <a href={href(prev)} data-track={EVENTS.SERIES_NAV} data-track-direction="prev"
+       class="group rounded-xl border border-base-content/10 bg-base-200/40 p-4 hover:border-primary/40">
+      <span class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent">← Previously</span>
+      <span class="block font-base text-sm text-base-content/80 group-hover:text-primary mt-1">{prev.data.title}</span>
+    </a>
+  ) : <span class="hidden sm:block" aria-hidden="true"></span>}
+  {next ? (
+    <a href={href(next)} data-track={EVENTS.SERIES_NAV} data-track-direction="next"
+       class="group rounded-xl border border-base-content/10 bg-base-200/40 p-4 hover:border-primary/40 sm:text-right">
+      <span class="ubuntu-mono-regular text-xs uppercase tracking-widest text-accent">Next up →</span>
+      <span class="block font-base text-sm text-base-content/80 group-hover:text-primary mt-1">{next.data.title}</span>
+    </a>
+  ) : <span class="hidden sm:block" aria-hidden="true"></span>}
+  <a href={hubUrl} data-track={EVENTS.SERIES_NAV} data-track-direction="hub"
+     class="sm:col-span-2 font-base text-sm text-center text-primary hover:underline">All updates in {hubTitle} →</a>
+</nav>
