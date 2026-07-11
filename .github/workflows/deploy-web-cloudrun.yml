@@ -96,6 +96,13 @@ jobs:
       - name: Every post declares a status
         run: pnpm post:lint
 
+      # A post edited after `pnpm post:approve` has a stale reviewHash: the production
+      # build silently filters it out and it 404s where it should be live (the whole
+      # blog once did). `post status` only warns; here it is a hard failure, because
+      # this is the deploy that would ship the breakage. Fix: pnpm post:approve <path>.
+      - name: No approvals went stale
+        run: pnpm post:gate
+
       - name: Build
         run: pnpm build
 

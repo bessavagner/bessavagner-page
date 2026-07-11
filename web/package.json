@@ -18,6 +18,7 @@
     "diagram:build": "node scripts/diagrams/render.mjs",
     "post:approve": "node --experimental-strip-types scripts/post.ts approve",
     "post:status": "node --experimental-strip-types scripts/post.ts status",
+    "post:gate": "node --experimental-strip-types scripts/post.ts gate",
     "post:lint": "node --experimental-strip-types scripts/post.ts lint",
     "post:preview": "node --experimental-strip-types scripts/post.ts preview"
   },

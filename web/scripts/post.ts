@@ -147,6 +147,41 @@ export function cmdLint(contentDir?: string): void {
   process.exit(1);
 }
 
+/**
+ * Fail on any approval that went stale — a post `status: approved` whose body was
+ * edited after `post approve` stamped it, so its `reviewHash` no longer matches
+ * its content. In a production build such a post is silently filtered out (see
+ * publication.ts) and 404s where it should be live — the whole blog once did.
+ *
+ * `post status` reports this as one WARN line among others and exits 0; this is
+ * the same fact as a hard error, meant for the deploy pipeline, whose whole job
+ * is to stop broken content from shipping. Unlike check-publish.ts — which treats
+ * a late post as the system working as designed — a stale approval is never
+ * intentional: an edit silently unpublished a post. We fail regardless of pubDate,
+ * so the breakage is caught on the deploy that introduces it, not weeks later when
+ * a scheduled rebuild first tries to surface the post.
+ *
+ * `contentDir` is exposed only so tests can point this at a fixture tree; the CLI
+ * always calls this with no argument, which resolves the real content dir.
+ */
+export function cmdGate(contentDir?: string): void {
+  const { posts } = readPosts(Date.now(), contentDir);
+  const stale = posts.filter((p) => p.state === 'stale-approval');
+
+  if (stale.length === 0) {
+    console.log('OK — no approvals went stale.');
+    return;
+  }
+
+  for (const p of stale) console.log(`${p.repoPath}  ${p.data.pubDate.toISOString()}`);
+  const n = stale.length;
+  console.error(
+    `\n${n} approved post${n === 1 ? ' was' : 's were'} edited after approval; ` +
+      `${n === 1 ? 'it' : 'they'} will 404 in production. Re-stamp with: pnpm post:approve <path>`,
+  );
+  process.exit(1);
+}
+
 function parseDays(argv: string[]): number {
   const eq = argv.find((a) => a.startsWith('--days='));
   if (eq) return Number(eq.split('=')[1]);
@@ -197,6 +232,9 @@ if (isMain) {
     case 'status':
       cmdStatus();
       break;
+    case 'gate':
+      cmdGate();
+      break;
     case 'lint':
       cmdLint();
       break;
@@ -204,7 +242,7 @@ if (isMain) {
       cmdPreview(rest);
       break;
     default:
-      console.error('usage: post <approve <path>|status|lint|preview [--days N]>');
+      console.error('usage: post <approve <path>|status|gate|lint|preview [--days N]>');
       process.exit(1);
   }
 }

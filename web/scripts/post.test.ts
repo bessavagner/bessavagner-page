@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { approvePost, cmdLint, cmdPreview, rewriteKeys, detectEol } from './post.ts';
+import { approvePost, cmdGate, cmdLint, cmdPreview, rewriteKeys, detectEol } from './post.ts';
 import { readPosts } from './read-posts.ts';
 
 let root = '';
@@ -161,6 +161,57 @@ describe('cmdLint fixture sanity', () => {
     );
     const { invalid } = readPosts(Date.now(), contentDir);
     expect(invalid.some((i) => i.rawPubDate === 'not-a-date')).toBe(true);
+  });
+});
+
+describe('cmdGate — fails the build on a stale approval', () => {
+  it('exits 1 and names an approved-then-edited post, regardless of pubDate', () => {
+    const now = Date.now();
+
+    // Approved but with a hash that cannot match the body → stale-approval. Past
+    // due, so it is exactly the "should be live but 404s" case the gate guards.
+    writeFileSync(
+      join(contentDir, 'blog', 'stale.mdx'),
+      ['---', 'title: Edited After Approval', 'description: d', 'pubDate: 2020-01-01', 'status: approved', 'reviewHash: sha256:0000000000000000000000000000000000000000000000000000000000000000', '---', '', 'Body edited after approval.', ''].join('\n'),
+    );
+
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg: string) => void logs.push(msg));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation((msg: string) => void errors.push(msg));
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as never);
+
+    expect(() => cmdGate(contentDir)).toThrow('process.exit(1)');
+
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+
+    expect(logs.join('\n')).toContain('stale.mdx');
+    expect(errors.join('\n')).toContain('will 404 in production');
+  });
+
+  it('reports OK and does not exit when no approval is stale', () => {
+    // A review post and a future draft: neither is an approved-then-edited post,
+    // so the gate must stay silent and not exit.
+    writeFileSync(
+      join(contentDir, 'blog', 'in-review.mdx'),
+      ['---', 'title: In review', 'description: d', 'pubDate: 2026-01-01', 'status: review', '---', '', 'Body.', ''].join('\n'),
+    );
+
+    const logs: string[] = [];
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg: string) => void logs.push(msg));
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`process.exit(${code})`);
+    }) as never);
+
+    expect(() => cmdGate(contentDir)).not.toThrow();
+    expect(logs.join('\n')).toContain('OK — no approvals went stale.');
+
+    logSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 });
 
