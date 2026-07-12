@@ -60,3 +60,64 @@ class FetchCoverage(unittest.TestCase):
         body = client.searchanalytics().last_body
         self.assertEqual(body["startDate"], "2026-07-01")
         self.assertEqual(body["endDate"], "2026-07-31")
+
+
+class FetchTotals(unittest.TestCase):
+    def _client(self):
+        # Shape of the real 90-day pull taken on 2026-07-12.
+        return FakeClient({(): [
+            {"clicks": 3, "impressions": 567, "ctr": 0.00529, "position": 23.3},
+        ]})
+
+    def test_emits_four_totals_all_sourced_gsc(self):
+        metrics = gsc.fetch_totals(self._client(), "sc-domain:example.com", JULY)
+        self.assertEqual([m.name for m in metrics],
+                         ["Clicks", "Impressions", "CTR", "Average position"])
+        self.assertTrue(all(m.source == "GSC" for m in metrics))
+
+    def test_values_are_formatted(self):
+        by_name = {m.name: m.value for m in gsc.fetch_totals(self._client(), "s", JULY)}
+        self.assertEqual(by_name["Clicks"], "3")
+        self.assertEqual(by_name["Impressions"], "567")
+        self.assertEqual(by_name["CTR"], "0.53%")
+        self.assertEqual(by_name["Average position"], "23.3")
+
+    def test_position_carries_the_low_volume_caveat_as_a_note(self):
+        pos = [m for m in gsc.fetch_totals(self._client(), "s", JULY)
+               if m.name == "Average position"][0]
+        self.assertIn("impression-weighted", pos.note)
+
+    def test_no_rows_yields_no_metrics_not_zeros(self):
+        # Absence of measurement is never a measured zero.
+        self.assertEqual(gsc.fetch_totals(FakeClient(), "s", JULY), [])
+
+
+class FetchBreakdowns(unittest.TestCase):
+    def test_top_queries(self):
+        client = FakeClient({("query",): [
+            {"keys": ["fingerprint browser selenium"], "clicks": 0, "impressions": 4,
+             "ctr": 0.0, "position": 17.2},
+        ]})
+        m = gsc.fetch_top_queries(client, "s", JULY)[0]
+        self.assertEqual(m.name, "fingerprint browser selenium")
+        self.assertEqual(m.source, "GSC")
+        self.assertIn("4 impr", m.value)
+        self.assertIn("pos 17.2", m.value)
+
+    def test_top_pages(self):
+        client = FakeClient({("page",): [
+            {"keys": ["https://bessavagner.com/blog/beating-browser-fingerprinting/"],
+             "clicks": 1, "impressions": 179, "ctr": 0.0056, "position": 18.6},
+        ]})
+        m = gsc.fetch_top_pages(client, "s", JULY)[0]
+        self.assertEqual(m.name, "/blog/beating-browser-fingerprinting/")  # host stripped
+        self.assertIn("179 impr", m.value)
+
+    def test_countries(self):
+        client = FakeClient({("country",): [
+            {"keys": ["bra"], "clicks": 0, "impressions": 48, "ctr": 0.0, "position": 30.0},
+            {"keys": ["nld"], "clicks": 1, "impressions": 21, "ctr": 0.048, "position": 15.0},
+        ]})
+        metrics = gsc.fetch_countries(client, "s", JULY)
+        self.assertEqual([m.name for m in metrics], ["BRA", "NLD"])
+        self.assertTrue(all(m.source == "GSC" for m in metrics))

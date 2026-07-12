@@ -104,3 +104,49 @@ def fetch_coverage(client, site: str, w: Window) -> Window | None:
         return None
     days = sorted(date.fromisoformat(r["keys"][0]) for r in rows)
     return Window(days[0], days[-1])
+
+
+def _fmt_row(r: dict) -> str:
+    return (
+        f"{r['impressions']} impr · {r['clicks']} clicks · "
+        f"{r['ctr'] * 100:.2f}% CTR · pos {r['position']:.1f}"
+    )
+
+
+def fetch_totals(client, site: str, w: Window) -> list[Metric]:
+    rows = _query(client, site, w, [], limit=1)
+    if not rows:
+        return []  # no data — the caller flags it; never zero-fill
+    r = rows[0]
+    return [
+        Metric("Clicks", str(r["clicks"]), "GSC"),
+        Metric("Impressions", str(r["impressions"]), "GSC"),
+        Metric("CTR", f"{r['ctr'] * 100:.2f}%", "GSC"),
+        Metric(
+            "Average position", f"{r['position']:.1f}", "GSC",
+            note="impression-weighted; unstable at low volume — a few points is not a trend",
+        ),
+    ]
+
+
+def fetch_top_queries(client, site: str, w: Window, limit: int = 10) -> list[Metric]:
+    rows = _query(client, site, w, ["query"], limit=limit)
+    rows.sort(key=lambda r: r["impressions"], reverse=True)
+    return [Metric(r["keys"][0], _fmt_row(r), "GSC") for r in rows]
+
+
+def fetch_top_pages(client, site: str, w: Window, limit: int = 10) -> list[Metric]:
+    rows = _query(client, site, w, ["page"], limit=limit)
+    rows.sort(key=lambda r: r["impressions"], reverse=True)
+    out = []
+    for r in rows:
+        url = r["keys"][0]
+        path = url.split("bessavagner.com", 1)[-1] or url
+        out.append(Metric(path, _fmt_row(r), "GSC"))
+    return out
+
+
+def fetch_countries(client, site: str, w: Window, limit: int = 5) -> list[Metric]:
+    rows = _query(client, site, w, ["country"], limit=limit)
+    rows.sort(key=lambda r: r["impressions"], reverse=True)
+    return [Metric(r["keys"][0].upper(), _fmt_row(r), "GSC") for r in rows]
