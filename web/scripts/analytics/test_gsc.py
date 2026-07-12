@@ -283,3 +283,28 @@ class InspectUrls(unittest.TestCase):
         self.assertIn("connection reset by peer", result[1].note)
 
         self.assertEqual(result[2].value, "Crawled - currently not indexed")
+
+
+class Fake403Query:
+    def execute(self):
+        raise HttpError(FakeResp(403), b"forbidden")
+
+
+class Fake403SearchAnalytics:
+    def query(self, siteUrl, body):  # noqa: N803 — Google's API spells it this way
+        return Fake403Query()
+
+
+class Fake403Client:
+    def searchanalytics(self):
+        return Fake403SearchAnalytics()
+
+
+class QueryAccessErrors(unittest.TestCase):
+    def test_403_raises_access_error(self):
+        # The module's own worst failure mode: a silently-empty GSC section
+        # reads as "no search demand", the most dangerous wrong answer this
+        # module can give. A 403 (service account not a user on the
+        # property) must raise loudly, never degrade to an empty list.
+        with self.assertRaises(gsc.AccessError):
+            gsc.fetch_coverage(Fake403Client(), "sc-domain:example.com", JULY)

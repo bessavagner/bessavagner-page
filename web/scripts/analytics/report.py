@@ -24,6 +24,29 @@ class Section:
     metrics: list[Metric]
 
 
+# The standing monthly + weekly operating cadence for four items the sprint
+# intentionally deferred pending more traffic (F-fold, commit 2fb04df). This
+# was originally hand-appended to the rendered report; a later regeneration
+# silently deleted it because the code had no memory of it. Promoted here so
+# render_report can re-emit it on every run — see the closing note below.
+ROLLING_READOUTS = """## Rolling readouts (standing cadence — traffic-gated)
+
+This is the standing monthly + weekly operating cadence for the four items the
+sprint intentionally deferred pending more traffic. None are dropped — each has
+a named home below and is re-checked on the cadence noted, not abandoned.
+
+| # | Readout | Home | Status |
+|---|---|---|---|
+| E3 | Link-placement verdict (body / first-comment / profile-featured) | tracker rollup → [`linkedin-post-tracker.md`](../../playbooks/linkedin-post-tracker.md#e3--link-placement-rollup-pending-n-posts-per-variant) → [`linkedin-playbook.md`](../../playbooks/linkedin-playbook.md#link-placement-ab) | pending ≥N posts per variant |
+| E8 | Re-baseline delta once a clean post-A/B month exists | [`kpi-baselines-and-targets.md`](../kpi-baselines-and-targets.md) | pending 1 full post-A/B month |
+| C3b | Pages/session crossing 2.0 from the internal-link retrofit | this report's GA4 channel section (above) | trend; pending weeks of traffic — current site-wide baseline is 1.69 (GA4, [`kpi-baselines-and-targets.md`](../kpi-baselines-and-targets.md)), below the 2.0 goal |
+| D6b | Conversion shift near the trust block | this report | **pending a real named testimonial** (never fabricated) + weeks of traffic |
+
+> This block is emitted from `report.py` (the `ROLLING_READOUTS` constant), so
+> every month carries it automatically — it no longer needs to be hand-appended.
+"""
+
+
 def _table(metrics: list[Metric]) -> str:
     if not metrics:
         return "_(none)_\n"
@@ -48,4 +71,5 @@ def render_report(month: str, sections: list[Section], caveats: list[str]) -> st
         parts += [f"## {s.title}", _table(s.metrics)]
     if caveats:
         parts += ["## Caveats", ""] + [f"- {c}" for c in caveats] + [""]
+    parts.append(ROLLING_READOUTS.rstrip("\n"))
     return "\n".join(parts) + "\n"

@@ -59,3 +59,13 @@ class RenderReport(unittest.TestCase):
                 sections=[Section("Reach (Umami)", [Metric("Pageviews", "1,204", "")])],
                 caveats=[],
             )
+
+    def test_rolling_readouts_block_is_always_emitted(self):
+        # Regression guard: a prior regeneration silently deleted this
+        # hand-appended section (F-fold, commit 2fb04df). It is now a
+        # module-level constant that render_report emits on every call, so
+        # it can never again be dropped by a regeneration.
+        md = self._sample()
+        self.assertIn("## Rolling readouts (standing cadence — traffic-gated)", md)
+        for readout_id in ("E3", "E8", "C3b", "D6b"):
+            self.assertIn(f"| {readout_id} |", md)

@@ -67,6 +67,22 @@ def main() -> int:
             "sections below are an absence of measurement, not a finding of zero search demand."
         )
 
+    # A month that has not finished yet must say so. Umami and GA4 both
+    # assume the calendar month equals the measured window (unlike GSC's
+    # empirically-detected coverage below) — without this caveat, a
+    # comparison against a full prior month reads as a traffic collapse
+    # when it is really just fewer elapsed days.
+    today = date.today()
+    if month_w.end >= today:
+        elapsed_end = min(today, month_w.end)
+        caveats.append(
+            f"{args.month} is a **partial month** — as of {today.isoformat()} only "
+            f"{month_w.start.isoformat()}..{elapsed_end.isoformat()} has elapsed. "
+            f"Every Umami and GA4 figure in this report is provisional and must not "
+            f"be compared against a full month; a lower count here can simply mean "
+            f"fewer days have happened yet, not a decline in traffic."
+        )
+
     # --- Umami reach (whole month; Umami has the longer history) ---
     rows = umami.load_website_events(args.umami_dir)
     umami_counts = {
@@ -93,6 +109,13 @@ def main() -> int:
             )
         client = ga4.build_client()
         channel = ga4.fetch_channel_engagement(client, args.property_id, cmp_w)
+        if channel:
+            caveats.append(
+                "GA4's channel-table session counts are summed per-dimension (per "
+                "channel) and can differ from GA4's unfiltered site-wide session "
+                "total — session modeling/bucketing on a not-yet-final month. "
+                "Expected, not a discrepancy to chase."
+            )
 
         # GA4 reports NO ROW for a custom event it never received. That
         # absence is never rendered as a measured "0" (ctx 05 §1) — events
@@ -123,7 +146,13 @@ def main() -> int:
             flagged.append(Metric(name, "not instrumented in GA4", "GA4", note=note))
 
     # --- GSC search demand + indexation (third lane; own coverage window) ---
-    search: list[Metric] = []
+    # Split by dimension (totals / queries / pages / countries) rather than one
+    # concatenated table — a shared "Metric" column can't otherwise tell a
+    # country row ("USA") from a query row ("unstructured data extraction").
+    gsc_totals: list[Metric] = []
+    gsc_queries: list[Metric] = []
+    gsc_pages: list[Metric] = []
+    gsc_countries: list[Metric] = []
     indexation: list[Metric] = []
     if not args.skip_gsc:
         sa_path, site = gsc.load_config()
@@ -134,18 +163,20 @@ def main() -> int:
                 "GSC search demand", "pending", "GSC",
                 note=f"no Search Console data in {args.month} — not a measured zero",
             ))
+            flagged.append(Metric(
+                "GSC indexation", "pending", "GSC",
+                note=f"no Search Console data in {args.month} — not a measured zero",
+            ))
         else:
             if (cov.start, cov.end) != (month_w.start, month_w.end):
                 caveats.append(
                     f"GSC covers {cov.start}..{cov.end} of {args.month} only "
                     f"(~2-day reporting lag) — the month is not fully measured."
                 )
-            search = (
-                gsc.fetch_totals(gclient, site, cov)
-                + gsc.fetch_top_queries(gclient, site, cov)
-                + gsc.fetch_top_pages(gclient, site, cov)
-                + gsc.fetch_countries(gclient, site, cov)
-            )
+            gsc_totals = gsc.fetch_totals(gclient, site, cov)
+            gsc_queries = gsc.fetch_top_queries(gclient, site, cov)
+            gsc_pages = gsc.fetch_top_pages(gclient, site, cov)
+            gsc_countries = gsc.fetch_countries(gclient, site, cov)
             caveats.append(
                 "Google withholds rare queries for privacy, so the GSC query rows do not "
                 "sum to the totals row. Expected, not a discrepancy to chase."
@@ -157,7 +188,10 @@ def main() -> int:
         report.Section("Reach (Umami)", reach),
         report.Section("Channel & engagement (GA4)", channel),
         report.Section("Conversions", conversions),
-        report.Section("Search demand (GSC)", search),
+        report.Section("Search demand — totals (GSC)", gsc_totals),
+        report.Section("Top queries (GSC)", gsc_queries),
+        report.Section("Top pages (GSC)", gsc_pages),
+        report.Section("Top countries (GSC)", gsc_countries),
         report.Section("Indexation (GSC)", indexation),
         report.Section("Flagged / pending (no counterpart or traffic-gated)", flagged),
     ]
