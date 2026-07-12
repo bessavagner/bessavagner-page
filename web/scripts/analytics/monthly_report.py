@@ -64,13 +64,13 @@ def main() -> int:
 
     # --- Umami reach (whole month; Umami has the longer history) ---
     rows = umami.load_website_events(args.umami_dir)
-    reach = [
-        Metric(
-            f"{canon} (raw event count)",
-            str(umami.count_event(rows, aliases, month_w.start, month_w.end)),
-            "Umami",
-        )
+    umami_counts = {
+        canon: umami.count_event(rows, aliases, month_w.start, month_w.end)
         for canon, aliases in umami.CONVERSION_EVENTS.items()
+    }
+    reach = [
+        Metric(f"{canon} (raw event count)", str(count), "Umami")
+        for canon, count in umami_counts.items()
     ]
 
     # --- GA4 channel/conversion (overlapping window only) ---
@@ -88,9 +88,34 @@ def main() -> int:
             )
         client = ga4.build_client()
         channel = ga4.fetch_channel_engagement(client, args.property_id, cmp_w)
-        conversions = ga4.fetch_key_event_counts(
+
+        # GA4 reports NO ROW for a custom event it never received. That
+        # absence is never rendered as a measured "0" (ctx 05 §1) — events
+        # GA4 actually reported land in Conversions; events GA4 reported
+        # nothing for are flagged, never zero-filled.
+        reported, missing = ga4.fetch_key_event_counts(
             client, args.property_id, cmp_w, list(umami.CONVERSION_EVENTS.keys())
         )
+        conversions = list(reported)
+
+        proxy = ga4.fetch_file_download_proxy(client, args.property_id, cmp_w)
+        if proxy is not None:
+            conversions.append(proxy)
+
+        for name in missing:
+            umami_count = umami_counts.get(name)
+            if name == "cv_download" and proxy is not None:
+                note = (
+                    f"Only Umami captures it (raw {umami_count}, see Reach). "
+                    f"Nearest GA4 proxy: enhanced-measurement `file_download` = {proxy.value}. "
+                    f"Wire as a GA4 key event to reconcile — not a measured 0."
+                )
+            else:
+                note = (
+                    f"Only Umami captures it (raw {umami_count}, see Reach) "
+                    f"— not a measured 0."
+                )
+            flagged.append(Metric(name, "not instrumented in GA4", "GA4", note=note))
 
     # --- GSC search demand + indexation (third lane; own coverage window) ---
     search: list[Metric] = []
