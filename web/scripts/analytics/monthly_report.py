@@ -15,6 +15,8 @@ import os
 from datetime import date
 
 import ga4
+import gsc
+import published
 import report
 import umami
 import window
@@ -40,6 +42,8 @@ def main() -> int:
     p.add_argument("--out", default=None, help="report path (default docs/.ai/reports/analytics/<month>.md)")
     p.add_argument("--bots-unfiltered", action="store_true",
                    help="Umami bot filtering (A6) not confirmed live — add the caveat")
+    p.add_argument("--skip-gsc", action="store_true",
+                   help="skip the Search Console lane (offline runs / no GSC credentials)")
     args = p.parse_args()
 
     month_w = window.month_window(args.month)
@@ -47,7 +51,10 @@ def main() -> int:
     cmp_w = window.comparison_window(month_w, ga4_start)
 
     caveats = [
-        "Umami = reach truth; GA4 = channel/conversion truth. Figures are never averaged (ctx 05 §4).",
+        "Umami = reach truth; GA4 = channel/conversion truth; GSC = pre-click/demand "
+        "truth (Google organic only). Figures are never averaged (ctx 05 §4).",
+        "GSC is blind to LinkedIn — currently most of this site's traffic. A flat GSC "
+        "month says nothing about overall reach.",
     ]
     if args.bots_unfiltered:
         caveats.append(
@@ -71,7 +78,6 @@ def main() -> int:
     conversions: list[Metric] = []
     flagged: list[Metric] = []
     if cmp_w is None:
-        # Whole month predates GA4 — flag, do NOT zero-fill (ctx 05 §1).
         note = f"{args.month} predates GA4 install ({args.ga4_start}) — no GA4 counterpart"
         flagged.append(Metric("GA4 channel & conversions", "pending", "GA4", note=note))
     else:
@@ -86,7 +92,46 @@ def main() -> int:
             client, args.property_id, cmp_w, list(umami.CONVERSION_EVENTS.keys())
         )
 
-    md = report.render_report(args.month, reach, channel, conversions, flagged, caveats)
+    # --- GSC search demand + indexation (third lane; own coverage window) ---
+    search: list[Metric] = []
+    indexation: list[Metric] = []
+    if not args.skip_gsc:
+        sa_path, site = gsc.load_config()
+        gclient = gsc.build_client(sa_path)
+        cov = gsc.fetch_coverage(gclient, site, month_w)
+        if cov is None:
+            flagged.append(Metric(
+                "GSC search demand", "pending", "GSC",
+                note=f"no Search Console data in {args.month} — not a measured zero",
+            ))
+        else:
+            if (cov.start, cov.end) != (month_w.start, month_w.end):
+                caveats.append(
+                    f"GSC covers {cov.start}..{cov.end} of {args.month} only "
+                    f"(~2-day reporting lag) — the month is not fully measured."
+                )
+            search = (
+                gsc.fetch_totals(gclient, site, cov)
+                + gsc.fetch_top_queries(gclient, site, cov)
+                + gsc.fetch_top_pages(gclient, site, cov)
+                + gsc.fetch_countries(gclient, site, cov)
+            )
+            caveats.append(
+                "Google withholds rare queries for privacy, so the GSC query rows do not "
+                "sum to the totals row. Expected, not a discrepancy to chase."
+            )
+            urls = published.published_in(published.run_post_status(REPO_ROOT), month_w)
+            indexation = gsc.inspect_urls(gclient, site, urls)
+
+    sections = [
+        report.Section("Reach (Umami)", reach),
+        report.Section("Channel & engagement (GA4)", channel),
+        report.Section("Conversions", conversions),
+        report.Section("Search demand (GSC)", search),
+        report.Section("Indexation (GSC)", indexation),
+        report.Section("Flagged / pending (no counterpart or traffic-gated)", flagged),
+    ]
+    md = report.render_report(args.month, sections, caveats)
 
     out = args.out or os.path.join(REPO_ROOT, "docs", ".ai", "reports", "analytics", f"{args.month}.md")
     os.makedirs(os.path.dirname(out), exist_ok=True)
