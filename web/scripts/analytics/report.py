@@ -2,7 +2,8 @@
 
 Structural guarantee of ctx 05 §4: every figure carries its source tool, and
 there is NO code path that averages or 1:1-compares two tools. Reach comes from
-Umami, channel/conversion from GA4; the renderer only lays them side by side.
+Umami, channel/conversion from GA4, pre-click/demand from GSC; the renderer only
+lays them side by side.
 """
 from __future__ import annotations
 
@@ -17,6 +18,12 @@ class Metric:
     note: str = ""
 
 
+@dataclass
+class Section:
+    title: str
+    metrics: list[Metric]
+
+
 def _table(metrics: list[Metric]) -> str:
     if not metrics:
         return "_(none)_\n"
@@ -28,29 +35,17 @@ def _table(metrics: list[Metric]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_report(
-    month: str,
-    reach: list[Metric],
-    channel: list[Metric],
-    conversions: list[Metric],
-    flagged: list[Metric],
-    caveats: list[str],
-) -> str:
+def render_report(month: str, sections: list[Section], caveats: list[str]) -> str:
     parts = [
         f"# Monthly analytics report — {month}",
         "",
-        "> Umami = reach truth · GA4 = channel/conversion truth. "
-        "Every figure names its source; the two are **never averaged** (ctx 05 §4).",
+        "> Umami = reach truth · GA4 = channel/conversion truth · "
+        "GSC = pre-click/demand truth (Google organic only). "
+        "Every figure names its source; the tools are **never averaged** (ctx 05 §4).",
         "",
-        "## Reach (Umami)",
-        _table(reach),
-        "## Channel & engagement (GA4)",
-        _table(channel),
-        "## Conversions",
-        _table(conversions),
-        "## Flagged / pending (no GA4 counterpart or traffic-gated)",
-        _table(flagged),
     ]
+    for s in sections:
+        parts += [f"## {s.title}", _table(s.metrics)]
     if caveats:
         parts += ["## Caveats", ""] + [f"- {c}" for c in caveats] + [""]
     return "\n".join(parts) + "\n"
