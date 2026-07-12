@@ -244,3 +244,42 @@ class InspectUrls(unittest.TestCase):
 
     def test_empty_url_list_yields_no_metrics(self):
         self.assertEqual(gsc.inspect_urls(InspectClient({}), "s", []), [])
+
+    def test_missing_coverage_state_is_pending_NOT_not_indexed(self):
+        # Response present, but neither 'verdict' nor 'error' — the shape the
+        # API returns when coverageState is absent/empty. This branch existed
+        # but had no covering test.
+        client = InspectClient({
+            "https://bessavagner.com/blog/d/": {},
+        })
+        m = gsc.inspect_urls(client, "s", ["https://bessavagner.com/blog/d/"])[0]
+        self.assertEqual(m.value, "pending")
+        self.assertNotIn("not indexed", m.value.lower())
+        self.assertEqual(m.source, "GSC")
+
+    def test_non_http_error_on_one_url_does_not_sink_the_batch(self):
+        # A non-HttpError exception (network error, auth refresh failure,
+        # unexpected shape) on ONE url must degrade THAT url to pending and
+        # let the loop continue — the other urls' results must survive.
+        urls = [
+            "https://bessavagner.com/blog/e/",
+            "https://bessavagner.com/blog/f/",
+            "https://bessavagner.com/blog/g/",
+        ]
+        client = InspectClient({
+            urls[0]: {"verdict": "Submitted and indexed"},
+            urls[1]: {"error": ConnectionError("connection reset by peer")},
+            urls[2]: {"verdict": "Crawled - currently not indexed"},
+        })
+        result = gsc.inspect_urls(client, "s", urls)
+
+        self.assertEqual(len(result), len(urls))  # no url silently dropped
+
+        self.assertEqual(result[0].value, "Submitted and indexed")
+
+        self.assertEqual(result[1].value, "pending")
+        self.assertNotIn("not indexed", result[1].value.lower())
+        self.assertIn("ConnectionError", result[1].note)
+        self.assertIn("connection reset by peer", result[1].note)
+
+        self.assertEqual(result[2].value, "Crawled - currently not indexed")

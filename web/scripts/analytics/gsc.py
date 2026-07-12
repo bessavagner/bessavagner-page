@@ -233,6 +233,17 @@ def inspect_urls(client, site: str, urls: list[str]) -> list[Metric]:
                 note=f"inspection failed ({e.resp.status}) — NOT a 'not indexed' verdict; re-run",
             ))
             continue
+        except Exception as e:  # noqa: BLE001 — one bad URL must not sink the batch
+            # Network errors, auth refresh failures, unexpected response shapes,
+            # etc. Same rule as the HttpError branch above: degrade THIS url to
+            # pending and keep going, so the other urls' results survive. Strip
+            # newlines/pipes so the note stays a single clean Markdown-table cell.
+            detail = f"{type(e).__name__}: {e}".replace("\n", " ").replace("|", "/")
+            out.append(Metric(
+                path, "pending", "GSC",
+                note=f"inspection failed ({detail}) — NOT a 'not indexed' verdict; re-run",
+            ))
+            continue
         state = (
             resp.get("inspectionResult", {})
             .get("indexStatusResult", {})
