@@ -124,7 +124,7 @@ const fontHref =
         <script is:inline async src={`https://www.googletagmanager.com/gtag/js?id=${ga4Id}`}></script>
         <script is:inline define:vars={{ ga4Id }}>
           window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
+          window.gtag = function gtag(){ dataLayer.push(arguments); };
           gtag('js', new Date());
           gtag('config', ga4Id, { transport_type: 'beacon' });
         </script>
