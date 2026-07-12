@@ -54,8 +54,7 @@ def build_conversions(
         else:
             note = (
                 f"GA4 received no {name} in this window (Umami raw {raw}, see Reach) "
-                f"— not a measured 0. The event is verified firing (A0); GA4 simply "
-                f"has no row for it here."
+                f"— not a measured 0. GA4 simply has no row for this event here."
             )
         flagged.append(Metric(name, "no GA4 events in window", "GA4", note=note))
 
