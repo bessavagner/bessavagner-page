@@ -14,6 +14,7 @@ import argparse
 import os
 from datetime import date
 
+import boundaries
 import ga4
 import gsc
 import published
@@ -56,6 +57,7 @@ def main() -> int:
         "GSC is blind to LinkedIn — currently most of this site's traffic. A flat GSC "
         "month says nothing about overall reach.",
     ]
+    caveats.extend(boundaries.boundary_caveats(month_w))
     if args.bots_unfiltered:
         caveats.append(
             "Umami bot filtering (A6) not confirmed live — raw Umami counts may be bot-inflated; "
