@@ -157,3 +157,21 @@ class FetchBreakdowns(unittest.TestCase):
         self.assertIn("unstructured data extraction", names)
         self.assertEqual(names[0], "unstructured data extraction")
         self.assertEqual(len(metrics), 10)
+
+    def test_breakdown_at_the_fetch_ceiling_raises_instead_of_ranking(self):
+        # If a dimension's true row count ever reaches _BREAKDOWN_FETCH_LIMIT,
+        # the API's server-side truncation (clicks descending, no orderBy)
+        # kicks in exactly as it did at limit=1000 in the bug this module was
+        # built to prevent. A response landing exactly on the ceiling is
+        # indistinguishable from "truncated" and must never be silently
+        # ranked by impressions and sliced — that would be a click-biased
+        # top-N presented as if it were complete. Built from the constant
+        # itself so this stays correct if the ceiling ever changes.
+        rows = [
+            {"keys": [f"query {i}"], "clicks": 0, "impressions": i,
+             "ctr": 0.0, "position": 20.0}
+            for i in range(gsc._BREAKDOWN_FETCH_LIMIT)
+        ]
+        client = FakeClient({("query",): rows})
+        with self.assertRaises(gsc.TruncationError):
+            gsc.fetch_top_queries(client, "s", JULY)

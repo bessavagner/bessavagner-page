@@ -43,6 +43,22 @@ class AccessError(Exception):
     """
 
 
+class TruncationError(Exception):
+    """Raised when a breakdown fetch hits the API's row-limit ceiling.
+
+    Loud on purpose, same idiom as AccessError. The Search Analytics API
+    truncates server-side by clicks descending (see _BREAKDOWN_FETCH_LIMIT),
+    so a response that comes back exactly at the ceiling means we cannot
+    tell whether it is the whole dataset or a clicks-biased partial sample.
+    Ranking that sample by impressions and slicing to top-N would silently
+    resurrect the exact bug this module exists to prevent — a low-impression,
+    high-click page or query displacing the true top result, which the API's
+    truncation hid before we ever got to sort it. The only correct fix when
+    this fires is to page the API (loop on startRow), not to raise the limit
+    further.
+    """
+
+
 def load_config(path: str | None = None) -> tuple[str, str]:
     cfg_path = path or os.environ.get("CLAUDE_SEO_CONFIG", DEFAULT_CONFIG)
     try:
@@ -138,10 +154,12 @@ def fetch_totals(client, site: str, w: Window) -> list[Metric]:
 # top N by impressions — and impressions are the entire point of this lane
 # (GSC = pre-click/demand truth). Verified against the live API: with
 # limit=10 the true #1 query by impressions (22) was absent from the
-# response entirely. So we fetch wide enough to capture every row that
-# exists today (~35, far under the API's 25,000 ceiling), sort by
-# impressions locally, then slice to the caller's requested limit.
-_BREAKDOWN_FETCH_LIMIT = 1000
+# response entirely. So we fetch at the API's documented ceiling — a single
+# call retrieves every row that could possibly exist for any realistically
+# sized site — sort by impressions locally, then slice to the caller's
+# requested limit. See TruncationError below for what happens if a
+# dimension's true row count ever reaches the ceiling anyway.
+_BREAKDOWN_FETCH_LIMIT = 25_000
 
 
 def _fetch_breakdown(
@@ -153,6 +171,23 @@ def _fetch_breakdown(
     name_fn=lambda r: r["keys"][0],
 ) -> list[Metric]:
     rows = _query(client, site, w, [dimension], limit=_BREAKDOWN_FETCH_LIMIT)
+    if len(rows) == _BREAKDOWN_FETCH_LIMIT:
+        raise TruncationError(
+            f"GSC breakdown for dimension={dimension!r} returned exactly "
+            f"_BREAKDOWN_FETCH_LIMIT ({_BREAKDOWN_FETCH_LIMIT}) rows — the "
+            f"Search Analytics API almost certainly truncated the response "
+            f"server-side. The API has no orderBy and truncates by clicks "
+            f"descending, before this code ever sees the rows, so a "
+            f"truncated response is a clicks-biased partial sample, not the "
+            f"full dataset. Ranking it by impressions and slicing to top-N "
+            f"would silently reintroduce the exact bug this module exists "
+            f"to prevent (see the comment above _BREAKDOWN_FETCH_LIMIT): a "
+            f"low-impression, high-click row could displace the true top "
+            f"result, which the truncation hid before we ever got to sort "
+            f"it. Refusing to emit an untrustworthy ranking. The fix is to "
+            f"page the API (loop on startRow) for this dimension, not to "
+            f"raise the limit further."
+        )
     rows.sort(key=lambda r: r["impressions"], reverse=True)
     return [Metric(name_fn(r), _fmt_row(r), "GSC") for r in rows[:limit]]
 
