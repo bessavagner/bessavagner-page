@@ -15,6 +15,7 @@ import os
 from datetime import date
 
 import boundaries
+import conversions
 import ga4
 import gsc
 import published
@@ -98,7 +99,7 @@ def main() -> int:
 
     # --- GA4 channel/conversion (overlapping window only) ---
     channel: list[Metric] = []
-    conversions: list[Metric] = []
+    conversions_section: list[Metric] = []
     flagged: list[Metric] = []
     if cmp_w is None:
         note = f"{args.month} predates GA4 install ({args.ga4_start}) — no GA4 counterpart"
@@ -119,33 +120,16 @@ def main() -> int:
                 "Expected, not a discrepancy to chase."
             )
 
-        # GA4 reports NO ROW for a custom event it never received. That
-        # absence is never rendered as a measured "0" (ctx 05 §1) — events
-        # GA4 actually reported land in Conversions; events GA4 reported
-        # nothing for are flagged, never zero-filled.
+        # Conversions assembly (mutual exclusion of the file_download proxy; flag,
+        # never zero-fill) is pure and lives in conversions.py, where it is tested.
         reported, missing = ga4.fetch_key_event_counts(
             client, args.property_id, cmp_w, list(umami.CONVERSION_EVENTS.keys())
         )
-        conversions = list(reported)
-
         proxy = ga4.fetch_file_download_proxy(client, args.property_id, cmp_w)
-        if proxy is not None:
-            conversions.append(proxy)
-
-        for name in missing:
-            umami_count = umami_counts.get(name)
-            if name == "cv_download" and proxy is not None:
-                note = (
-                    f"Only Umami captures it (raw {umami_count}, see Reach). "
-                    f"Nearest GA4 proxy: enhanced-measurement `file_download` = {proxy.value}. "
-                    f"Wire as a GA4 key event to reconcile — not a measured 0."
-                )
-            else:
-                note = (
-                    f"Only Umami captures it (raw {umami_count}, see Reach) "
-                    f"— not a measured 0."
-                )
-            flagged.append(Metric(name, "not instrumented in GA4", "GA4", note=note))
+        conversions_section, conv_flagged = conversions.build_conversions(
+            reported, missing, proxy, umami_counts
+        )
+        flagged.extend(conv_flagged)
 
     # --- GSC search demand + indexation (third lane; own coverage window) ---
     # Split by dimension (totals / queries / pages / countries) rather than one
@@ -189,7 +173,7 @@ def main() -> int:
     sections = [
         report.Section("Reach (Umami)", reach),
         report.Section("Channel & engagement (GA4)", channel),
-        report.Section("Conversions", conversions),
+        report.Section("Conversions", conversions_section),
         report.Section("Search demand — totals (GSC)", gsc_totals),
         report.Section("Top queries (GSC)", gsc_queries),
         report.Section("Top pages (GSC)", gsc_pages),
