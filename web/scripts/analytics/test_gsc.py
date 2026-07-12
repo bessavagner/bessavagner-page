@@ -308,3 +308,134 @@ class QueryAccessErrors(unittest.TestCase):
         # property) must raise loudly, never degrade to an empty list.
         with self.assertRaises(gsc.AccessError):
             gsc.fetch_coverage(Fake403Client(), "sc-domain:example.com", JULY)
+
+
+class FakeSitemapsSubmit:
+    def __init__(self, error=None):
+        self._error = error
+
+    def execute(self):
+        if self._error:
+            raise self._error
+        return {}
+
+
+class FakeSitemapsList:
+    def __init__(self, sitemaps):
+        self._sitemaps = sitemaps
+
+    def execute(self):
+        return {"sitemap": self._sitemaps}
+
+
+class FakeSitemaps:
+    def __init__(self, sitemaps=None, submit_error=None):
+        self.sitemaps = sitemaps or []
+        self.submit_error = submit_error
+        self.last_submit_kwargs = None
+        self.last_list_kwargs = None
+
+    def submit(self, siteUrl, feedpath):  # noqa: N803 — Google's API spells it this way
+        self.last_submit_kwargs = {"siteUrl": siteUrl, "feedpath": feedpath}
+        return FakeSitemapsSubmit(self.submit_error)
+
+    def list(self, siteUrl):  # noqa: N803 — Google's API spells it this way
+        self.last_list_kwargs = {"siteUrl": siteUrl}
+        return FakeSitemapsList(self.sitemaps)
+
+
+class SitemapsClient:
+    def __init__(self, sitemaps=None, submit_error=None):
+        self._sitemaps = FakeSitemaps(sitemaps, submit_error)
+
+    def sitemaps(self):
+        return self._sitemaps
+
+
+SITEMAP_URL = "https://bessavagner.com/sitemap-index.xml"
+
+
+class SubmitSitemap(unittest.TestCase):
+    def test_calls_api_with_site_and_feedpath(self):
+        client = SitemapsClient()
+        gsc.submit_sitemap(client, "sc-domain:bessavagner.com", SITEMAP_URL)
+        kwargs = client._sitemaps.last_submit_kwargs
+        self.assertEqual(kwargs["siteUrl"], "sc-domain:bessavagner.com")
+        self.assertEqual(kwargs["feedpath"], SITEMAP_URL)
+
+    def test_403_raises_access_error_not_silent_failure(self):
+        # A submit that silently swallows a 403 is the dangerous case here:
+        # the operator would believe Google was pinged when it was not.
+        err = HttpError(FakeResp(403), b"forbidden")
+        client = SitemapsClient(submit_error=err)
+        with self.assertRaises(gsc.AccessError):
+            gsc.submit_sitemap(client, "s", SITEMAP_URL)
+
+    def test_non_403_errors_still_propagate(self):
+        err = HttpError(FakeResp(500), b"server error")
+        client = SitemapsClient(submit_error=err)
+        with self.assertRaises(HttpError):
+            gsc.submit_sitemap(client, "s", SITEMAP_URL)
+
+
+class GetSitemaps(unittest.TestCase):
+    def test_parses_path_lastdownloaded_and_submitted_count(self):
+        client = SitemapsClient(sitemaps=[{
+            "path": SITEMAP_URL,
+            "lastDownloaded": "2026-07-08T09:00:00.000Z",
+            "isSitemapsIndex": True,
+            "contents": [{"type": "web", "submitted": "65", "indexed": "60"}],
+        }])
+        result = gsc.get_sitemaps(client, "sc-domain:bessavagner.com")
+        self.assertEqual(result[0]["path"], SITEMAP_URL)
+        self.assertEqual(result[0]["lastDownloaded"], "2026-07-08T09:00:00.000Z")
+        self.assertEqual(result[0]["submitted"], 65)  # API returns int64 as a string
+
+    def test_multiple_content_types_sum_to_one_submitted_count(self):
+        client = SitemapsClient(sitemaps=[{
+            "path": SITEMAP_URL,
+            "lastDownloaded": "2026-07-08T09:00:00.000Z",
+            "contents": [
+                {"type": "web", "submitted": "50", "indexed": "48"},
+                {"type": "image", "submitted": "15", "indexed": "10"},
+            ],
+        }])
+        result = gsc.get_sitemaps(client, "s")
+        self.assertEqual(result[0]["submitted"], 65)
+
+    def test_never_downloaded_sitemap_has_no_lastdownloaded_and_zero_submitted(self):
+        # A sitemap just submitted but not yet crawled has no lastDownloaded
+        # and no contents key at all — must not KeyError or fabricate a count.
+        client = SitemapsClient(sitemaps=[{"path": SITEMAP_URL}])
+        result = gsc.get_sitemaps(client, "s")
+        self.assertEqual(result[0]["path"], SITEMAP_URL)
+        self.assertEqual(result[0]["lastDownloaded"], "")
+        self.assertEqual(result[0]["submitted"], 0)
+
+    def test_calls_api_with_site(self):
+        client = SitemapsClient(sitemaps=[])
+        gsc.get_sitemaps(client, "sc-domain:bessavagner.com")
+        self.assertEqual(client._sitemaps.last_list_kwargs["siteUrl"], "sc-domain:bessavagner.com")
+
+    def test_no_sitemaps_returns_empty_list(self):
+        self.assertEqual(gsc.get_sitemaps(SitemapsClient(sitemaps=[]), "s"), [])
+
+
+class ScopeGuard(unittest.TestCase):
+    """Least-privilege regression guard (binding constraint of this feature).
+
+    The monthly report pipeline must keep read-only Search Console credentials
+    forever. If someone later widens SCOPES to unlock a write call instead of
+    adding a separate write path, this must fail loudly.
+    """
+
+    def test_read_scope_is_still_readonly_only(self):
+        self.assertEqual(
+            gsc.SCOPES, ["https://www.googleapis.com/auth/webmasters.readonly"]
+        )
+
+    def test_write_scope_is_not_the_readonly_scope(self):
+        self.assertTrue(len(gsc.WRITE_SCOPES) > 0)
+        for scope in gsc.WRITE_SCOPES:
+            self.assertFalse(scope.endswith(".readonly"))
+        self.assertIn("https://www.googleapis.com/auth/webmasters", gsc.WRITE_SCOPES)

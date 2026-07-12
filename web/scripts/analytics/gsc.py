@@ -27,6 +27,13 @@ from report import Metric
 from window import Window
 
 SCOPES = ["https://www.googleapis.com/auth/webmasters.readonly"]
+
+# Deliberately a SEPARATE scope from SCOPES above, used ONLY by
+# build_write_client / submit_sitemap. build_client (and therefore the
+# monthly report pipeline) must keep read-only credentials forever — see
+# build_write_client for the write-only path.
+WRITE_SCOPES = ["https://www.googleapis.com/auth/webmasters"]
+
 DEFAULT_CONFIG = os.path.expanduser("~/.config/claude-seo/google-api.json")
 
 
@@ -84,6 +91,16 @@ def load_config(path: str | None = None) -> tuple[str, str]:
 
 def build_client(sa_path: str):
     creds = service_account.Credentials.from_service_account_file(sa_path, scopes=SCOPES)
+    return build("searchconsole", "v1", credentials=creds, cache_discovery=False)
+
+
+def build_write_client(sa_path: str):
+    """A SEPARATE client scoped for writes (sitemap submission only).
+
+    Never use this for the monthly report pipeline — that must stay on
+    build_client's read-only scope. See submit_sitemap.
+    """
+    creds = service_account.Credentials.from_service_account_file(sa_path, scopes=WRITE_SCOPES)
     return build("searchconsole", "v1", credentials=creds, cache_discovery=False)
 
 
@@ -255,4 +272,48 @@ def inspect_urls(client, site: str, urls: list[str]) -> list[Metric]:
             ))
             continue
         out.append(Metric(path, state, "GSC"))
+    return out
+
+
+def submit_sitemap(client, site: str, sitemap_url: str) -> None:
+    """Ask Google to re-download `sitemap_url` NOW, instead of waiting for its own crawl.
+
+    Requires a WRITE-scoped client (build_write_client), NOT build_client — a
+    read-only-scoped credential will 403 here. Same loud-failure idiom as
+    _query's AccessError: a silently-swallowed 403 is the dangerous case,
+    because the operator would believe Google was pinged when it was not.
+    """
+    try:
+        client.sitemaps().submit(siteUrl=site, feedpath=sitemap_url).execute()
+    except HttpError as e:
+        if e.resp.status == 403:
+            raise AccessError(
+                f"403 submitting sitemap {sitemap_url!r} for {site}. Sitemap "
+                f"submission needs the service account to be an OWNER on the "
+                f"property (Search Console > Settings > Users and permissions) "
+                f"AND the write scope ({WRITE_SCOPES[0]}) — a read-only-scoped "
+                f"credential (build_client) will always 403 here; use "
+                f"build_write_client instead. Refusing to report success when "
+                f"the submit did not actually happen."
+            ) from e
+        raise
+
+
+def get_sitemaps(client, site: str) -> list[dict]:
+    """Current sitemap state: path, lastDownloaded, and submitted-URL count.
+
+    Read-only (fine to call with build_client). Lets the operator SEE the
+    staleness before submit_sitemap and confirm Google re-downloaded after.
+    """
+    resp = client.sitemaps().list(siteUrl=site).execute()
+    out: list[dict] = []
+    for entry in resp.get("sitemap", []):
+        # contents[].submitted is an int64, which the JSON API serializes as
+        # a string — cast defensively so callers get a real int either way.
+        submitted = sum(int(c.get("submitted", 0)) for c in entry.get("contents", []))
+        out.append({
+            "path": entry.get("path", ""),
+            "lastDownloaded": entry.get("lastDownloaded", ""),
+            "submitted": submitted,
+        })
     return out
