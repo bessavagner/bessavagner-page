@@ -55,7 +55,7 @@ def boundary_caveats(
         elif w.end < ga4_marking:
             out.append(
                 f"This window ends before the GA4 key-event marking date "
-                f"({ga4_marking.isoformat()}). No conversion figure here is not a "
+                f"({ga4_marking.isoformat()}). No conversion figure here is a "
                 f"measured 0 — these events were simply not yet key events. Their "
                 f"absence is an absence of measurement."
             )

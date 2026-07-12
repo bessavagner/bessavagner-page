@@ -28,7 +28,12 @@ class BoundaryCaveats(unittest.TestCase):
             JUNE, ga4_marking=date(2026, 7, 14), umami_filter=None
         )
         self.assertEqual(len(out), 1)
-        self.assertIn("not a measured 0", out[0])
+        # Pin the corrected phrasing exactly, and reject its double-negative
+        # inversion — "is not a measured 0" would flip the rule's meaning
+        # (every figure IS a measured 0), which is the bug this test guards
+        # against.
+        self.assertIn("is a measured 0", out[0])
+        self.assertNotIn("not a measured 0", out[0])
 
     def test_window_entirely_after_the_marking_needs_no_caveat(self):
         self.assertEqual(
@@ -61,6 +66,41 @@ class BoundaryCaveats(unittest.TestCase):
             JULY, ga4_marking=date(2026, 7, 14), umami_filter=date(2026, 7, 15)
         )
         self.assertEqual(len(out), 2)
+
+    def test_ga4_marking_exactly_on_window_start_yields_no_caveat(self):
+        # boundary <= w.start: the marking happened at or before the window
+        # opened, so it is not "inside" the window — nothing to say.
+        self.assertEqual(
+            boundaries.boundary_caveats(
+                JULY, ga4_marking=JULY.start, umami_filter=None
+            ),
+            [],
+        )
+
+    def test_ga4_marking_exactly_on_window_end_straddles(self):
+        # w.start < boundary <= w.end: a boundary landing exactly on w.end is
+        # still inside the window — the straddle caveat must fire.
+        out = boundaries.boundary_caveats(
+            JULY, ga4_marking=JULY.end, umami_filter=None
+        )
+        self.assertEqual(len(out), 1)
+        self.assertIn("not retroactive", out[0])
+
+    def test_umami_filter_exactly_on_window_start_yields_no_caveat(self):
+        self.assertEqual(
+            boundaries.boundary_caveats(
+                JULY, ga4_marking=None, umami_filter=JULY.start
+            ),
+            [],
+        )
+
+    def test_umami_filter_exactly_on_window_end_straddles(self):
+        out = boundaries.boundary_caveats(
+            JULY, ga4_marking=None, umami_filter=JULY.end
+        )
+        self.assertEqual(len(out), 1)
+        self.assertIn("not comparable", out[0])
+        self.assertIn("filter working", out[0])
 
     def test_the_marking_date_defaults_to_the_module_constant(self):
         # The default argument is the recorded boundary, so callers get it for
