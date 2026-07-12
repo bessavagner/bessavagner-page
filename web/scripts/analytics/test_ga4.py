@@ -60,8 +60,7 @@ class FormatPagesPerSession(unittest.TestCase):
         self.assertEqual(ga4.format_pages_per_session(str(4 / 1)), "4.00")
 
     def test_rounds_up_correctly(self):
-        # 50/31 = 1.6129032258064515 -> matches the owner's hand-corrected
-        # report value of 1.63 for a different channel's ratio.
+        # 1.6291666666666667 rounds up to 1.63 (demonstrates banker's rounding).
         self.assertEqual(ga4.format_pages_per_session("1.6291666666666667"), "1.63")
 
 

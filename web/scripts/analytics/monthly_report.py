@@ -61,6 +61,11 @@ def main() -> int:
             "Umami bot filtering (A6) not confirmed live — raw Umami counts may be bot-inflated; "
             "do not treat a spike as real until UA/IP filtering is confirmed."
         )
+    if args.skip_gsc:
+        caveats.append(
+            "The GSC lane was deliberately skipped — the empty search demand and indexation "
+            "sections below are an absence of measurement, not a finding of zero search demand."
+        )
 
     # --- Umami reach (whole month; Umami has the longer history) ---
     rows = umami.load_website_events(args.umami_dir)
