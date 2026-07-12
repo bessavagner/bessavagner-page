@@ -41,7 +41,7 @@ UMAMI_BOT_FILTER_DATE: date | None = None
 # GA4_KEY_EVENT_MARKING_DATE: key-event marking affects GA4's Conversions
 # *report*, not whether an eventName row exists — this boundary governs the raw
 # rows this script reads. No GA4 conversion comparison may cross it.
-GA4_FIX_DEPLOY_DATE: date | None = None
+GA4_FIX_DEPLOY_DATE: date | None = date(2026, 7, 12)  # a572edc -> Cloud Run, verified live
 
 
 def boundary_caveats(

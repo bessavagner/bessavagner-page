@@ -12,12 +12,15 @@ JUNE = Window(date(2026, 6, 1), date(2026, 6, 30))
 class BoundaryCaveats(unittest.TestCase):
     def test_no_boundaries_set_yields_no_caveats(self):
         self.assertEqual(
-            boundaries.boundary_caveats(JULY, ga4_marking=None, umami_filter=None), []
+            boundaries.boundary_caveats(
+                JULY, ga4_marking=None, umami_filter=None, ga4_fix_deploy=None
+            ),
+            [],
         )
 
     def test_window_straddling_the_ga4_marking_says_it_is_not_retroactive(self):
         out = boundaries.boundary_caveats(
-            JULY, ga4_marking=date(2026, 7, 14), umami_filter=None
+            JULY, ga4_marking=date(2026, 7, 14), umami_filter=None, ga4_fix_deploy=None
         )
         self.assertEqual(len(out), 1)
         self.assertIn("2026-07-14", out[0])
@@ -25,7 +28,7 @@ class BoundaryCaveats(unittest.TestCase):
 
     def test_window_entirely_before_the_marking_forbids_a_measured_zero(self):
         out = boundaries.boundary_caveats(
-            JUNE, ga4_marking=date(2026, 7, 14), umami_filter=None
+            JUNE, ga4_marking=date(2026, 7, 14), umami_filter=None, ga4_fix_deploy=None
         )
         self.assertEqual(len(out), 1)
         # Pin the corrected phrasing exactly. A substring check on "is a
@@ -39,14 +42,17 @@ class BoundaryCaveats(unittest.TestCase):
     def test_window_entirely_after_the_marking_needs_no_caveat(self):
         self.assertEqual(
             boundaries.boundary_caveats(
-                AUGUST, ga4_marking=date(2026, 7, 14), umami_filter=None
+                AUGUST,
+                ga4_marking=date(2026, 7, 14),
+                umami_filter=None,
+                ga4_fix_deploy=None,
             ),
             [],
         )
 
     def test_window_straddling_the_umami_filter_warns_against_comparing_across_it(self):
         out = boundaries.boundary_caveats(
-            JULY, ga4_marking=None, umami_filter=date(2026, 7, 15)
+            JULY, ga4_marking=None, umami_filter=date(2026, 7, 15), ga4_fix_deploy=None
         )
         self.assertEqual(len(out), 1)
         self.assertIn("2026-07-15", out[0])
@@ -62,14 +68,20 @@ class BoundaryCaveats(unittest.TestCase):
     def test_window_entirely_after_the_umami_filter_needs_no_caveat(self):
         self.assertEqual(
             boundaries.boundary_caveats(
-                AUGUST, ga4_marking=None, umami_filter=date(2026, 7, 15)
+                AUGUST,
+                ga4_marking=None,
+                umami_filter=date(2026, 7, 15),
+                ga4_fix_deploy=None,
             ),
             [],
         )
 
     def test_both_boundaries_inside_one_window_emit_both_caveats(self):
         out = boundaries.boundary_caveats(
-            JULY, ga4_marking=date(2026, 7, 14), umami_filter=date(2026, 7, 15)
+            JULY,
+            ga4_marking=date(2026, 7, 14),
+            umami_filter=date(2026, 7, 15),
+            ga4_fix_deploy=None,
         )
         self.assertEqual(len(out), 2)
 
@@ -78,7 +90,7 @@ class BoundaryCaveats(unittest.TestCase):
         # opened, so it is not "inside" the window — nothing to say.
         self.assertEqual(
             boundaries.boundary_caveats(
-                JULY, ga4_marking=JULY.start, umami_filter=None
+                JULY, ga4_marking=JULY.start, umami_filter=None, ga4_fix_deploy=None
             ),
             [],
         )
@@ -87,7 +99,7 @@ class BoundaryCaveats(unittest.TestCase):
         # w.start < boundary <= w.end: a boundary landing exactly on w.end is
         # still inside the window — the straddle caveat must fire.
         out = boundaries.boundary_caveats(
-            JULY, ga4_marking=JULY.end, umami_filter=None
+            JULY, ga4_marking=JULY.end, umami_filter=None, ga4_fix_deploy=None
         )
         self.assertEqual(len(out), 1)
         self.assertIn("not retroactive", out[0])
@@ -95,14 +107,14 @@ class BoundaryCaveats(unittest.TestCase):
     def test_umami_filter_exactly_on_window_start_yields_no_caveat(self):
         self.assertEqual(
             boundaries.boundary_caveats(
-                JULY, ga4_marking=None, umami_filter=JULY.start
+                JULY, ga4_marking=None, umami_filter=JULY.start, ga4_fix_deploy=None
             ),
             [],
         )
 
     def test_umami_filter_exactly_on_window_end_straddles(self):
         out = boundaries.boundary_caveats(
-            JULY, ga4_marking=None, umami_filter=JULY.end
+            JULY, ga4_marking=None, umami_filter=JULY.end, ga4_fix_deploy=None
         )
         self.assertEqual(len(out), 1)
         self.assertIn("not comparable", out[0])
