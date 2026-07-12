@@ -129,24 +129,47 @@ def fetch_totals(client, site: str, w: Window) -> list[Metric]:
     ]
 
 
-def fetch_top_queries(client, site: str, w: Window, limit: int = 10) -> list[Metric]:
-    rows = _query(client, site, w, ["query"], limit=limit)
+# The Search Analytics API has no `orderBy` parameter: `rowLimit` truncates
+# server-side, before this code ever sees the rows, and the API's own order
+# is clicks descending. On a site like this one — 3 clicks total across ~35
+# queries — every row ties on zero clicks, so the tie-break the API falls
+# back to is effectively alphabetical. That means a naive `rowLimit=N` fetch
+# returns the top N by CLICKS (alphabetical among zero-click ties), NOT the
+# top N by impressions — and impressions are the entire point of this lane
+# (GSC = pre-click/demand truth). Verified against the live API: with
+# limit=10 the true #1 query by impressions (22) was absent from the
+# response entirely. So we fetch wide enough to capture every row that
+# exists today (~35, far under the API's 25,000 ceiling), sort by
+# impressions locally, then slice to the caller's requested limit.
+_BREAKDOWN_FETCH_LIMIT = 1000
+
+
+def _fetch_breakdown(
+    client,
+    site: str,
+    w: Window,
+    dimension: str,
+    limit: int,
+    name_fn=lambda r: r["keys"][0],
+) -> list[Metric]:
+    rows = _query(client, site, w, [dimension], limit=_BREAKDOWN_FETCH_LIMIT)
     rows.sort(key=lambda r: r["impressions"], reverse=True)
-    return [Metric(r["keys"][0], _fmt_row(r), "GSC") for r in rows]
+    return [Metric(name_fn(r), _fmt_row(r), "GSC") for r in rows[:limit]]
+
+
+def fetch_top_queries(client, site: str, w: Window, limit: int = 10) -> list[Metric]:
+    return _fetch_breakdown(client, site, w, "query", limit)
 
 
 def fetch_top_pages(client, site: str, w: Window, limit: int = 10) -> list[Metric]:
-    rows = _query(client, site, w, ["page"], limit=limit)
-    rows.sort(key=lambda r: r["impressions"], reverse=True)
-    out = []
-    for r in rows:
+    def _path(r: dict) -> str:
         url = r["keys"][0]
-        path = url.split("bessavagner.com", 1)[-1] or url
-        out.append(Metric(path, _fmt_row(r), "GSC"))
-    return out
+        return url.split("bessavagner.com", 1)[-1] or url
+
+    return _fetch_breakdown(client, site, w, "page", limit, name_fn=_path)
 
 
 def fetch_countries(client, site: str, w: Window, limit: int = 5) -> list[Metric]:
-    rows = _query(client, site, w, ["country"], limit=limit)
-    rows.sort(key=lambda r: r["impressions"], reverse=True)
-    return [Metric(r["keys"][0].upper(), _fmt_row(r), "GSC") for r in rows]
+    return _fetch_breakdown(
+        client, site, w, "country", limit, name_fn=lambda r: r["keys"][0].upper()
+    )

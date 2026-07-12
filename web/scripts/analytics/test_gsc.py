@@ -23,7 +23,13 @@ class FakeSearchAnalytics:
     def query(self, siteUrl, body):  # noqa: N803 — Google's API spells it this way
         self.last_body = body
         key = tuple(body.get("dimensions", []))
-        return FakeQuery(self.rows_by_dim.get(key, []))
+        rows = self.rows_by_dim.get(key, [])
+        # Honor rowLimit exactly as the real Search Analytics API does: it
+        # truncates server-side, before any client-side sort ever runs.
+        limit = body.get("rowLimit")
+        if limit is not None:
+            rows = rows[:limit]
+        return FakeQuery(rows)
 
 
 class FakeClient:
@@ -121,3 +127,33 @@ class FetchBreakdowns(unittest.TestCase):
         metrics = gsc.fetch_countries(client, "s", JULY)
         self.assertEqual([m.name for m in metrics], ["BRA", "NLD"])
         self.assertTrue(all(m.source == "GSC" for m in metrics))
+
+    def test_top_queries_ranks_by_impressions_not_the_apis_click_order(self):
+        # Real GSC behavior (verified live, 2026-07-12, 90-day window): the
+        # Search Analytics API has no orderBy. rowLimit truncates
+        # server-side by CLICKS descending, and on this site every query
+        # ties on zero clicks, so the API's own tie-break is alphabetical.
+        # A naive rowLimit=10 fetch would only ever see "query a".."query
+        # j" — the true #1 query by impressions sorts alphabetically after
+        # all of them and would be truncated away before any local sort
+        # could rescue it.
+        low_impression_alphabetical_rows = [
+            {"keys": [f"query {c}"], "clicks": 0, "impressions": i + 1,
+             "ctr": 0.0, "position": 20.0}
+            for i, c in enumerate("abcdefghijk")  # 11 rows: "query a".."query k"
+        ]
+        true_top_query_by_impressions = {
+            "keys": ["unstructured data extraction"], "clicks": 0,
+            "impressions": 22, "ctr": 0.0, "position": 5.0,
+        }
+        # 12 rows total, in the alphabetical order the live API actually
+        # returns for all-zero-click ties — the high-impression row last.
+        rows = low_impression_alphabetical_rows + [true_top_query_by_impressions]
+        client = FakeClient({("query",): rows})
+
+        metrics = gsc.fetch_top_queries(client, "s", JULY, limit=10)
+
+        names = [m.name for m in metrics]
+        self.assertIn("unstructured data extraction", names)
+        self.assertEqual(names[0], "unstructured data extraction")
+        self.assertEqual(len(metrics), 10)
