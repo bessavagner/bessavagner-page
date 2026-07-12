@@ -208,3 +208,41 @@ def fetch_countries(client, site: str, w: Window, limit: int = 5) -> list[Metric
     return _fetch_breakdown(
         client, site, w, "country", limit, name_fn=lambda r: r["keys"][0].upper()
     )
+
+
+def inspect_urls(client, site: str, urls: list[str]) -> list[Metric]:
+    """Index status per URL, via the URL Inspection API.
+
+    A failed inspection is reported as PENDING, never as 'not indexed'. Those are
+    opposite conclusions: 'not indexed' sends you rewriting a page that may be
+    perfectly fine, when all that actually happened was a quota error.
+    """
+    out: list[Metric] = []
+    for url in urls:
+        path = url.split("bessavagner.com", 1)[-1] or url
+        try:
+            resp = (
+                client.urlInspection()
+                .index()
+                .inspect(body={"inspectionUrl": url, "siteUrl": site})
+                .execute()
+            )
+        except HttpError as e:
+            out.append(Metric(
+                path, "pending", "GSC",
+                note=f"inspection failed ({e.resp.status}) — NOT a 'not indexed' verdict; re-run",
+            ))
+            continue
+        state = (
+            resp.get("inspectionResult", {})
+            .get("indexStatusResult", {})
+            .get("coverageState", "")
+        )
+        if not state:
+            out.append(Metric(
+                path, "pending", "GSC",
+                note="inspection returned no coverageState — NOT a 'not indexed' verdict; re-run",
+            ))
+            continue
+        out.append(Metric(path, state, "GSC"))
+    return out

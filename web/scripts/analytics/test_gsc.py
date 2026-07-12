@@ -2,6 +2,7 @@ import unittest
 from datetime import date
 
 import gsc
+from googleapiclient.errors import HttpError
 from window import Window
 
 
@@ -175,3 +176,71 @@ class FetchBreakdowns(unittest.TestCase):
         client = FakeClient({("query",): rows})
         with self.assertRaises(gsc.TruncationError):
             gsc.fetch_top_queries(client, "s", JULY)
+
+
+class FakeResp:
+    def __init__(self, status):
+        self.status = status
+        self.reason = "quota"
+
+
+class FakeInspectQuery:
+    def __init__(self, verdict=None, error=None):
+        self._verdict = verdict
+        self._error = error
+
+    def execute(self):
+        if self._error:
+            raise self._error
+        return {"inspectionResult": {"indexStatusResult": {"coverageState": self._verdict}}}
+
+
+class FakeUrlInspection:
+    def __init__(self, by_url):
+        self.by_url = by_url
+
+    def index(self):
+        return self
+
+    def inspect(self, body):
+        entry = self.by_url[body["inspectionUrl"]]
+        return FakeInspectQuery(**entry)
+
+
+class InspectClient:
+    def __init__(self, by_url):
+        self._ui = FakeUrlInspection(by_url)
+
+    def urlInspection(self):  # noqa: N802 — Google's API spells it this way
+        return self._ui
+
+
+class InspectUrls(unittest.TestCase):
+    def test_indexed_url_reports_its_coverage_state(self):
+        client = InspectClient({
+            "https://bessavagner.com/blog/a/": {"verdict": "Submitted and indexed"},
+        })
+        m = gsc.inspect_urls(client, "sc-domain:example.com", ["https://bessavagner.com/blog/a/"])[0]
+        self.assertEqual(m.name, "/blog/a/")
+        self.assertEqual(m.value, "Submitted and indexed")
+        self.assertEqual(m.source, "GSC")
+
+    def test_not_indexed_url_reports_not_indexed(self):
+        client = InspectClient({
+            "https://bessavagner.com/blog/b/": {"verdict": "Discovered - currently not indexed"},
+        })
+        m = gsc.inspect_urls(client, "s", ["https://bessavagner.com/blog/b/"])[0]
+        self.assertEqual(m.value, "Discovered - currently not indexed")
+
+    def test_failed_inspection_is_pending_NOT_not_indexed(self):
+        # The rule that matters most: a failed lookup and an absent page are
+        # OPPOSITE conclusions. Confusing them sends you rewriting a fine page.
+        err = HttpError(FakeResp(429), b"quota exceeded")
+        client = InspectClient({"https://bessavagner.com/blog/c/": {"error": err}})
+        m = gsc.inspect_urls(client, "s", ["https://bessavagner.com/blog/c/"])[0]
+        self.assertIn("pending", m.value)
+        self.assertNotIn("not indexed", m.value.lower())
+        self.assertIn("inspection failed", m.note.lower())
+
+    def test_empty_url_list_yields_no_metrics(self):
+        self.assertEqual(gsc.inspect_urls(InspectClient({}), "s", []), [])
