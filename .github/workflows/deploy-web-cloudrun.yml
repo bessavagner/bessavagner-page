@@ -161,3 +161,46 @@ jobs:
           gcloud run services describe "$SERVICE" \
             --project "$PROJECT_ID" --region "$REGION" \
             --format='value(status.url)'
+
+      # Ask Search Console to re-read the sitemap. Google re-downloads it on its own
+      # cadence, which lagged 4 days / 12 URLs behind the live sitemap when this was
+      # added — new posts sat undiscovered. Best-effort: a failed ping must NEVER fail
+      # a deploy, so both steps are continue-on-error and every path exits 0.
+      #
+      # Needs its own auth step: the deploy credentials above carry only the
+      # cloud-platform scope, which does NOT cover Search Console. It also requires
+      # GCP_SERVICE_ACCOUNT to be an OWNER on the Search Console property — GCP IAM
+      # grants no Search Console access on its own (they are separate systems).
+      - name: Authenticate for Search Console
+        id: gsc_auth
+        continue-on-error: true
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/webmasters
+
+      - name: Ping Search Console with the sitemap
+        continue-on-error: true
+        env:
+          GSC_TOKEN: ${{ steps.gsc_auth.outputs.access_token }}
+          SITE: sc-domain:bessavagner.com
+          SITEMAP: https://bessavagner.com/sitemap-index.xml
+        run: |
+          if [ -z "${GSC_TOKEN}" ]; then
+            echo "::warning::No Search Console token minted — skipping sitemap ping. Is the deploy service account an owner on the Search Console property?"
+            exit 0
+          fi
+          enc() { jq -rn --arg v "$1" '$v|@uri'; }
+          code=$(curl -sS -X PUT -o /tmp/gsc-ping.out -w '%{http_code}' \
+            -H "Authorization: Bearer ${GSC_TOKEN}" \
+            -H "Content-Length: 0" \
+            "https://searchconsole.googleapis.com/webmasters/v3/sites/$(enc "${SITE}")/sitemaps/$(enc "${SITEMAP}")") || code="000"
+          if [ "${code}" = "204" ] || [ "${code}" = "200" ]; then
+            echo "Sitemap resubmitted to Search Console (HTTP ${code})."
+          else
+            echo "::warning::Sitemap ping failed (HTTP ${code}) — the deploy is unaffected."
+            head -c 500 /tmp/gsc-ping.out 2>/dev/null || true
+          fi
+          exit 0
