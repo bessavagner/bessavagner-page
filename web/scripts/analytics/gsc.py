@@ -178,14 +178,8 @@ def fetch_totals(client, site: str, w: Window) -> list[Metric]:
 _BREAKDOWN_FETCH_LIMIT = 25_000
 
 
-def _fetch_breakdown(
-    client,
-    site: str,
-    w: Window,
-    dimension: str,
-    limit: int,
-    name_fn=lambda r: r["keys"][0],
-) -> list[Metric]:
+def _raw_breakdown(client, site: str, w: Window, dimension: str) -> list[dict]:
+    """Every row for one dimension, unsorted and unsliced, truncation-guarded."""
     rows = _query(client, site, w, [dimension], limit=_BREAKDOWN_FETCH_LIMIT)
     if len(rows) == _BREAKDOWN_FETCH_LIMIT:
         raise TruncationError(
@@ -204,8 +198,31 @@ def _fetch_breakdown(
             f"page the API (loop on startRow) for this dimension, not to "
             f"raise the limit further."
         )
+    return rows
+
+
+def _fetch_breakdown(
+    client,
+    site: str,
+    w: Window,
+    dimension: str,
+    limit: int,
+    name_fn=lambda r: r["keys"][0],
+) -> list[Metric]:
+    rows = _raw_breakdown(client, site, w, dimension)
     rows.sort(key=lambda r: r["impressions"], reverse=True)
     return [Metric(name_fn(r), _fmt_row(r), "GSC") for r in rows[:limit]]
+
+
+def fetch_page_rows(client, site: str, w: Window) -> list[dict]:
+    """Every page row for the window — unsorted, unsliced, raw.
+
+    The pinned-page watchlist (pinned.py) looks its pages up BY NAME, not by
+    rank: a page that fell out of the top-10 is exactly the page whose series
+    must not go blank. So it needs the whole breakdown, not fetch_top_pages'
+    ranked slice.
+    """
+    return _raw_breakdown(client, site, w, "page")
 
 
 def fetch_top_queries(client, site: str, w: Window, limit: int = 10) -> list[Metric]:

@@ -177,6 +177,31 @@ class FetchBreakdowns(unittest.TestCase):
         with self.assertRaises(gsc.TruncationError):
             gsc.fetch_top_queries(client, "s", JULY)
 
+    def test_fetch_page_rows_returns_every_row_unsliced(self):
+        # The pinned-page watchlist looks pages up BY NAME, so it needs the
+        # whole breakdown — a top-10 slice is exactly what it exists to escape.
+        rows = [
+            {"keys": [f"https://bessavagner.com/blog/p{i}/"], "clicks": 0,
+             "impressions": 100 - i, "ctr": 0.0, "position": 20.0}
+            for i in range(15)
+        ]
+        client = FakeClient({("page",): rows})
+        out = gsc.fetch_page_rows(client, "s", JULY)
+        self.assertEqual(len(out), 15)  # not 10
+        self.assertEqual(out[0]["keys"][0], "https://bessavagner.com/blog/p0/")
+
+    def test_fetch_page_rows_keeps_the_truncation_guard(self):
+        # Same ceiling rule as every other breakdown: a response landing exactly
+        # on the fetch limit is a clicks-biased partial sample, not the dataset.
+        rows = [
+            {"keys": [f"https://bessavagner.com/blog/p{i}/"], "clicks": 0,
+             "impressions": i, "ctr": 0.0, "position": 20.0}
+            for i in range(gsc._BREAKDOWN_FETCH_LIMIT)
+        ]
+        client = FakeClient({("page",): rows})
+        with self.assertRaises(gsc.TruncationError):
+            gsc.fetch_page_rows(client, "s", JULY)
+
 
 class FakeResp:
     def __init__(self, status):
