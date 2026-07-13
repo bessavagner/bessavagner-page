@@ -155,6 +155,32 @@ def fetch_file_download_proxy(client, property_id: str, w: Window) -> Metric | N
     )
 
 
+# C3b's actual subject: the SITE-WIDE pages/session, which the per-channel table
+# above does not contain. readouts.py looks this row up in the store BY NAME —
+# rename it and C3b silently goes back to "pending".
+SITEWIDE_PPS_NAME = "Pages/session (site-wide)"
+SITEWIDE_PPS_NOTE = "goal > 2.0; baseline 1.69 (kpi-baselines-and-targets.md)"
+
+
+def fetch_sitewide_engagement(client, property_id: str, w: Window) -> Metric | None:
+    """Site-wide screenPageViewsPerSession — no dimension, so GA4 does not split
+    it per channel. Returns None when GA4 reported no row: an absence is flagged
+    by the caller, never rendered as a measured 0.
+    """
+    req = RunReportRequest(
+        property=f"properties/{property_id}",
+        date_ranges=[_date_range(w)],
+        metrics=[GaMetric(name="screenPageViewsPerSession")],
+    )
+    resp = client.run_report(req)
+    if not resp.rows:
+        return None
+    pps = resp.rows[0].metric_values[0].value
+    return Metric(
+        SITEWIDE_PPS_NAME, format_pages_per_session(pps), "GA4", note=SITEWIDE_PPS_NOTE
+    )
+
+
 def fetch_utm_content(client, property_id: str, w: Window) -> list[dict[str, str]]:
     req = RunReportRequest(
         property=f"properties/{property_id}",
