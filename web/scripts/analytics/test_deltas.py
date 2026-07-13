@@ -243,5 +243,89 @@ class NoTopNDelta(unittest.TestCase):
         )
 
 
+class CrossesBoundaryAtTheWindowEdges(unittest.TestCase):
+    """crosses_boundary's predicate is `prior_w.start < b <= cur_w.end` — half-open
+    on purpose, and the two ends are doing different jobs. Every test above ever
+    plants a boundary STRICTLY INSIDE a window, so neither edge is ever built and
+    a mutant on either one still passes the suite.
+
+    The two edges fail in opposite directions:
+
+    - `prior_w.start < b` is strict, so a boundary sitting exactly ON the prior
+      window's first day does NOT make the pair "cross" — both windows are
+      wholly on the post-boundary side of it, so they are genuinely comparable.
+      Loosen this to `<=` and the rule fails CLOSED: it would refuse a pair of
+      windows that share the same instrumentation regime, for no reason.
+    - `b <= cur_w.end` is inclusive, so a boundary landing on the CURRENT
+      window's last day still counts as inside it and still blocks the delta.
+      Loosen this to `<` and the rule fails OPEN: a boundary on 2026-09-30 would
+      be invisible to a September window, and the report would draw a delta
+      straddling the exact day our own instrumentation changed — a fabricated
+      finding with a real-looking number, which is the one failure this whole
+      module exists to prevent.
+    """
+
+    def test_boundary_inside_the_prior_window_crosses(self):
+        out = deltas.crosses_boundary(
+            "GA4", AUGUST, SEPTEMBER,
+            ga4_fix_deploy=date(2026, 8, 15), ga4_marking=None, umami_filter=None,
+        )
+        self.assertEqual(out, "GA4 gtag-fix deploy")
+
+    def test_boundary_in_the_gap_between_windows_crosses(self):
+        out = deltas.crosses_boundary(
+            "GA4", JUNE, AUGUST,
+            ga4_fix_deploy=date(2026, 7, 20), ga4_marking=None, umami_filter=None,
+        )
+        self.assertEqual(out, "GA4 gtag-fix deploy")
+
+    def test_boundary_exactly_on_prior_start_does_not_cross(self):
+        # THE fail-closed edge. Both windows are wholly post-boundary and
+        # genuinely comparable — the `<=` mutant would wrongly refuse this pair.
+        out = deltas.crosses_boundary(
+            "GA4", AUGUST, SEPTEMBER,
+            ga4_fix_deploy=date(2026, 8, 1), ga4_marking=None, umami_filter=None,
+        )
+        self.assertIsNone(out, "a boundary on prior_w.start must not count as crossed")
+
+    def test_boundary_exactly_on_prior_end_crosses(self):
+        out = deltas.crosses_boundary(
+            "GA4", AUGUST, SEPTEMBER,
+            ga4_fix_deploy=date(2026, 8, 31), ga4_marking=None, umami_filter=None,
+        )
+        self.assertEqual(out, "GA4 gtag-fix deploy")
+
+    def test_boundary_exactly_on_current_start_crosses(self):
+        out = deltas.crosses_boundary(
+            "GA4", AUGUST, SEPTEMBER,
+            ga4_fix_deploy=date(2026, 9, 1), ga4_marking=None, umami_filter=None,
+        )
+        self.assertEqual(out, "GA4 gtag-fix deploy")
+
+    def test_boundary_inside_the_current_window_crosses(self):
+        out = deltas.crosses_boundary(
+            "GA4", AUGUST, SEPTEMBER,
+            ga4_fix_deploy=date(2026, 9, 10), ga4_marking=None, umami_filter=None,
+        )
+        self.assertEqual(out, "GA4 gtag-fix deploy")
+
+    def test_boundary_exactly_on_current_end_crosses(self):
+        # THE fail-open edge — the one this whole class exists to pin. A
+        # boundary on the current window's LAST day must still refuse; the `<`
+        # mutant would let a fabricated delta through on exactly this date.
+        out = deltas.crosses_boundary(
+            "GA4", AUGUST, SEPTEMBER,
+            ga4_fix_deploy=date(2026, 9, 30), ga4_marking=None, umami_filter=None,
+        )
+        self.assertEqual(out, "GA4 gtag-fix deploy")
+
+    def test_boundary_after_current_end_does_not_cross(self):
+        out = deltas.crosses_boundary(
+            "GA4", AUGUST, SEPTEMBER,
+            ga4_fix_deploy=date(2026, 10, 1), ga4_marking=None, umami_filter=None,
+        )
+        self.assertIsNone(out)
+
+
 if __name__ == "__main__":
     unittest.main()
