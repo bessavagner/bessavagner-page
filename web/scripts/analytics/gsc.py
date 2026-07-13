@@ -347,6 +347,12 @@ _NEVER_NOTE = (
     "'0 days since download' would read as perfectly fresh, the exact "
     "inversion of the truth"
 )
+_NEVER_SUBMITTED_NOTE = (
+    "Google has NEVER downloaded this sitemap — 'submitted' is pending, not "
+    "a measured 0: contents (and therefore the submitted count) are only "
+    "populated once Google processes the file, so a bare 0 here would read "
+    "as 'the sitemap is empty' rather than 'nothing has been measured yet'"
+)
 
 
 def sitemap_freshness_metrics(sitemaps: list[dict], today: date) -> list[Metric]:
@@ -372,6 +378,10 @@ def sitemap_freshness_metrics(sitemaps: list[dict], today: date) -> list[Metric]
                 f"{path} — days since last download", "pending", "GSC",
                 note=_NEVER_NOTE,
             ))
+            out.append(Metric(
+                f"{path} — URLs submitted", "pending", "GSC",
+                note=_NEVER_SUBMITTED_NOTE,
+            ))
         else:
             downloaded = datetime.fromisoformat(last.replace("Z", "+00:00")).date()
             days = (today - downloaded).days
@@ -382,5 +392,5 @@ def sitemap_freshness_metrics(sitemaps: list[dict], today: date) -> list[Metric]
             out.append(Metric(
                 f"{path} — days since last download", str(days), "GSC", note=note,
             ))
-        out.append(Metric(f"{path} — URLs submitted", str(sm["submitted"]), "GSC"))
+            out.append(Metric(f"{path} — URLs submitted", str(sm["submitted"]), "GSC"))
     return out

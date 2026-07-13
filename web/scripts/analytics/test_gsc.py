@@ -481,6 +481,22 @@ class SitemapFreshness(unittest.TestCase):
         self.assertNotEqual(days.value, "0")
         self.assertIn("never downloaded", days.note.lower())
 
+    def test_a_never_downloaded_sitemap_reports_urls_submitted_as_pending_not_zero(self):
+        # `submitted` is summed from GSC's `contents`, which Google only
+        # populates once it actually processes the file. Before that, "0" is
+        # not a measured empty sitemap — it is "nothing has been measured yet",
+        # and must render the same way "pending" days does, not as a bare 0.
+        ms = gsc.sitemap_freshness_metrics(
+            [{"path": SITEMAP_URL, "lastDownloaded": "", "submitted": 0}],
+            today=self.TODAY,
+        )
+        submitted = [m for m in ms if m.name.endswith("URLs submitted")][0]
+        self.assertEqual(submitted.value, "pending")
+        self.assertNotEqual(submitted.value, "0")
+        self.assertTrue(submitted.note)
+        self.assertIn("never", submitted.note.lower())
+        self.assertIn("not", submitted.note.lower())
+
     def test_a_stale_sitemap_says_so_in_its_note(self):
         ms = gsc.sitemap_freshness_metrics(
             [{"path": SITEMAP_URL, "lastDownloaded": "2026-06-01T09:00:00.000Z",
@@ -489,6 +505,31 @@ class SitemapFreshness(unittest.TestCase):
         )
         days = [m for m in ms if m.name.endswith("days since last download")][0]
         self.assertEqual(days.value, "69")
+        self.assertIn("stale", days.note.lower())
+
+    def test_the_stale_boundary_at_exactly_14_days_is_not_yet_stale(self):
+        # STALE_AFTER_DAYS = 14 and the note fires on `days > STALE_AFTER_DAYS`,
+        # so day 14 itself must read as fresh (no stale note). Pin the exact
+        # boundary so a future off-by-one (e.g. `>=`) turns this red instead
+        # of silently suppressing a day's warning.
+        self.assertEqual(gsc.STALE_AFTER_DAYS, 14)
+        ms = gsc.sitemap_freshness_metrics(
+            [{"path": SITEMAP_URL, "lastDownloaded": "2026-07-26T09:00:00.000Z",
+              "submitted": 77}],
+            today=self.TODAY,
+        )
+        days = [m for m in ms if m.name.endswith("days since last download")][0]
+        self.assertEqual(days.value, "14")
+        self.assertEqual(days.note, "")
+
+    def test_the_stale_boundary_at_15_days_is_stale(self):
+        ms = gsc.sitemap_freshness_metrics(
+            [{"path": SITEMAP_URL, "lastDownloaded": "2026-07-25T09:00:00.000Z",
+              "submitted": 77}],
+            today=self.TODAY,
+        )
+        days = [m for m in ms if m.name.endswith("days since last download")][0]
+        self.assertEqual(days.value, "15")
         self.assertIn("stale", days.note.lower())
 
     def test_no_registered_sitemap_is_pending_never_an_empty_section(self):

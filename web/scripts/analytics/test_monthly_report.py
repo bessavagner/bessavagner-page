@@ -202,6 +202,51 @@ class PinnedPagesAreDeltaEligibleAndSurviveTheTop10(unittest.TestCase):
         self.assertNotIn("-30", impressions.delta)
 
 
+class SitemapNeverDownloadedRefusesRatherThanFabricatingADelta(unittest.TestCase):
+    """Regression for the fabricated-delta bug: `URLs submitted` used to be
+    appended unconditionally, so a never-downloaded sitemap rendered a bare
+    "0" — and the delta engine, seeing two consecutive "0"s, printed a real
+    "+0 (prior 0 — no percent change)" asserting a flat measurement that never
+    happened. Follows the same store-then-delta shape as
+    PinnedPagesAreDeltaEligibleAndSurviveTheTop10 above, against
+    `Sitemap health (GSC)` (already a stable-key section) instead of pinned
+    pages.
+    """
+
+    def test_a_never_downloaded_sitemap_across_two_months_refuses_the_urls_submitted_delta(self):
+        import deltas
+        import gsc
+        import history
+        from window import Window
+
+        july_w = Window(date(2026, 7, 1), date(2026, 7, 31))
+        august_w = Window(date(2026, 8, 1), date(2026, 8, 31))
+        sitemap_url = "https://bessavagner.com/sitemap-index.xml"
+
+        def never_downloaded(today):
+            return gsc.sitemap_freshness_metrics(
+                [{"path": sitemap_url, "lastDownloaded": "", "submitted": 0}],
+                today=today,
+            )
+
+        july_rows = history.rows_from_sections(
+            "2026-07", july_w,
+            [Section("Sitemap health (GSC)", never_downloaded(date(2026, 7, 31)))],
+            partial=False,
+        )
+
+        august = [Section(
+            "Sitemap health (GSC)", never_downloaded(date(2026, 8, 9)),
+        )]
+        deltas.attach_deltas(august, "2026-08", august_w, july_rows, partial=False)
+
+        by_name = {m.name: m for m in august[0].metrics}
+        submitted = by_name[f"{sitemap_url} — URLs submitted"]
+        self.assertEqual(submitted.value, "pending")
+        self.assertEqual(submitted.delta, "n/a — non-numeric value")
+        self.assertNotIn("+0", submitted.delta)
+
+
 class IndexationVerdictIsDeltaEligible(unittest.TestCase):
     """The count must NOT live in `Indexation (GSC)`: that section's keys are
     URLs, they churn monthly, and delta rule 5 refuses it by name. A count is a
