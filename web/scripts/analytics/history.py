@@ -133,3 +133,75 @@ def rows_from_sections(
         for s in sections
         for m in s.metrics
     ]
+
+
+def _bool_out(v: bool) -> str:
+    return "true" if v else "false"
+
+
+def _bool_in(v: str) -> bool:
+    return v == "true"
+
+
+def load(path: str = HISTORY_PATH) -> list[Row]:
+    """Every stored row. A missing file is an EMPTY history, not an error — the
+    first month ever generated has nothing to read.
+    """
+    if not os.path.exists(path):
+        return []
+    with open(path, newline="", encoding="utf-8") as f:
+        return [
+            Row(
+                month=r["month"],
+                section=r["section"],
+                name=r["name"],
+                value_raw=r["value_raw"],
+                value_num=r["value_num"],
+                source=r["source"],
+                note=r["note"],
+                void=_bool_in(r["void"]),
+                partial=_bool_in(r["partial"]),
+            )
+            for r in csv.DictReader(f)
+        ]
+
+
+def upsert(existing: list[Row], new: list[Row]) -> list[Row]:
+    """Replace every month present in `new`, wholesale. Pure.
+
+    Not a key-by-key merge: a regenerated month that emits FEWER rows must not
+    leave the rows it dropped behind. A stale row is a lie with a timestamp on
+    it. And not an append: appending doubles the month.
+    """
+    rewritten = {r.month for r in new}
+    merged = {r.key: r for r in existing if r.month not in rewritten}
+    for r in new:
+        merged[r.key] = r
+    return sorted(merged.values(), key=lambda r: r.key)
+
+
+def write(rows: list[Row], path: str = HISTORY_PATH) -> None:
+    """Deterministic on purpose: sorted rows, a fixed header, "\\n" line endings.
+    Re-running a month with the same inputs must produce a BYTE-IDENTICAL file,
+    so that a real diff in review always means a real change in the data.
+    """
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(FIELDS)
+        for r in sorted(rows, key=lambda r: r.key):
+            w.writerow([
+                r.month, r.section, r.name, r.value_raw, r.value_num,
+                r.source, r.note, _bool_out(r.void), _bool_out(r.partial),
+            ])
+
+
+def record_month(
+    month: str,
+    w: Window,
+    sections: list[Section],
+    partial: bool,
+    path: str = HISTORY_PATH,
+) -> None:
+    """Persist one month's metrics. The single call monthly_report.main() makes."""
+    write(upsert(load(path), rows_from_sections(month, w, sections, partial)), path)

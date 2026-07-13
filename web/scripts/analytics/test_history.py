@@ -1,3 +1,5 @@
+import os
+import tempfile
 import unittest
 from datetime import date
 
@@ -124,6 +126,92 @@ class RowsFromSections(unittest.TestCase):
     def test_the_key_is_month_section_name_source(self):
         rows = history.rows_from_sections("2026-07", JULY, self._sections(), partial=False)
         self.assertEqual(rows[1].key, ("2026-07", "Conversions", "whatsapp_click", "GA4"))
+
+
+class StoreRoundTrip(unittest.TestCase):
+    """Upsert, never append. Re-running a month REPLACES its rows and produces a
+    BYTE-IDENTICAL file. An append-only store silently doubles every figure the
+    second time you regenerate — and regenerating is normal.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.tmp.name, "history", "metrics.csv")
+        self.addCleanup(self.tmp.cleanup)
+
+    def _july(self, whatsapp="2"):
+        return [
+            Section("Reach (Umami)", [Metric("cv_download (raw event count)", "4", "Umami")]),
+            Section("Conversions", [Metric("whatsapp_click", whatsapp, "GA4")]),
+            Section("Flagged / pending", [
+                Metric("cv_download", "pending", "GA4", note="not a measured 0"),
+            ]),
+        ]
+
+    def test_loading_a_missing_file_is_empty_not_an_error(self):
+        self.assertEqual(history.load(self.path), [])
+
+    def test_a_month_round_trips(self):
+        history.record_month("2026-07", JULY, self._july(), partial=True, path=self.path)
+        rows = history.load(self.path)
+        self.assertEqual(len(rows), 3)
+        self.assertEqual({r.month for r in rows}, {"2026-07"})
+
+    def test_a_non_numeric_value_round_trips_as_empty_never_zero(self):
+        # THE test of the sprint DoD. "pending" goes in, "" comes out — not "0".
+        history.record_month("2026-07", JULY, self._july(), partial=True, path=self.path)
+        pending = [r for r in history.load(self.path) if r.value_raw == "pending"][0]
+        self.assertEqual(pending.value_num, "")
+        self.assertNotEqual(pending.value_num, "0")
+
+    def test_the_void_and_partial_flags_round_trip_as_booleans(self):
+        history.record_month("2026-06", JUNE, self._july(), partial=False, path=self.path)
+        conv = [r for r in history.load(self.path) if r.section == "Conversions"][0]
+        reach = [r for r in history.load(self.path) if r.section == "Reach (Umami)"][0]
+        self.assertTrue(conv.void)      # June GA4 conversions predate the 07-12 fix
+        self.assertFalse(reach.void)    # Umami was never broken
+        self.assertFalse(conv.partial)
+
+    def test_rerunning_a_month_produces_a_byte_identical_file(self):
+        history.record_month("2026-07", JULY, self._july(), partial=True, path=self.path)
+        with open(self.path, "rb") as f:
+            first = f.read()
+        history.record_month("2026-07", JULY, self._july(), partial=True, path=self.path)
+        with open(self.path, "rb") as f:
+            second = f.read()
+        self.assertEqual(first, second)
+
+    def test_rerunning_a_month_does_not_double_its_rows(self):
+        for _ in range(3):
+            history.record_month("2026-07", JULY, self._july(), partial=True, path=self.path)
+        self.assertEqual(len(history.load(self.path)), 3)
+
+    def test_regenerating_a_month_overwrites_its_values(self):
+        history.record_month("2026-07", JULY, self._july(whatsapp="2"), partial=True, path=self.path)
+        history.record_month("2026-07", JULY, self._july(whatsapp="9"), partial=True, path=self.path)
+        conv = [r for r in history.load(self.path) if r.name == "whatsapp_click"]
+        self.assertEqual(len(conv), 1)
+        self.assertEqual(conv[0].value_raw, "9")
+
+    def test_regenerating_a_month_drops_rows_it_no_longer_emits(self):
+        # A GSC row that vanishes from the regenerated report must vanish from
+        # the store too — a stale row is a lie with a timestamp on it.
+        history.record_month("2026-07", JULY, self._july(), partial=True, path=self.path)
+        shrunk = [Section("Reach (Umami)", [Metric("cv_download (raw event count)", "4", "Umami")])]
+        history.record_month("2026-07", JULY, shrunk, partial=True, path=self.path)
+        self.assertEqual([r.section for r in history.load(self.path)], ["Reach (Umami)"])
+
+    def test_writing_a_second_month_leaves_the_first_untouched(self):
+        history.record_month("2026-06", JUNE, self._july(), partial=False, path=self.path)
+        history.record_month("2026-07", JULY, self._july(), partial=True, path=self.path)
+        months = {r.month for r in history.load(self.path)}
+        self.assertEqual(months, {"2026-06", "2026-07"})
+
+    def test_rows_are_written_in_a_stable_sorted_order(self):
+        history.record_month("2026-07", JULY, self._july(), partial=True, path=self.path)
+        history.record_month("2026-06", JUNE, self._july(), partial=False, path=self.path)
+        rows = history.load(self.path)
+        self.assertEqual([r.key for r in rows], sorted(r.key for r in rows))
 
 
 if __name__ == "__main__":
