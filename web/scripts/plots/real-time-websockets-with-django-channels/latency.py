@@ -1,78 +1,82 @@
-"""Delivery-latency distribution: HTTP polling vs WebSocket push.
+"""Delivery-latency ECDF: HTTP polling vs WebSocket push. MEASURED.
 
-SYNTHETIC. This is not a benchmark of any real server. It's a small timing
-model that captures the *shape* of the difference: when an event can only be
-discovered by the next poll, its delivery latency is dominated by how long it
-waited for that poll to come around (on average half the polling interval,
-uniformly distributed up to a full interval); when the server can push, the
-latency is just the one-way network hop. The point of the plot is the shape of
-the two distributions, not the absolute milliseconds.
+Data comes from measure/latencies.csv, a real capture against a daphne
+server running the post's consumer pattern on loopback: 300 events fired
+at random moments, one WebSocket client receiving each as a push, one
+HTTP client polling every 3 s (methodology in measure/README.md).
+
+An ECDF on a log x-axis is the honest way to show this: the two
+distributions live three orders of magnitude apart, so a linear-scale
+histogram crams the push spike into the left edge. The log scale lets
+both curves keep their shape, and reading medians off an ECDF needs no
+binning choices at all.
+
+Run with the repo's plotting venv:
+    web/scripts/plots/.venv/bin/python latency.py
 """
 
+import csv
 import pathlib
 import sys
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
-from _style import apply, save, PALETTE  # noqa: E402
+from _style import apply, save, PALETTE, LINESTYLES  # noqa: E402
 
 import numpy as np  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 
 apply()
 
-rng = np.random.default_rng(7)
-N = 20_000
+HERE = pathlib.Path(__file__).resolve().parent
+with (HERE / "measure/latencies.csv").open() as fh:
+    rows = list(csv.DictReader(fh))
+push = np.array([float(r["push_ms"]) for r in rows])
+poll = np.array([float(r["poll_ms"]) for r in rows])
+POLL_INTERVAL_MS = 3000.0
 
-# One-way network hop: a small base plus a little jitter (ms). Shared by both
-# transports -- the wire is the same; only *when* the client learns of the
-# event differs.
-net_hop = 12.0 + rng.gamma(shape=2.0, scale=4.0, size=N)
 
-# WebSocket push: the server already holds the connection open, so the event
-# reaches the client after one network hop.
-ws_latency = net_hop.copy()
+def cdf(data):
+    xs = np.sort(data)
+    ys = np.arange(1, len(xs) + 1) / len(xs)
+    return xs, ys
 
-# HTTP polling at a 3-second interval: an event that lands t seconds after the
-# previous poll is not seen until the next one. That wait is uniform on
-# [0, interval]; add a hop for the request that finally carries it back.
-poll_interval_ms = 3000.0
-poll_wait = rng.uniform(0.0, poll_interval_ms, size=N)
-poll_latency = poll_wait + net_hop
 
 fig, ax = plt.subplots()
-bins = np.linspace(0, poll_interval_ms + 200, 60)
-ax.hist(
-    poll_latency,
-    bins=bins,
-    color=PALETTE[1],
-    alpha=0.75,
-    label=f"HTTP polling ({poll_interval_ms / 1000:.0f}s interval)",
-)
-ax.hist(
-    ws_latency,
-    bins=bins,
-    color=PALETTE[0],
-    alpha=0.85,
-    label="WebSocket push",
-)
 
-ax.axvline(
-    np.median(poll_latency),
-    color=PALETTE[1],
-    linestyle="--",
-    linewidth=1.0,
-)
-ax.axvline(
-    np.median(ws_latency),
-    color=PALETTE[0],
-    linestyle="-",
-    linewidth=1.0,
-)
+for label, data, color, ls, offset, align in (
+    (f"WebSocket push (n={len(push)})", push, PALETTE[0], LINESTYLES[0],
+     (8, -14), "left"),
+    ("HTTP polling, 3 s interval", poll, PALETTE[1], LINESTYLES[1],
+     (-10, -14), "right"),
+):
+    xs, ys = cdf(data)
+    ax.plot(xs, ys, label=label, color=color, linestyle=ls, linewidth=1.8)
+    med = np.median(data)
+    ax.plot([med], [0.5], marker="o", color=color, markersize=5)
+    unit = f"{med:.1f} ms" if med < 100 else f"{med / 1000:.1f} s"
+    ax.annotate(
+        f"median {unit}",
+        (med, 0.5),
+        textcoords="offset points",
+        xytext=offset,
+        ha=align,
+        fontsize=9,
+        color=color,
+    )
 
-ax.set_xlabel("Delivery latency (ms, synthetic)")
-ax.set_ylabel("Events")
+# Nothing polls later than one full interval after the event.
+ax.axvline(POLL_INTERVAL_MS, color="#7a8290", linewidth=0.9,
+           linestyle=(0, (1, 2)))
+ax.text(POLL_INTERVAL_MS * 0.92, 0.06, "poll interval (3 s)", fontsize=9,
+        color="#7a8290", rotation=90, va="bottom")
+
+ax.set_xscale("log")
+ax.set_xlim(0.3, 5000)
+ax.set_ylim(0, 1.02)
+ax.set_xlabel("Delivery latency (ms, log scale), measured on loopback")
+ax.set_ylabel("Fraction of events delivered ≤ x")
 ax.set_title("How long until the client sees an event: poll vs. push")
-ax.legend(loc="upper right")
+ax.legend(loc="upper left")
 
 out = save(
     fig,
@@ -81,6 +85,6 @@ out = save(
 )
 print(f"wrote {out}")
 print(
-    f"median poll={np.median(poll_latency):.0f}ms  "
-    f"median ws={np.median(ws_latency):.0f}ms"
+    f"median poll={np.median(poll):.0f}ms  median push={np.median(push):.2f}ms  "
+    f"push max={push.max():.2f}ms  poll max={poll.max():.0f}ms"
 )

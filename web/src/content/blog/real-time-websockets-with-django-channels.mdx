@@ -1,32 +1,34 @@
 ---
 title: "Real-time without the polling: WebSockets with Django Channels"
-description: "HTTP request/response can't push. Django Channels makes Django event-driven — an async WebSocket consumer with channel-layer groups broadcasts to every connected client, while a small wrapper keeps the synchronous ORM safe inside the async world."
-pubDate: 2026-07-11T05:00:00-03:00
+description: "HTTP request/response can't push. Django Channels makes Django event-driven: an async WebSocket consumer with channel-layer groups broadcasts to every connected client, while a small wrapper keeps the synchronous ORM safe inside the async world."
+pubDate: 2026-07-13T05:00:00-03:00
 heroImage: ../../assets/blog/real-time-websockets-with-django-channels/latency.svg
 tags: ["django", "websockets", "async", "real-time", "python"]
-status: review
+status: approved
+reviewedAt: 2026-07-13T14:02:56.741Z
+reviewHash: sha256:dcffea54b2008df30918bf3b3f0db5e6c5c1f04bf70fff8404f2c9e7abee46ce
 ---
 
 import { Image } from 'astro:assets';
 import latency from '../../assets/blog/real-time-websockets-with-django-channels/latency.svg';
 
-Most of what we build on the web is request/response: the browser asks, the server answers, the connection closes. It's a beautiful model for fetching a page or saving a form, and it's the model Django was built around. But it has one stubborn limitation — the server can never speak first. If something happens on the server that a user should see *right now* — a chat message from someone else, a job finishing, a price ticking — plain HTTP has no way to tell the browser. The browser has to ask.
+Most of what we build on the web is request/response: the browser asks, the server answers, the connection closes. It's the model Django was built around, and it has one stubborn limitation: the server can never speak first. If something happens that a user should see *right now* (a chat message from someone else, a job finishing, a price ticking), plain HTTP has no way to tell the browser. The browser has to ask.
 
-For a long time the workaround was to keep asking: poll the server every few seconds and hope the news is fresh. It works, but it's wasteful and it's slow, and it never feels truly live. This post is about the alternative — a real, persistent, two-way connection — and how [Django Channels](https://channels.readthedocs.io/) bolts it onto an otherwise ordinary Django app.
+The classic workaround is to keep asking: poll the server every few seconds and hope the news is fresh. That's wasteful, slow, and never feels live. This post is about the alternative, a persistent two-way connection, and how [Django Channels](https://channels.readthedocs.io/) bolts it onto an otherwise ordinary Django app.
 
 ## Why request/response can't push
 
-The reason Django can't push isn't a missing feature; it's the shape of the interface underneath it. Classic Django runs under [WSGI](https://peps.python.org/pep-3333/), and a WSGI application is, as the ASGI spec puts it, "a single, synchronous callable that takes a request and returns a response." One request in, one response out, done. There is no place in that contract for the server to hold a line open and send a second, unprompted message later. As the [ASGI introduction](https://asgi.readthedocs.io/en/latest/introduction.html) says plainly, that "single-callable interface just isn't suitable for more involved Web protocols like WebSocket."
+Django can't push because of the interface underneath it. Classic Django runs under [WSGI](https://peps.python.org/pep-3333/): as the ASGI docs put it, "a single, synchronous callable that takes a request and returns a response." One request in, one response out, done. There is no place in that contract for the server to hold a line open and speak again later; the [ASGI introduction](https://asgi.readthedocs.io/en/latest/introduction.html) says plainly that the "single-callable interface just isn't suitable for more involved Web protocols like WebSocket."
 
-So if you want push, you poll. The cost of polling is latency you can't avoid: an event that happens just after a poll has to wait for the *next* poll before anyone sees it. Crank the interval down and you flood the server with mostly-empty requests; crank it up and the app feels sluggish. There's no setting that's actually good.
+So if you want push, you poll, and polling's latency is structural: an event that happens just after a poll waits for the *next* one before anyone sees it. Crank the interval down and you flood the server with mostly-empty requests; crank it up and the app feels sluggish.
 
-[ASGI](https://asgi.readthedocs.io/en/latest/) — the Asynchronous Server Gateway Interface — is the way out. It's the "spiritual successor to WSGI," and it reshapes the contract: instead of one synchronous callable, an application is an async callable handed a `scope` (what kind of connection is this), a `receive` (pull the next incoming event), and a `send` (push an event out). That structure allows "multiple incoming and outgoing events" and "long-lived connections" — exactly what a WebSocket needs. Django supports being [deployed under ASGI](https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/), and Channels is the library that uses that capability to add WebSockets to your project.
+[ASGI](https://asgi.readthedocs.io/en/latest/), the Asynchronous Server Gateway Interface, is the "spiritual successor to WSGI" that reshapes the contract: an application is an async callable handed a `scope` (what kind of connection is this), a `receive` (pull the next incoming event), and a `send` (push one out). Many events, both directions, over one long-lived connection: exactly what a WebSocket needs. Django can be [deployed under ASGI](https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/), and Channels is the library that builds WebSockets on top of that.
 
 ## Consumers and the channel layer
 
-Channels gives you two main pieces. The first is the **consumer** — the WebSocket equivalent of a view. Instead of writing a raw ASGI event loop, you subclass `AsyncWebsocketConsumer` and fill in three lifecycle methods, which the [consumers docs](https://channels.readthedocs.io/en/latest/topics/consumers.html) describe as: `connect` ("called on connection"), `receive` ("called with either text_data or bytes_data for each frame"), and `disconnect` ("called when the socket closes"). The framework structures your code "as a series of functions to be called whenever an event happens, rather than making you write an event loop."
+Channels gives you two pieces. The **consumer** is the WebSocket equivalent of a view: you subclass `AsyncWebsocketConsumer` and fill in `connect`, `receive` (one call per frame), and `disconnect`. The [consumers docs](https://channels.readthedocs.io/en/latest/topics/consumers.html) describe the design as structuring your code "as a series of functions to be called whenever an event happens, rather than making you write an event loop."
 
-The second piece is the **channel layer** — a shared message bus, usually backed by Redis, that lets consumers (in different processes, on different machines) talk to each other. This is the part that makes broadcast possible. One browser's message arrives at one consumer instance; for every *other* browser to see it, that consumer has to fan it out through the layer.
+The **channel layer** is a shared message bus, usually Redis, that lets consumers in different processes and on different machines talk to each other. This is plain publish/subscribe: a consumer subscribes a connection to a named group, and anything published to the group fans out to every subscriber. One browser's message arrives at one consumer instance; for every *other* browser to see it, that consumer has to publish it through the layer.
 
 Here's the `connect` method from a chatbot I built. When a socket opens, it accepts the connection and joins a named group, so it's now a subscriber to anything broadcast there:
 
@@ -52,7 +54,7 @@ class AsyncChatConsumer(AsyncWebsocketConsumer):
 
 ## Broadcasting to a group
 
-The payoff is in `receive`. When a client sends a message, the consumer doesn't reply directly — it hands the message to the channel layer with `group_send`, and the layer delivers it to *every* member of the group:
+The payoff is in `receive`. When a client sends a message, the consumer doesn't reply directly. It hands the message to the channel layer with `group_send`, and the layer delivers it to *every* member of the group:
 
 ```python
 async def receive(self, text_data):
@@ -77,9 +79,9 @@ async def notify_client(self, event):
     await self.send(json.dumps({"chat": event["data"]}))
 ```
 
-The clever bit is `"type": "notify.client"`. The channel layer takes that type, swaps the dot for an underscore, and calls a method of that name — `notify_client` — on *every* consumer in the group. Each of those consumers then does its own `self.send(...)` over its own socket. So one inbound message produces an outbound message to everyone connected. That's the broadcast, and it's why you can't just `await self.send()` from inside `receive`: that would only answer the one client who spoke. The round-trip through the layer is what reaches the rest.
+The clever bit is `"type": "notify.client"`. The layer delivers that event to each consumer in the group, and the consumer's dispatcher swaps the dot for an underscore and calls the method of that name, `notify_client`, on its own instance. Each consumer then does its own `self.send(...)` over its own socket: one inbound message, an outbound message to everyone connected. It's also why you can't just `await self.send()` from inside `receive`; that would answer only the one client who spoke. The round-trip through the layer is what reaches the rest.
 
-On the browser side there's nothing exotic — the native [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) is a few lines:
+On the browser side there's nothing exotic; the native [WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) is a few lines:
 
 ```javascript
 const socket = new WebSocket(`wss://${location.host}/ws/chat/${uuid}/`);
@@ -90,17 +92,17 @@ socket.addEventListener("open", () => {
 
 socket.addEventListener("message", (event) => {
   const { chat } = JSON.parse(event.data);
-  renderMessage(chat); // the server pushed this — no request was made
+  renderMessage(chat); // the server pushed this; no request was made
 });
 ```
 
-That `message` handler fires whenever the server pushes, with no request on the client's part. That's the whole difference from polling, in one event listener.
+That `message` handler fires whenever the server pushes, with no request on the client's part.
 
 ## The sync/async ORM boundary
 
 There's a trap waiting inside every async consumer. Your consumer methods are `async`, but Django's ORM is not. The [Channels database docs](https://channels.readthedocs.io/en/latest/topics/databases.html) are blunt about it: "The Django ORM is a synchronous piece of code," and calling it directly from async code can corrupt connection state. Django's own [ASGI guide](https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/) repeats the rule: "Do not call blocking synchronous functions or libraries in any async code."
 
-The fix is `database_sync_to_async`, which the docs describe as "a version of `asgiref.sync.sync_to_async` that also cleans up database connections" when it's done. You wrap any ORM access in it — as a decorator on a helper method, or inline — and it runs the query in a thread, hands the result back to your coroutine, and tidies up the connection afterward:
+The fix is `database_sync_to_async`, "a version of `asgiref.sync.sync_to_async` that also cleans up database connections" when it's done. Wrap any ORM access in it, as a decorator or inline, and it runs the query in a thread and hands the result back to your coroutine:
 
 ```python
 from channels.db import database_sync_to_async
@@ -112,32 +114,34 @@ def get_chat(self):
     )
 ```
 
-Now `await self.get_chat()` is safe inside `connect` or `receive`. The mental model that keeps you out of trouble: the consumer lives in the async world, the ORM lives in the sync world, and `database_sync_to_async` is the only sanctioned door between them. Reach through it every time you touch the database, and never just *call* a synchronous query from a coroutine and hope.
+Now `await self.get_chat()` is safe inside `connect` or `receive`. The mental model: the consumer lives in the async world, the ORM in the sync world, and `database_sync_to_async` is the one door between them. Use it every time you touch the database.
 
 ## Measuring push vs. poll
 
-So how much does pushing actually buy you? The honest answer needs a real network and a real load test, but the *shape* of the win is easy to reason about, and worth picturing. Below is a synthetic timing model — not a benchmark of any server — comparing when a client learns about an event under each transport. WebSocket push pays one network hop. HTTP polling pays a network hop *plus* however long the event sat waiting for the next poll, which is uniform between zero and the full polling interval.
+So how much does pushing actually buy you? I measured it. The setup: this consumer pattern served by daphne, 300 events fired at random moments, one WebSocket client that receives each event as a push, and one HTTP client that polls for news every 3 seconds. Everything on one machine, so a single clock times both sides and the wire cost is a loopback hop. What matters is the whole distribution, not the average, the same lens I used [keeping LLM triage under a second](/blog/sub-second-llm-triage/).
 
-<Image src={latency} alt="Synthetic delivery latency: WebSocket push clusters tightly near a single network hop, while 3-second HTTP polling spreads events out to roughly a second and a half on average — push is both faster and far more consistent." />
+<Image src={latency} alt="Measured delivery-latency ECDF on a log scale: WebSocket push delivers every event in under 2 milliseconds with a median of 0.5 ms, while 3-second HTTP polling smears deliveries from 8 milliseconds out to the full 3-second interval, with a median of 1.5 seconds." />
 
-The push distribution is a tight spike near the network hop; the polling distribution is smeared flat across the whole interval, with a median around half of it. The lesson isn't the exact milliseconds — it's that polling's latency is dominated by *waiting for permission to ask*, and that's precisely the cost a persistent connection deletes.
+Push delivered all 300 events in under 2 ms, median 0.5 ms: one network hop. Polling's median was 1.5 s, and its deliveries smear from a lucky 8 ms (the event landed just before a poll) to the full 3 s (it landed just after one). The wait is uniform across the interval, which is why the median sits near half of it. On a real network both curves shift right by the same WAN hop, tens of milliseconds, and the three-orders-of-magnitude gap survives: polling's latency is dominated by waiting for permission to ask, and that is precisely the cost a persistent connection deletes.
 
-A persistent connection isn't free, though. The browser [`WebSocket` API has no backpressure](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket): if the server pushes faster than the client drains, messages pile up in a buffer and memory grows. The server side has its own version of this — Channels gives each channel a [capacity](https://channels.readthedocs.io/en/stable/channel_layer_spec.html), and "when a channel is at or over capacity, trying to `send()` to that channel may raise `ChannelFull`." Group sends, notably, never raise — they "silently drop the message if over capacity," following ASGI's at-most-once delivery policy. So broadcasting is lossy under pressure by design, which is fine for a chat ping and very much not fine for, say, a financial ledger. Knowing which one you're building is the whole job.
+A persistent connection isn't free, though. The browser [`WebSocket` API has no backpressure](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket): if the server pushes faster than the client drains, messages pile up in a buffer and memory grows. My measurement demonstrated this by accident: the emitting client also sat in the broadcast group, never read the echoes coming back, and once its receive queue filled its library stopped processing frames, keepalive pongs included, and the connection died mid-run. The server side has its own version of the problem: each channel has a [capacity](https://channels.readthedocs.io/en/stable/channel_layer_spec.html), and "trying to `send()` to that channel may raise `ChannelFull`." Group sends never raise; the layer must "silently drop the message if it is over capacity," following ASGI's at-most-once delivery policy. So broadcasting is lossy under pressure by design, which is fine for a chat ping and very much not fine for a financial ledger.
 
 ## Where I used this
 
-I built exactly this on a Django chatbot project: an `AsyncWebsocketConsumer`, a single Redis-backed group, and `database_sync_to_async` around every ORM call so loading chat history and saving messages never blocked the event loop. The result is a chat that feels instant and stays in sync across tabs and users — no polling, no "refresh to see new messages," just the server speaking the moment it has something to say.
+I built exactly this on a Django chatbot project: an `AsyncWebsocketConsumer`, a single Redis-backed group, and `database_sync_to_async` around every ORM call so loading chat history and saving messages never blocked the event loop. The result is a chat that feels instant and stays in sync across tabs and users: no polling, no "refresh to see new messages", just the server speaking the moment it has something to say. The socket is only the transport, of course; making the bot on the other end worth talking to is its own problem, and I've written about one slice of it in [giving an LLM agent memory](/blog/giving-an-llm-agent-memory/).
 
-The pieces generalize well beyond chat. Any time the server knows something before the client could think to ask — a notification, a live dashboard tile, a long job finishing — the same three moves apply: a consumer that joins a group on connect, a `group_send` to fan an event out, and a disciplined sync/async boundary around the database. Get those right and "real-time" stops being a feature you bolt on and becomes just how the app talks.
+The pieces generalize well beyond chat. Any time the server knows something before the client could think to ask (a notification, a dashboard tile, [a sandboxed run of model-written code](/blog/running-llm-generated-code-safely/) finishing), the same three moves apply: a consumer that joins a group on connect, a `group_send` to fan the event out, and a disciplined sync/async boundary around the database. Get those right and the rest is ordinary Django.
+
+If you're running something real-time on Django in production, I'm curious which route you took: Channels, server-sent events, or an external push service, and what tipped the decision.
 
 ## References
 
-- [Django Channels — Consumers](https://channels.readthedocs.io/en/latest/topics/consumers.html) — the `connect`/`receive`/`disconnect` lifecycle and the event-driven model. *(Link verified.)*
-- [Django Channels — Channel Layers](https://channels.readthedocs.io/en/latest/topics/channel_layers.html) — `group_add`, `group_send`, `group_discard`, and the Redis backend for production. *(Link verified.)*
-- [Django Channels — Channel Layer Specification](https://channels.readthedocs.io/en/stable/channel_layer_spec.html) — channel capacity, `ChannelFull`, and the at-most-once policy for group sends. *(Link verified.)*
-- [Django Channels — Database access](https://channels.readthedocs.io/en/latest/topics/databases.html) — why the synchronous ORM is unsafe in async code and what `database_sync_to_async` does. *(Link verified.)*
-- [ASGI — Introduction](https://asgi.readthedocs.io/en/latest/introduction.html) — ASGI as the successor to WSGI and why WSGI can't do WebSocket. *(Link verified.)*
-- [ASGI 3.0 Specification](https://asgi.readthedocs.io/en/latest/specs/main.html) — the `scope`/`receive`/`send` interface and send-buffer semantics. *(Link verified.)*
-- [Django — How to deploy with ASGI](https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/) — the `application` callable and the async-safety warning. *(Link verified.)*
-- [PEP 3333 — WSGI](https://peps.python.org/pep-3333/) — the single synchronous callable ASGI was designed to move past. *(Link verified.)*
-- [MDN — WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) — the browser client: constructor, `message` event, `send()`, and the no-backpressure caveat. *(Link verified.)*
+- [Django Channels — Consumers](https://channels.readthedocs.io/en/latest/topics/consumers.html) — the `connect`/`receive`/`disconnect` lifecycle and the event-driven model.
+- [Django Channels — Channel Layers](https://channels.readthedocs.io/en/latest/topics/channel_layers.html) — `group_add`, `group_send`, `group_discard`, and the Redis backend for production.
+- [Django Channels — Channel Layer Specification](https://channels.readthedocs.io/en/stable/channel_layer_spec.html) — channel capacity, `ChannelFull`, and the at-most-once policy for group sends.
+- [Django Channels — Database access](https://channels.readthedocs.io/en/latest/topics/databases.html) — why the synchronous ORM is unsafe in async code and what `database_sync_to_async` does.
+- [ASGI — Introduction](https://asgi.readthedocs.io/en/latest/introduction.html) — ASGI as the successor to WSGI and why WSGI can't do WebSocket.
+- [ASGI 3.0 Specification](https://asgi.readthedocs.io/en/latest/specs/main.html) — the `scope`/`receive`/`send` interface and send-buffer semantics.
+- [Django — How to deploy with ASGI](https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/) — the `application` callable and the async-safety warning.
+- [PEP 3333 — WSGI](https://peps.python.org/pep-3333/) — the single synchronous callable ASGI was designed to move past.
+- [MDN — WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSocket) — the browser client: constructor, `message` event, `send()`, and the no-backpressure caveat.
