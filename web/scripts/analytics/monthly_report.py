@@ -21,6 +21,7 @@ import ga4
 import gsc
 import history
 import published
+import readouts
 import report
 import umami
 import window
@@ -211,6 +212,15 @@ def main() -> int:
         if channel:
             caveats.append(CHANNEL_SUM_CAVEAT)
 
+        sitewide = ga4.fetch_sitewide_engagement(client, args.property_id, cmp_w)
+        if sitewide is not None:
+            channel.append(sitewide)
+        else:
+            flagged.append(Metric(
+                ga4.SITEWIDE_PPS_NAME, "pending", "GA4",
+                note="GA4 reported no site-wide pages/session in this window — not a measured 0",
+            ))
+
         # Conversions assembly (mutual exclusion of the file_download proxy; flag,
         # never zero-fill) is pure and lives in conversions.py, where it is tested.
         reported, missing = ga4.fetch_key_event_counts(
@@ -254,9 +264,14 @@ def main() -> int:
 
     # Read history BEFORE this month is recorded, or the month becomes its own
     # prior and every delta reads as 0. Every refusal is stamped into the cell
-    # by name — see deltas.py's five rules.
-    deltas.attach_deltas(sections, args.month, month_w, history.load(), partial)
-    md = report.render_report(args.month, sections, caveats)
+    # by name — see deltas.py's five rules. Loaded ONCE, used TWICE: deltas and
+    # the computed readouts both read the same snapshot.
+    hist = history.load()
+    deltas.attach_deltas(sections, args.month, month_w, hist, partial)
+    md = report.render_report(
+        args.month, sections, caveats,
+        readouts=readouts.build_readouts(args.month, hist),
+    )
 
     out = args.out or os.path.join(REPO_ROOT, "docs", ".ai", "reports", "analytics", f"{args.month}.md")
     os.makedirs(os.path.dirname(out), exist_ok=True)

@@ -137,5 +137,23 @@ class FetchFileDownloadProxy(unittest.TestCase):
         self.assertIsNone(ga4.fetch_file_download_proxy(client, "123", JULY))
 
 
+class SitewideEngagement(unittest.TestCase):
+    """C3b compares SITE-WIDE pages/session against the 2.0 goal. The report only
+    ever emitted the PER-CHANNEL figure, so the number C3b needs did not exist.
+    """
+
+    def test_the_sitewide_pages_per_session_is_emitted_rounded(self):
+        client = FakeGa4Client([_Row([], ["1.6129032258064515"])])
+        m = ga4.fetch_sitewide_engagement(client, "543524687", JULY)
+        self.assertEqual(m.name, ga4.SITEWIDE_PPS_NAME)
+        self.assertEqual(m.value, "1.61")
+        self.assertEqual(m.source, "GA4")
+        self.assertIn("2.0", m.note)
+
+    def test_no_ga4_row_returns_none_never_a_zero(self):
+        client = FakeGa4Client([])
+        self.assertIsNone(ga4.fetch_sitewide_engagement(client, "543524687", JULY))
+
+
 if __name__ == "__main__":
     unittest.main()

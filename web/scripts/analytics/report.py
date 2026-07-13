@@ -68,7 +68,12 @@ def _table(metrics: list[Metric]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_report(month: str, sections: list[Section], caveats: list[str]) -> str:
+def render_report(
+    month: str,
+    sections: list[Section],
+    caveats: list[str],
+    readouts: str = ROLLING_READOUTS,
+) -> str:
     parts = [
         f"# Monthly analytics report — {month}",
         "",
@@ -81,5 +86,5 @@ def render_report(month: str, sections: list[Section], caveats: list[str]) -> st
         parts += [f"## {s.title}", _table(s.metrics)]
     if caveats:
         parts += ["## Caveats", ""] + [f"- {c}" for c in caveats] + [""]
-    parts.append(ROLLING_READOUTS.rstrip("\n"))
+    parts.append(readouts.rstrip("\n"))
     return "\n".join(parts) + "\n"
