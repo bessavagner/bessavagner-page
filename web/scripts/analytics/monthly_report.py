@@ -135,6 +135,7 @@ def assemble_sections(
     channel: list[Metric],
     conversions_section: list[Metric],
     gsc_totals: list[Metric],
+    sitemap: list[Metric],
     gsc_queries: list[Metric],
     gsc_pages: list[Metric],
     gsc_pinned: list[Metric],
@@ -156,6 +157,7 @@ def assemble_sections(
         report.Section("Channel & engagement (GA4)", channel),
         report.Section("Conversions", conversions_section),
         report.Section("Search demand — totals (GSC)", gsc_totals),
+        report.Section("Sitemap health (GSC)", sitemap),
         report.Section("Top queries (GSC)", gsc_queries),
         report.Section("Top pages (GSC)", gsc_pages),
         report.Section("Pinned pages (GSC)", gsc_pinned),
@@ -240,6 +242,7 @@ def main() -> int:
 
     # --- GSC search demand + indexation (third lane; own coverage window) ---
     gsc_totals: list[Metric] = []
+    sitemap: list[Metric] = []
     gsc_queries: list[Metric] = []
     gsc_pages: list[Metric] = []
     gsc_pinned: list[Metric] = []
@@ -253,6 +256,9 @@ def main() -> int:
     else:
         sa_path, site = gsc.load_config()
         gclient = gsc.build_client(sa_path)
+        sitemap = gsc.sitemap_freshness_metrics(
+            gsc.get_sitemaps(gclient, site), today
+        )
         cov = gsc.fetch_coverage(gclient, site, month_w)
         if cov is None:
             flagged.extend(no_gsc_data_flags(args.month))
@@ -275,7 +281,7 @@ def main() -> int:
 
     sections = assemble_sections(
         reach, channel, conversions_section,
-        gsc_totals, gsc_queries, gsc_pages, gsc_pinned, gsc_countries,
+        gsc_totals, sitemap, gsc_queries, gsc_pages, gsc_pinned, gsc_countries,
         indexation, indexation_verdict, flagged,
     )
 

@@ -52,6 +52,9 @@ STABLE_KEY_SECTIONS = frozenset({
     # that falls out of it simply vanishes from history. The PINNED list is
     # fetched by name, so its keys are fixed by code and its series never breaks.
     "Pinned pages (GSC)",
+    # C4. Keys are the sitemap paths — fixed, not churning. Days-since-download
+    # is a real series: a rising number IS the regression.
+    "Sitemap health (GSC)",
 })
 
 # Which boundaries can invalidate which instrument's history.

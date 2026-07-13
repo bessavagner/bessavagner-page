@@ -446,6 +446,60 @@ class GetSitemaps(unittest.TestCase):
         self.assertEqual(gsc.get_sitemaps(SitemapsClient(sitemaps=[]), "s"), [])
 
 
+class SitemapFreshness(unittest.TestCase):
+    """The CI ping is `continue-on-error` with `exit 0` on every path and emits
+    only `::warning::` — success and silent regression look identical. The
+    report is where a stale sitemap becomes visible, and a stale one must never
+    read as a healthy 0.
+    """
+
+    TODAY = date(2026, 8, 9)
+
+    def test_days_since_download_is_a_bare_number_the_delta_engine_can_read(self):
+        import history
+        ms = gsc.sitemap_freshness_metrics(
+            [{"path": SITEMAP_URL, "lastDownloaded": "2026-08-02T09:00:00.000Z",
+              "submitted": 77}],
+            today=self.TODAY,
+        )
+        by_name = {m.name: m.value for m in ms}
+        self.assertEqual(by_name[f"{SITEMAP_URL} — days since last download"], "7")
+        self.assertEqual(by_name[f"{SITEMAP_URL} — URLs submitted"], "77")
+        for m in ms:
+            self.assertEqual(m.source, "GSC")
+            self.assertNotEqual(history.parse_numeric(m.value), "")
+
+    def test_a_never_downloaded_sitemap_is_pending_not_zero_days(self):
+        # "0 days since download" would read as PERFECTLY FRESH — the exact
+        # inversion of the truth. Google has never fetched it.
+        ms = gsc.sitemap_freshness_metrics(
+            [{"path": SITEMAP_URL, "lastDownloaded": "", "submitted": 0}],
+            today=self.TODAY,
+        )
+        days = [m for m in ms if m.name.endswith("days since last download")][0]
+        self.assertEqual(days.value, "pending")
+        self.assertNotEqual(days.value, "0")
+        self.assertIn("never downloaded", days.note.lower())
+
+    def test_a_stale_sitemap_says_so_in_its_note(self):
+        ms = gsc.sitemap_freshness_metrics(
+            [{"path": SITEMAP_URL, "lastDownloaded": "2026-06-01T09:00:00.000Z",
+              "submitted": 77}],
+            today=self.TODAY,
+        )
+        days = [m for m in ms if m.name.endswith("days since last download")][0]
+        self.assertEqual(days.value, "69")
+        self.assertIn("stale", days.note.lower())
+
+    def test_no_registered_sitemap_is_pending_never_an_empty_section(self):
+        # An empty section reads as "nothing to report". No sitemap registered
+        # at all is the loudest possible finding.
+        ms = gsc.sitemap_freshness_metrics([], today=self.TODAY)
+        self.assertTrue(ms)
+        self.assertTrue(all(m.value == "pending" for m in ms))
+        self.assertIn("no sitemap is registered", ms[0].note.lower())
+
+
 class ScopeGuard(unittest.TestCase):
     """Least-privilege regression guard (binding constraint of this feature).
 

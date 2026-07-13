@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -333,4 +333,54 @@ def get_sitemaps(client, site: str) -> list[dict]:
             "lastDownloaded": entry.get("lastDownloaded", ""),
             "submitted": submitted,
         })
+    return out
+
+
+STALE_AFTER_DAYS = 14
+
+_NO_SITEMAP_NOTE = (
+    "no sitemap is registered for this property at all — pending, and the "
+    "loudest possible finding: nothing is being submitted to Google"
+)
+_NEVER_NOTE = (
+    "Google has NEVER downloaded this sitemap — pending, not 0 days: "
+    "'0 days since download' would read as perfectly fresh, the exact "
+    "inversion of the truth"
+)
+
+
+def sitemap_freshness_metrics(sitemaps: list[dict], today: date) -> list[Metric]:
+    """The report's own sitemap read — C4.
+
+    The CI ping is `continue-on-error` with `exit 0` on every path and emits
+    only `::warning::`, so a silent regression is currently indistinguishable
+    from success. Nothing fails and nobody reads warnings. This puts the
+    staleness in the monthly report, where it deltas.
+    """
+    if not sitemaps:
+        return [
+            Metric("Sitemap registered", "pending", "GSC", note=_NO_SITEMAP_NOTE),
+            Metric("URLs submitted", "pending", "GSC", note=_NO_SITEMAP_NOTE),
+        ]
+
+    out: list[Metric] = []
+    for sm in sitemaps:
+        path = sm["path"]
+        last = sm["lastDownloaded"]
+        if not last:
+            out.append(Metric(
+                f"{path} — days since last download", "pending", "GSC",
+                note=_NEVER_NOTE,
+            ))
+        else:
+            downloaded = datetime.fromisoformat(last.replace("Z", "+00:00")).date()
+            days = (today - downloaded).days
+            note = (
+                f"STALE — Google's copy is {days} days old (> {STALE_AFTER_DAYS})"
+                if days > STALE_AFTER_DAYS else ""
+            )
+            out.append(Metric(
+                f"{path} — days since last download", str(days), "GSC", note=note,
+            ))
+        out.append(Metric(f"{path} — URLs submitted", str(sm["submitted"]), "GSC"))
     return out
