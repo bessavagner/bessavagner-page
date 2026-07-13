@@ -77,12 +77,18 @@ class TheShapeOfTheVerdict(unittest.TestCase):
             self.assertNotEqual(history.parse_numeric(m.value), "",
                                 f"{m.name} is not delta-readable: {m.value!r}")
 
-    def test_no_posts_published_is_an_honest_zero_and_says_so(self):
-        # The GSC lane RAN and there was simply nothing to inspect. That is a
-        # real measured zero — but the reader deserves to know the denominator.
+    def test_no_posts_published_is_pending_not_a_measured_zero(self):
+        # The GSC lane RAN, but there was nothing to inspect: no posts were
+        # published this month. "0" is numeric and delta-eligible — the delta
+        # engine would compute a real percentage against last month's real
+        # count and fabricate a "-100%" deindexation out of an absence of
+        # measurement. So this renders `pending`, not `"0"`, on all three
+        # buckets.
         ms = indexation.verdict_metrics([])
-        self.assertEqual([m.value for m in ms], ["0", "0", "0"])
-        self.assertIn("no posts published", ms[0].note.lower())
+        self.assertEqual([m.value for m in ms], [indexation.PENDING] * 3)
+        self.assertFalse(any(m.value == "0" for m in ms))
+        for m in ms:
+            self.assertIn("not a measured 0", m.note.lower())
 
 
 class TheLaneThatNeverRan(unittest.TestCase):

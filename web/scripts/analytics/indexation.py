@@ -23,6 +23,15 @@ of posts each month, so a month-over-month delta on these rows is a
 publishing-hygiene series ("did this month's posts get indexed as well as last
 month's did?"), not a per-page series. That is what the rows say, and it is
 carried in their note.
+
+A month with ZERO published posts is NOT a measured zero. Nothing was
+inspected, so `verdict_metrics([])` renders `pending` on all three buckets —
+never `"0"`. A bare `"0"` is numeric, this section is in
+`deltas.STABLE_KEY_SECTIONS`, and every refusal rule in deltas.py would
+therefore pass: the delta engine would compute a real percentage against last
+month's real count and fabricate a "-100%" deindexation in a month where not
+one URL was inspected. The empty case is identical in kind to
+`unmeasured_verdict` below — it just has a different reason.
 """
 from __future__ import annotations
 
@@ -63,15 +72,30 @@ def verdict_metrics(index_rows: list[Metric]) -> list[Metric]:
     "" for anything else, and deltas.delta_for() then refuses the row forever
     as "non-numeric value" — silently, which is the worst way to lose an
     instrument.
+
+    An EMPTY index_rows is not a measured zero: no posts were published this
+    month, so nothing was inspected. "0" would be numeric and delta-eligible,
+    and the delta engine would then compute a real percentage against last
+    month's real count — fabricating a "-100%" deindexation out of an absence
+    of measurement. So the empty case renders PENDING, exactly like
+    unmeasured_verdict, never "0".
     """
+    if not index_rows:
+        return [
+            Metric(name, PENDING, "GSC", note=(
+                "no posts were published in this month — nothing was "
+                "inspected; not a measured 0"
+            ))
+            for name in _NAMES
+        ]
+
     pending = sum(1 for m in index_rows if m.value == PENDING)
     indexed = sum(1 for m in index_rows if m.value != PENDING and _is_indexed(m.value))
     not_indexed = len(index_rows) - pending - indexed
 
-    note = _DENOMINATOR_NOTE if index_rows else "no posts published in this month"
     counts = (indexed, not_indexed, pending)
     return [
-        Metric(name, str(count), "GSC", note=note)
+        Metric(name, str(count), "GSC", note=_DENOMINATOR_NOTE)
         for name, count in zip(_NAMES, counts)
     ]
 

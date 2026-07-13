@@ -384,7 +384,13 @@ def sitemap_freshness_metrics(sitemaps: list[dict], today: date) -> list[Metric]
             ))
         else:
             downloaded = datetime.fromisoformat(last.replace("Z", "+00:00")).date()
-            days = (today - downloaded).days
+            # lastDownloaded is UTC; `today` (date.today()) is local. A sitemap
+            # Google fetched just after local midnight but before UTC midnight
+            # can appear to be "downloaded tomorrow" from the local vantage
+            # point, yielding a negative day count. Clamp at 0 — a sitemap
+            # downloaded moments ago is fresh, not a negative number of days
+            # old, which is not a real quantity.
+            days = max(0, (today - downloaded).days)
             note = (
                 f"STALE — Google's copy is {days} days old (> {STALE_AFTER_DAYS})"
                 if days > STALE_AFTER_DAYS else ""

@@ -280,9 +280,18 @@ def main() -> int:
             indexation_verdict = indexation_mod.verdict_metrics(indexation)
 
     sections = assemble_sections(
-        reach, channel, conversions_section,
-        gsc_totals, sitemap, gsc_queries, gsc_pages, gsc_pinned, gsc_countries,
-        indexation, indexation_verdict, flagged,
+        reach=reach,
+        channel=channel,
+        conversions_section=conversions_section,
+        gsc_totals=gsc_totals,
+        sitemap=sitemap,
+        gsc_queries=gsc_queries,
+        gsc_pages=gsc_pages,
+        gsc_pinned=gsc_pinned,
+        gsc_countries=gsc_countries,
+        indexation=indexation,
+        indexation_verdict=indexation_verdict,
+        flagged=flagged,
     )
 
     # Read history BEFORE this month is recorded, or the month becomes its own

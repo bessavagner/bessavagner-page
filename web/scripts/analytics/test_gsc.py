@@ -540,6 +540,20 @@ class SitemapFreshness(unittest.TestCase):
         self.assertTrue(all(m.value == "pending" for m in ms))
         self.assertIn("no sitemap is registered", ms[0].note.lower())
 
+    def test_a_lastdownloaded_ahead_of_today_clamps_to_zero_not_negative(self):
+        # lastDownloaded is UTC; `today` (date.today()) is local (UTC-3 here).
+        # A sitemap Google fetched at 2026-07-14T01:00Z while the local date is
+        # still 2026-07-13 must never render "-1 days" — a nonsense cell that
+        # then deltas. Clamp at 0.
+        ms = gsc.sitemap_freshness_metrics(
+            [{"path": SITEMAP_URL, "lastDownloaded": "2026-07-14T01:00:00.000Z",
+              "submitted": 77}],
+            today=date(2026, 7, 13),
+        )
+        days = [m for m in ms if m.name.endswith("days since last download")][0]
+        self.assertEqual(days.value, "0")
+        self.assertNotIn("-", days.value)
+
 
 class ScopeGuard(unittest.TestCase):
     """Least-privilege regression guard (binding constraint of this feature).

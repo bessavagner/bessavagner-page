@@ -87,6 +87,21 @@ class AnAbsentPageIsPendingNeverZero(unittest.TestCase):
         self.assertEqual(by_name[f"{HOME} — impressions"], "30")
         self.assertEqual(by_name[f"{MD_NUMPY} — impressions"], "pending")
 
+    def test_a_slashless_homepage_url_still_matches_the_pinned_homepage(self):
+        # If GSC ever returns the homepage key WITHOUT its trailing slash
+        # ("https://bessavagner.com"), splitting on SITE_HOST leaves an empty
+        # remainder. The old `or url` fallback then returned the WHOLE url as
+        # the path, which never matches "/" in PINNED_PATHS — so the homepage
+        # would render pending every month, forever, with a note claiming GSC
+        # returned no row. It must normalise to "/" instead.
+        rows = [{
+            "keys": ["https://bessavagner.com"],
+            "clicks": 2, "impressions": 40, "ctr": 0.05, "position": 6.1,
+        }]
+        by_name = {m.name: m.value for m in pinned.pinned_metrics(rows, paths=(HOME,))}
+        self.assertEqual(by_name[f"{HOME} — impressions"], "40")
+        self.assertNotEqual(by_name[f"{HOME} — impressions"], "pending")
+
 
 class TheRowsMustBeReadableByTheDeltaEngine(unittest.TestCase):
     """STABLE_KEY_SECTIONS membership is necessary but NOT sufficient:

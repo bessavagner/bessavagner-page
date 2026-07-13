@@ -263,6 +263,44 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         import deltas
         self.assertNotIn("Indexation (GSC)", deltas.STABLE_KEY_SECTIONS)
 
+    def test_a_zero_publish_month_refuses_the_delta_instead_of_fabricating_deindexation(self):
+        # Regression for the critical bug: an EMPTY index_rows month used to
+        # render "0" — numeric, and delta-eligible, in a stable-key section.
+        # Against a real prior count that "0" computed a genuine-looking
+        # "-3 (-100.0%)": a claim that Google deindexed every post, in a month
+        # where not one URL was inspected because none was published. Follows
+        # the same store-then-delta shape as
+        # PinnedPagesAreDeltaEligibleAndSurviveTheTop10 above.
+        import deltas
+        import history
+        import indexation
+
+        august_w = Window(date(2026, 8, 1), date(2026, 8, 31))
+        september_w = Window(date(2026, 9, 1), date(2026, 9, 30))
+
+        august_index_rows = [
+            Metric("/a/", "Submitted and indexed", "GSC"),
+            Metric("/b/", "Submitted and indexed", "GSC"),
+            Metric("/c/", "Submitted and indexed", "GSC"),
+        ]
+        august_rows = history.rows_from_sections(
+            "2026-08", august_w,
+            [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
+            partial=False,
+        )
+
+        september = [Section(
+            "Indexation verdict (GSC)", indexation.verdict_metrics([]),
+        )]
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False)
+
+        by_name = {m.name: m for m in september[0].metrics}
+        indexed = by_name["Posts indexed"]
+        self.assertEqual(indexed.value, "pending")
+        self.assertEqual(indexed.delta, "n/a — non-numeric value")
+        self.assertNotIn("-3", indexed.delta)
+        self.assertNotIn("%", indexed.delta)
+
 
 class NoSilentZeroAnywhere(unittest.TestCase):
     """The regression guard the sprint DoD asks for by name: a refactor that

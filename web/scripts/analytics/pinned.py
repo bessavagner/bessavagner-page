@@ -58,7 +58,23 @@ _CTR_NOTE = "a delta on this row is in percentage POINTS, not percent"
 
 
 def _path(url: str) -> str:
-    return url.split(SITE_HOST, 1)[-1] or url
+    """The path portion of a GSC page URL, normalised so the homepage always
+    matches `"/"` in PINNED_PATHS.
+
+    `url.split(SITE_HOST, 1)` yields `""` for BOTH the homepage's trailing-
+    slash form (`https://bessavagner.com/`) and — should GSC ever return it —
+    the bare, slash-less form (`https://bessavagner.com`). An empty remainder
+    after a successful split always means "the host, and nothing after it",
+    i.e. the homepage, so it is normalised to `"/"` rather than falling back
+    to the whole URL. A URL that does not contain the host at all is a
+    different failure (SITE_HOST is wrong, or the row is not from this
+    property) and must stay unmatched — hence `or url` only fires when the
+    split found nothing to split on.
+    """
+    head, sep, tail = url.partition(SITE_HOST)
+    if not sep:
+        return url
+    return tail or "/"
 
 
 def _name(path: str, measure: str) -> str:
