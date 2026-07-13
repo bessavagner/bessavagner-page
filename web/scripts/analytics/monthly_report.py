@@ -18,6 +18,7 @@ import boundaries
 import conversions
 import ga4
 import gsc
+import history
 import published
 import report
 import umami
@@ -76,7 +77,8 @@ def main() -> int:
     # comparison against a full prior month reads as a traffic collapse
     # when it is really just fewer elapsed days.
     today = date.today()
-    if month_w.end >= today:
+    partial = month_w.end >= today
+    if partial:
         elapsed_end = min(today, month_w.end)
         caveats.append(
             f"{args.month} is a **partial month** — as of {today.isoformat()} only "
@@ -188,6 +190,13 @@ def main() -> int:
     with open(out, "w", encoding="utf-8") as f:
         f.write(md)
     print(f"wrote {out}")
+
+    # The store is a SIDE EFFECT of generating the report, never a separate step
+    # someone can forget. Rows go in after the .md is safely on disk, and the
+    # upsert replaces this month wholesale — re-running is normal and must be
+    # byte-identical.
+    history.record_month(args.month, month_w, sections, partial)
+    print(f"recorded {args.month} -> {history.HISTORY_PATH}")
     return 0
 
 

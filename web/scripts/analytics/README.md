@@ -36,3 +36,27 @@ python monthly_report.py --umami-dir /tmp/umami-2026-08 --month 2026-08 --ga4-st
 cd web/scripts/analytics
 python -m unittest discover -s . -p 'test_*.py' -v
 ```
+
+## The metric store (`history/metrics.csv`)
+
+Every metric the report emits is persisted here as one row, as a **side effect**
+of generating a month — never a separate step. Committed and diffable, so "is it
+improving?" becomes arithmetic instead of memory.
+
+`month, section, name, value_raw, value_num, source, note, void, partial`
+
+- `value_raw` — the string exactly as rendered (`"1.50"`, `"0.53%"`, `"pending"`).
+- `value_num` — the parsed number, **or empty**. Empty is a first-class state:
+  `"pending"` must never become `0`. That is the silent-zero bug in a new hat.
+- `void` — the row's window falls entirely before a boundary that makes it
+  structurally meaningless (see `boundaries.py`). Pre-2026-07-12 GA4 conversions
+  are void: GA4 physically received none of those events. Void is not zero.
+- `partial` — the month had not finished when it was generated. A partial month
+  is never compared against a full one.
+
+**Re-running a month replaces its rows and yields a byte-identical file.** It is
+an upsert, not an append — regenerating is normal, and an append-only store would
+silently double every figure.
+
+It lives here, under `web/scripts/`, and not under `docs/` — because `/docs/` is
+gitignored, and a history file that silently isn't committed is worse than none.
