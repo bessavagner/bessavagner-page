@@ -91,6 +91,7 @@ class SectionAssembly(unittest.TestCase):
             gsc_pages=[Metric("/blog/x", "8 impr", "GSC")],
             gsc_countries=[Metric("BRA", "8 impr", "GSC")],
             indexation=[Metric("/blog/x", "Submitted and indexed", "GSC")],
+            indexation_verdict=[Metric("Posts indexed", "1", "GSC")],
             flagged=[Metric("cv_download", "no GA4 events in window", "GA4")],
         )
 
@@ -106,6 +107,7 @@ class SectionAssembly(unittest.TestCase):
                 "Top pages (GSC)",
                 "Top countries (GSC)",
                 "Indexation (GSC)",
+                "Indexation verdict (GSC)",
                 "Flagged / pending (no counterpart or traffic-gated)",
             ],
         )
@@ -118,6 +120,23 @@ class SectionAssembly(unittest.TestCase):
             by_title["Flagged / pending (no counterpart or traffic-gated)"][0].value,
             "no GA4 events in window",
         )
+
+
+class IndexationVerdictIsDeltaEligible(unittest.TestCase):
+    """The count must NOT live in `Indexation (GSC)`: that section's keys are
+    URLs, they churn monthly, and delta rule 5 refuses it by name. A count is a
+    stable series and needs its own section — forget this and the verdict
+    renders once and never trends, which is the entire regression-watch this
+    story exists to build.
+    """
+
+    def test_the_verdict_section_is_in_stable_key_sections(self):
+        import deltas
+        self.assertIn("Indexation verdict (GSC)", deltas.STABLE_KEY_SECTIONS)
+
+    def test_the_per_url_table_is_still_refused(self):
+        import deltas
+        self.assertNotIn("Indexation (GSC)", deltas.STABLE_KEY_SECTIONS)
 
 
 class NoSilentZeroAnywhere(unittest.TestCase):

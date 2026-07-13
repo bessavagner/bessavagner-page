@@ -20,6 +20,7 @@ import deltas
 import ga4
 import gsc
 import history
+import indexation as indexation_mod
 import published
 import readouts
 import report
@@ -137,6 +138,7 @@ def assemble_sections(
     gsc_pages: list[Metric],
     gsc_countries: list[Metric],
     indexation: list[Metric],
+    indexation_verdict: list[Metric],
     flagged: list[Metric],
 ) -> list[report.Section]:
     """The report's shape. These titles are a CONTRACT, not decoration:
@@ -156,6 +158,7 @@ def assemble_sections(
         report.Section("Top pages (GSC)", gsc_pages),
         report.Section("Top countries (GSC)", gsc_countries),
         report.Section("Indexation (GSC)", indexation),
+        report.Section("Indexation verdict (GSC)", indexation_verdict),
         report.Section("Flagged / pending (no counterpart or traffic-gated)", flagged),
     ]
 
@@ -238,12 +241,20 @@ def main() -> int:
     gsc_pages: list[Metric] = []
     gsc_countries: list[Metric] = []
     indexation: list[Metric] = []
-    if not args.skip_gsc:
+    indexation_verdict: list[Metric] = []
+    if args.skip_gsc:
+        indexation_verdict = indexation_mod.unmeasured_verdict(
+            "the GSC lane was deliberately skipped (--skip-gsc)"
+        )
+    else:
         sa_path, site = gsc.load_config()
         gclient = gsc.build_client(sa_path)
         cov = gsc.fetch_coverage(gclient, site, month_w)
         if cov is None:
             flagged.extend(no_gsc_data_flags(args.month))
+            indexation_verdict = indexation_mod.unmeasured_verdict(
+                f"no Search Console data in {args.month}"
+            )
         else:
             cov_c = gsc_coverage_caveat(args.month, month_w, cov)
             if cov_c:
@@ -255,11 +266,12 @@ def main() -> int:
             caveats.append(GSC_WITHHELD_CAVEAT)
             urls = published.published_in(published.run_post_status(REPO_ROOT), month_w)
             indexation = gsc.inspect_urls(gclient, site, urls)
+            indexation_verdict = indexation_mod.verdict_metrics(indexation)
 
     sections = assemble_sections(
         reach, channel, conversions_section,
         gsc_totals, gsc_queries, gsc_pages, gsc_countries,
-        indexation, flagged,
+        indexation, indexation_verdict, flagged,
     )
 
     # Read history BEFORE this month is recorded, or the month becomes its own

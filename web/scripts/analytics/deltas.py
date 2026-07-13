@@ -45,6 +45,9 @@ STABLE_KEY_SECTIONS = frozenset({
     "Channel & engagement (GA4)",
     "Conversions",
     "Search demand — totals (GSC)",
+    # C2. The per-URL "Indexation (GSC)" table stays OUT — its keys are URLs and
+    # they churn wholesale every month. The COUNT is the stable series.
+    "Indexation verdict (GSC)",
 })
 
 # Which boundaries can invalidate which instrument's history.

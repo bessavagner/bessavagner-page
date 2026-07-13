@@ -239,6 +239,7 @@ class NoTopNDelta(unittest.TestCase):
                 "Channel & engagement (GA4)",
                 "Conversions",
                 "Search demand — totals (GSC)",
+                "Indexation verdict (GSC)",
             }),
         )
 
