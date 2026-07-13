@@ -264,13 +264,26 @@ def main() -> int:
 
     # Read history BEFORE this month is recorded, or the month becomes its own
     # prior and every delta reads as 0. Every refusal is stamped into the cell
-    # by name — see deltas.py's five rules. Loaded ONCE, used TWICE: deltas and
-    # the computed readouts both read the same snapshot.
+    # by name — see deltas.py's five rules.
+    #
+    # attach_deltas and build_readouts have OPPOSITE requirements of this same
+    # snapshot: attach_deltas must NOT see this month's own rows (or the month
+    # becomes its own prior and every future delta zeroes out), but C3b in
+    # build_readouts is looking for THIS month's site-wide pages/session row —
+    # which is not in `hist` yet, because record_month() has not run. Passing
+    # `hist` alone to build_readouts is what used to make C3b falsely claim GA4
+    # emitted nothing (or, on a second run, show a stale prior-run figure) even
+    # though the Channel & engagement table three sections above had the real
+    # number. So `hist` stays untainted for attach_deltas, and build_readouts
+    # gets `cur_rows + hist` instead. This is safe: `_c3b_cell`'s prior-month
+    # lookup keys on deltas.prior_month(month), a DIFFERENT month string, so
+    # adding this month's own rows can never make it its own prior.
     hist = history.load()
     deltas.attach_deltas(sections, args.month, month_w, hist, partial)
+    cur_rows = history.rows_from_sections(args.month, month_w, sections, partial)
     md = report.render_report(
         args.month, sections, caveats,
-        readouts=readouts.build_readouts(args.month, hist),
+        readouts=readouts.build_readouts(args.month, cur_rows + hist),
     )
 
     out = args.out or os.path.join(REPO_ROOT, "docs", ".ai", "reports", "analytics", f"{args.month}.md")

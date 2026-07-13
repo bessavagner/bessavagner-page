@@ -46,9 +46,15 @@ def _c3b_cell(month: str, rows: list[history.Row]) -> str:
     if prior is not None and prior.value_num and not prior.partial and not cur.partial:
         trend = f" ({deltas.format_delta(cur.value_num, prior.value_num).split(' ')[0]} vs {prior.month})"
     verdict = "at or above" if float(cur.value_num) >= float(PPS_GOAL) else "below"
+    # Pages/session is a RATIO, not a raw count — a partial month does not
+    # structurally bias it the way a partial-month raw count would (that is why
+    # only the trend, not the figure itself, is withheld above). But the reader
+    # comparing this cell against the 2.0 goal still deserves to know the month
+    # is not finished, so say so; never suppress the figure and never invent one.
+    partial_note = f"; {month} is still a partial month" if cur.partial else ""
     return (
         f"**{cur.value_num}**{trend} — {verdict} the {PPS_GOAL} goal "
-        f"(baseline {PPS_BASELINE})"
+        f"(baseline {PPS_BASELINE}){partial_note}"
     )
 
 
