@@ -16,6 +16,7 @@ from datetime import date
 
 import boundaries
 import conversions
+import deltas
 import ga4
 import gsc
 import history
@@ -250,6 +251,11 @@ def main() -> int:
         gsc_totals, gsc_queries, gsc_pages, gsc_countries,
         indexation, flagged,
     )
+
+    # Read history BEFORE this month is recorded, or the month becomes its own
+    # prior and every delta reads as 0. Every refusal is stamped into the cell
+    # by name — see deltas.py's five rules.
+    deltas.attach_deltas(sections, args.month, month_w, history.load(), partial)
     md = report.render_report(args.month, sections, caveats)
 
     out = args.out or os.path.join(REPO_ROOT, "docs", ".ai", "reports", "analytics", f"{args.month}.md")

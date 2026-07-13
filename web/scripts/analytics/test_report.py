@@ -69,3 +69,38 @@ class RenderReport(unittest.TestCase):
         self.assertIn("## Rolling readouts (standing cadence — traffic-gated)", md)
         for readout_id in ("E3", "E8", "C3b", "D6b"):
             self.assertIn(f"| {readout_id} |", md)
+
+
+class DeltaColumn(unittest.TestCase):
+    """The delta column is always rendered, and always says something. A blank
+    cell is indistinguishable from "no change"; an em-dash is not.
+    """
+
+    def test_the_delta_column_header_is_rendered(self):
+        md = report.render_report(
+            "2026-09",
+            [Section("Reach (Umami)", [Metric("Pageviews", "1,204", "Umami")])],
+            [],
+        )
+        self.assertIn("Δ vs prior month", md)
+
+    def test_a_delta_value_is_rendered_in_its_cell(self):
+        m = Metric("Pageviews", "1,204", "Umami")
+        m.delta = "+204 (+20.4%)"
+        md = report.render_report("2026-09", [Section("Reach (Umami)", [m])], [])
+        self.assertIn("+204 (+20.4%)", md)
+
+    def test_a_refusal_is_rendered_verbatim_never_as_a_zero(self):
+        m = Metric("cv_download", "pending", "GA4")
+        m.delta = "n/a — no 2026-08 in history"
+        md = report.render_report("2026-09", [Section("Conversions", [m])], [])
+        self.assertIn("n/a — no 2026-08 in history", md)
+        self.assertNotIn("| cv_download | pending | 0 |", md)
+
+    def test_an_unstamped_delta_renders_a_dash_not_an_empty_cell(self):
+        md = report.render_report(
+            "2026-09",
+            [Section("Reach (Umami)", [Metric("Pageviews", "1,204", "Umami")])],
+            [],
+        )
+        self.assertIn("| Pageviews | 1,204 | — | Umami |", md)

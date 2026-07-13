@@ -14,8 +14,13 @@ from dataclasses import dataclass
 class Metric:
     name: str
     value: str
-    source: str  # "Umami" | "GA4" — mandatory, never blank
+    source: str  # "Umami" | "GA4" | "GSC" — mandatory, never blank
     note: str = ""
+    # Month-over-month: either a delta, or `n/a — <what is missing>`. Stamped by
+    # deltas.attach_deltas(); NEVER stored (it is derived), and never a bare "0"
+    # — a comparison the report is not entitled to make is refused by name, not
+    # zero-filled.
+    delta: str = ""
 
 
 @dataclass
@@ -50,11 +55,16 @@ a named home below and is re-checked on the cadence noted, not abandoned.
 def _table(metrics: list[Metric]) -> str:
     if not metrics:
         return "_(none)_\n"
-    lines = ["| Metric | Value | Source | Note |", "|---|---|---|---|"]
+    lines = [
+        "| Metric | Value | Δ vs prior month | Source | Note |",
+        "|---|---|---|---|---|",
+    ]
     for m in metrics:
         if not m.source:
             raise ValueError(f"metric {m.name!r} has no source tool — refuse to emit")
-        lines.append(f"| {m.name} | {m.value} | {m.source} | {m.note} |")
+        # An EMPTY delta cell reads as "no change". An em-dash reads as "not
+        # computed", which is what it is.
+        lines.append(f"| {m.name} | {m.value} | {m.delta or '—'} | {m.source} | {m.note} |")
     return "\n".join(lines) + "\n"
 
 
