@@ -39,11 +39,6 @@ BASE_CAVEATS = [
     "month says nothing about overall reach.",
 ]
 
-BOTS_UNFILTERED_CAVEAT = (
-    "Umami bot filtering (A6) not confirmed live — raw Umami counts may be bot-inflated; "
-    "do not treat a spike as real until UA/IP filtering is confirmed."
-)
-
 SKIP_GSC_CAVEAT = (
     "The GSC lane was deliberately skipped — the empty search demand and indexation "
     "sections below are an absence of measurement, not a finding of zero search demand."
@@ -170,8 +165,6 @@ def main() -> int:
     p.add_argument("--ga4-start", default=DEFAULT_GA4_START, help="GA4 data-collection start YYYY-MM-DD")
     p.add_argument("--property-id", default=ga4.property_id())
     p.add_argument("--out", default=None, help="report path (default docs/.ai/reports/analytics/<month>.md)")
-    p.add_argument("--bots-unfiltered", action="store_true",
-                   help="Umami bot filtering (A6) not confirmed live — add the caveat")
     p.add_argument("--skip-gsc", action="store_true",
                    help="skip the Search Console lane (offline runs / no GSC credentials)")
     args = p.parse_args()
@@ -185,8 +178,6 @@ def main() -> int:
 
     caveats = list(BASE_CAVEATS)
     caveats.extend(boundaries.boundary_caveats(month_w))
-    if args.bots_unfiltered:
-        caveats.append(BOTS_UNFILTERED_CAVEAT)
     if args.skip_gsc:
         caveats.append(SKIP_GSC_CAVEAT)
     partial_c = partial_month_caveat(args.month, month_w, today)
