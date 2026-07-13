@@ -21,6 +21,7 @@ import ga4
 import gsc
 import history
 import indexation as indexation_mod
+import pinned
 import published
 import readouts
 import report
@@ -136,6 +137,7 @@ def assemble_sections(
     gsc_totals: list[Metric],
     gsc_queries: list[Metric],
     gsc_pages: list[Metric],
+    gsc_pinned: list[Metric],
     gsc_countries: list[Metric],
     indexation: list[Metric],
     indexation_verdict: list[Metric],
@@ -156,6 +158,7 @@ def assemble_sections(
         report.Section("Search demand — totals (GSC)", gsc_totals),
         report.Section("Top queries (GSC)", gsc_queries),
         report.Section("Top pages (GSC)", gsc_pages),
+        report.Section("Pinned pages (GSC)", gsc_pinned),
         report.Section("Top countries (GSC)", gsc_countries),
         report.Section("Indexation (GSC)", indexation),
         report.Section("Indexation verdict (GSC)", indexation_verdict),
@@ -239,6 +242,7 @@ def main() -> int:
     gsc_totals: list[Metric] = []
     gsc_queries: list[Metric] = []
     gsc_pages: list[Metric] = []
+    gsc_pinned: list[Metric] = []
     gsc_countries: list[Metric] = []
     indexation: list[Metric] = []
     indexation_verdict: list[Metric] = []
@@ -262,6 +266,7 @@ def main() -> int:
             gsc_totals = gsc.fetch_totals(gclient, site, cov)
             gsc_queries = gsc.fetch_top_queries(gclient, site, cov)
             gsc_pages = gsc.fetch_top_pages(gclient, site, cov)
+            gsc_pinned = pinned.pinned_metrics(gsc.fetch_page_rows(gclient, site, cov))
             gsc_countries = gsc.fetch_countries(gclient, site, cov)
             caveats.append(GSC_WITHHELD_CAVEAT)
             urls = published.published_in(published.run_post_status(REPO_ROOT), month_w)
@@ -270,7 +275,7 @@ def main() -> int:
 
     sections = assemble_sections(
         reach, channel, conversions_section,
-        gsc_totals, gsc_queries, gsc_pages, gsc_countries,
+        gsc_totals, gsc_queries, gsc_pages, gsc_pinned, gsc_countries,
         indexation, indexation_verdict, flagged,
     )
 

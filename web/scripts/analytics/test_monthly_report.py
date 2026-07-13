@@ -89,6 +89,7 @@ class SectionAssembly(unittest.TestCase):
             gsc_totals=[Metric("Clicks", "3", "GSC")],
             gsc_queries=[Metric("some query", "8 impr", "GSC")],
             gsc_pages=[Metric("/blog/x", "8 impr", "GSC")],
+            gsc_pinned=[Metric("/ — impressions", "30", "GSC")],
             gsc_countries=[Metric("BRA", "8 impr", "GSC")],
             indexation=[Metric("/blog/x", "Submitted and indexed", "GSC")],
             indexation_verdict=[Metric("Posts indexed", "1", "GSC")],
@@ -105,6 +106,7 @@ class SectionAssembly(unittest.TestCase):
                 "Search demand — totals (GSC)",
                 "Top queries (GSC)",
                 "Top pages (GSC)",
+                "Pinned pages (GSC)",
                 "Top countries (GSC)",
                 "Indexation (GSC)",
                 "Indexation verdict (GSC)",
@@ -120,6 +122,82 @@ class SectionAssembly(unittest.TestCase):
             by_title["Flagged / pending (no counterpart or traffic-gated)"][0].value,
             "no GA4 events in window",
         )
+
+
+class PinnedPagesAreDeltaEligibleAndSurviveTheTop10(unittest.TestCase):
+    """The two halves of the trap, asserted together: a pinned row must be in a
+    stable-key section AND carry a numeric value. Miss either and the delta
+    engine refuses it forever, silently — which is exactly the blind spot the
+    watchlist was built to close.
+    """
+
+    def test_the_pinned_section_is_in_stable_key_sections(self):
+        import deltas
+        self.assertIn("Pinned pages (GSC)", deltas.STABLE_KEY_SECTIONS)
+
+    def test_the_top_pages_table_is_still_refused(self):
+        import deltas
+        self.assertNotIn("Top pages (GSC)", deltas.STABLE_KEY_SECTIONS)
+
+    def test_a_pinned_row_deltas_end_to_end_against_a_stored_prior_month(self):
+        import deltas
+        import history
+        import pinned
+        from window import Window
+
+        july_w = Window(date(2026, 7, 1), date(2026, 7, 31))
+        august_w = Window(date(2026, 8, 1), date(2026, 8, 31))
+        home = "/"
+
+        july_rows = history.rows_from_sections(
+            "2026-07", july_w,
+            [Section("Pinned pages (GSC)",
+                     pinned.pinned_metrics(
+                         [{"keys": [f"https://bessavagner.com{home}"], "clicks": 0,
+                           "impressions": 30, "ctr": 0.0, "position": 7.8}],
+                         paths=(home,)))],
+            partial=False,
+        )
+
+        august = [Section("Pinned pages (GSC)", pinned.pinned_metrics(
+            [{"keys": [f"https://bessavagner.com{home}"], "clicks": 2,
+              "impressions": 34, "ctr": 0.0588, "position": 6.0}],
+            paths=(home,)))]
+        deltas.attach_deltas(august, "2026-08", august_w, july_rows, partial=False)
+
+        by_name = {m.name: m.delta for m in august[0].metrics}
+        self.assertEqual(by_name[f"{home} — impressions"], "+4 (+13.3%)")
+        self.assertEqual(by_name[f"{home} — clicks"], "+2 (prior 0 — no percent change)")
+        self.assertTrue(by_name[f"{home} — position"].startswith("-1.8"))
+
+    def test_a_pinned_page_absent_in_august_refuses_rather_than_reading_as_zero(self):
+        # The page fell out of GSC's response entirely. It did NOT go to zero
+        # impressions — and the delta must say so instead of printing -30.
+        import deltas
+        import history
+        import pinned
+        from window import Window
+
+        july_w = Window(date(2026, 7, 1), date(2026, 7, 31))
+        august_w = Window(date(2026, 8, 1), date(2026, 8, 31))
+        home = "/"
+
+        july_rows = history.rows_from_sections(
+            "2026-07", july_w,
+            [Section("Pinned pages (GSC)", pinned.pinned_metrics(
+                [{"keys": [f"https://bessavagner.com{home}"], "clicks": 0,
+                  "impressions": 30, "ctr": 0.0, "position": 7.8}],
+                paths=(home,)))],
+            partial=False,
+        )
+
+        august = [Section("Pinned pages (GSC)", pinned.pinned_metrics([], paths=(home,)))]
+        deltas.attach_deltas(august, "2026-08", august_w, july_rows, partial=False)
+
+        impressions = [m for m in august[0].metrics if m.name.endswith("impressions")][0]
+        self.assertEqual(impressions.value, "pending")
+        self.assertEqual(impressions.delta, "n/a — non-numeric value")
+        self.assertNotIn("-30", impressions.delta)
 
 
 class IndexationVerdictIsDeltaEligible(unittest.TestCase):

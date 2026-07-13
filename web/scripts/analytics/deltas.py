@@ -48,6 +48,10 @@ STABLE_KEY_SECTIONS = frozenset({
     # C2. The per-URL "Indexation (GSC)" table stays OUT — its keys are URLs and
     # they churn wholesale every month. The COUNT is the stable series.
     "Indexation verdict (GSC)",
+    # C3a. "Top pages (GSC)" stays OUT — a top-N slice churns by rank, and a page
+    # that falls out of it simply vanishes from history. The PINNED list is
+    # fetched by name, so its keys are fixed by code and its series never breaks.
+    "Pinned pages (GSC)",
 })
 
 # Which boundaries can invalidate which instrument's history.

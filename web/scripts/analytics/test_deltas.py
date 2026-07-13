@@ -240,6 +240,7 @@ class NoTopNDelta(unittest.TestCase):
                 "Conversions",
                 "Search demand — totals (GSC)",
                 "Indexation verdict (GSC)",
+                "Pinned pages (GSC)",
             }),
         )
 
