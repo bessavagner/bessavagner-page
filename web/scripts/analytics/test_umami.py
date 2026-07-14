@@ -55,3 +55,30 @@ class CountEvent(unittest.TestCase):
             umami.count_event(self.ROWS, ["whatsapp_click"], date(2026, 8, 1), date(2026, 8, 31)),
             1,
         )
+
+
+class AnyEventsInWindow(unittest.TestCase):
+    """The lane-level guard behind Fix B: zero rows in the window means the
+    export does not cover the month, not that traffic was zero. Deliberately
+    "any row of ANY kind" — including plain pageviews — not "any row of a
+    conversion type", so a genuinely quiet month for one conversion event is
+    not mistaken for an uncovered export.
+    """
+
+    def test_no_rows_at_all_is_false(self):
+        self.assertFalse(umami.any_events_in_window([], date(2026, 8, 1), date(2026, 8, 31)))
+
+    def test_a_plain_pageview_row_in_window_counts(self):
+        # event_name is blank for a pageview — it must still count as
+        # coverage of the window, since the guard is lane-level, not
+        # conversion-type-specific.
+        rows = [{"event_type": "1", "event_name": "", "created_at": "2026-08-01T10:00:00Z"}]
+        self.assertTrue(umami.any_events_in_window(rows, date(2026, 8, 1), date(2026, 8, 31)))
+
+    def test_rows_only_outside_the_window_is_false(self):
+        rows = [{"event_type": "2", "event_name": "cv_download", "created_at": "2026-09-01T10:00:00Z"}]
+        self.assertFalse(umami.any_events_in_window(rows, date(2026, 8, 1), date(2026, 8, 31)))
+
+    def test_a_conversion_row_inside_the_window_counts(self):
+        rows = [{"event_type": "2", "event_name": "cv_download", "created_at": "2026-08-15T10:00:00Z"}]
+        self.assertTrue(umami.any_events_in_window(rows, date(2026, 8, 1), date(2026, 8, 31)))

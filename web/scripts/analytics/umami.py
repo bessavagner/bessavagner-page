@@ -51,3 +51,22 @@ def count_event(rows: list[dict[str, str]], names: list[str], start: date, end: 
         for r in rows
         if r.get("event_name") in wanted and start <= _to_date(r["created_at"]) <= end
     )
+
+
+def any_events_in_window(rows: list[dict[str, str]], start: date, end: date) -> bool:
+    """True when the export contains at least one website_event row — of ANY
+    kind, pageview or custom event — inside [start, end].
+
+    This is a LANE-level check, deliberately not a per-conversion-event one.
+    Umami records pageviews alongside custom events, so a site with any real
+    traffic at all in a month always has SOME row in that window. Zero rows
+    means the export itself does not cover the month (header-only, truncated,
+    or a wrong date range) — not that the site had zero traffic that month.
+
+    Checking "any row of a CONVERSION type" would get this wrong in the
+    opposite direction: at this site's volume (~4 conversion events/month) a
+    genuinely quiet month for ONE event is completely normal, and that true
+    "0" must stay bare-numeric and keep deltaing. Only the total absence of
+    ANY row — including plain pageviews — signals an uncovered export.
+    """
+    return any(start <= _to_date(r["created_at"]) <= end for r in rows)

@@ -59,6 +59,17 @@ class E8IsHonestlyUncomputable(unittest.TestCase):
         e8 = md.split("| E8 |")[1].split("\n")[0]
         self.assertNotIn("%", e8)
 
+    def test_e8_never_fabricates_a_number_once_the_marking_date_is_stamped(self):
+        # The branch that goes live the day A1 lands. E8 still has no clean
+        # post-A/B month — it names the earliest one it COULD be computed for,
+        # and must not smuggle a percentage into the cell in the meantime.
+        md = readouts.build_readouts("2026-07", [], ga4_marking=date(2026, 7, 28))
+        e8 = md.split("| E8 |")[1].split("\n")[0]
+        self.assertIn("insufficient history", e8.lower())
+        self.assertIn("2026-08", e8)          # the first FULL month after the marking
+        self.assertNotIn("%", e8)             # no fabricated re-baseline
+        self.assertNotIn("re-baseline of 0", e8.replace("Not a re-baseline of 0.", ""))
+
 
 class C3bGetsTheCurrentMonthsOwnRow(unittest.TestCase):
     """monthly_report.main() reads history BEFORE this month is recorded (so

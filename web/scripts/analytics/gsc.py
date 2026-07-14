@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -178,14 +178,8 @@ def fetch_totals(client, site: str, w: Window) -> list[Metric]:
 _BREAKDOWN_FETCH_LIMIT = 25_000
 
 
-def _fetch_breakdown(
-    client,
-    site: str,
-    w: Window,
-    dimension: str,
-    limit: int,
-    name_fn=lambda r: r["keys"][0],
-) -> list[Metric]:
+def _raw_breakdown(client, site: str, w: Window, dimension: str) -> list[dict]:
+    """Every row for one dimension, unsorted and unsliced, truncation-guarded."""
     rows = _query(client, site, w, [dimension], limit=_BREAKDOWN_FETCH_LIMIT)
     if len(rows) == _BREAKDOWN_FETCH_LIMIT:
         raise TruncationError(
@@ -204,8 +198,31 @@ def _fetch_breakdown(
             f"page the API (loop on startRow) for this dimension, not to "
             f"raise the limit further."
         )
+    return rows
+
+
+def _fetch_breakdown(
+    client,
+    site: str,
+    w: Window,
+    dimension: str,
+    limit: int,
+    name_fn=lambda r: r["keys"][0],
+) -> list[Metric]:
+    rows = _raw_breakdown(client, site, w, dimension)
     rows.sort(key=lambda r: r["impressions"], reverse=True)
     return [Metric(name_fn(r), _fmt_row(r), "GSC") for r in rows[:limit]]
+
+
+def fetch_page_rows(client, site: str, w: Window) -> list[dict]:
+    """Every page row for the window — unsorted, unsliced, raw.
+
+    The pinned-page watchlist (pinned.py) looks its pages up BY NAME, not by
+    rank: a page that fell out of the top-10 is exactly the page whose series
+    must not go blank. So it needs the whole breakdown, not fetch_top_pages'
+    ranked slice.
+    """
+    return _raw_breakdown(client, site, w, "page")
 
 
 def fetch_top_queries(client, site: str, w: Window, limit: int = 10) -> list[Metric]:
@@ -316,4 +333,70 @@ def get_sitemaps(client, site: str) -> list[dict]:
             "lastDownloaded": entry.get("lastDownloaded", ""),
             "submitted": submitted,
         })
+    return out
+
+
+STALE_AFTER_DAYS = 14
+
+_NO_SITEMAP_NOTE = (
+    "no sitemap is registered for this property at all — pending, and the "
+    "loudest possible finding: nothing is being submitted to Google"
+)
+_NEVER_NOTE = (
+    "Google has NEVER downloaded this sitemap — pending, not 0 days: "
+    "'0 days since download' would read as perfectly fresh, the exact "
+    "inversion of the truth"
+)
+_NEVER_SUBMITTED_NOTE = (
+    "Google has NEVER downloaded this sitemap — 'submitted' is pending, not "
+    "a measured 0: contents (and therefore the submitted count) are only "
+    "populated once Google processes the file, so a bare 0 here would read "
+    "as 'the sitemap is empty' rather than 'nothing has been measured yet'"
+)
+
+
+def sitemap_freshness_metrics(sitemaps: list[dict], today: date) -> list[Metric]:
+    """The report's own sitemap read — C4.
+
+    The CI ping is `continue-on-error` with `exit 0` on every path and emits
+    only `::warning::`, so a silent regression is currently indistinguishable
+    from success. Nothing fails and nobody reads warnings. This puts the
+    staleness in the monthly report, where it deltas.
+    """
+    if not sitemaps:
+        return [
+            Metric("Sitemap registered", "pending", "GSC", note=_NO_SITEMAP_NOTE),
+            Metric("URLs submitted", "pending", "GSC", note=_NO_SITEMAP_NOTE),
+        ]
+
+    out: list[Metric] = []
+    for sm in sitemaps:
+        path = sm["path"]
+        last = sm["lastDownloaded"]
+        if not last:
+            out.append(Metric(
+                f"{path} — days since last download", "pending", "GSC",
+                note=_NEVER_NOTE,
+            ))
+            out.append(Metric(
+                f"{path} — URLs submitted", "pending", "GSC",
+                note=_NEVER_SUBMITTED_NOTE,
+            ))
+        else:
+            downloaded = datetime.fromisoformat(last.replace("Z", "+00:00")).date()
+            # lastDownloaded is UTC; `today` (date.today()) is local. A sitemap
+            # Google fetched just after local midnight but before UTC midnight
+            # can appear to be "downloaded tomorrow" from the local vantage
+            # point, yielding a negative day count. Clamp at 0 — a sitemap
+            # downloaded moments ago is fresh, not a negative number of days
+            # old, which is not a real quantity.
+            days = max(0, (today - downloaded).days)
+            note = (
+                f"STALE — Google's copy is {days} days old (> {STALE_AFTER_DAYS})"
+                if days > STALE_AFTER_DAYS else ""
+            )
+            out.append(Metric(
+                f"{path} — days since last download", str(days), "GSC", note=note,
+            ))
+            out.append(Metric(f"{path} — URLs submitted", str(sm["submitted"]), "GSC"))
     return out

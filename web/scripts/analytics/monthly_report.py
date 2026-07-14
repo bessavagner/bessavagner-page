@@ -20,6 +20,8 @@ import deltas
 import ga4
 import gsc
 import history
+import indexation as indexation_mod
+import pinned
 import published
 import readouts
 import report
@@ -115,6 +117,42 @@ def no_ga4_window_flags(month: str, ga4_start: str) -> list[Metric]:
     )]
 
 
+_UMAMI_UNCOVERED_NOTE = (
+    "the Umami export contains no events at all inside this window — the "
+    "export does not cover the month; not a measured 0"
+)
+
+
+def build_reach(rows: list[dict[str, str]], w: Window) -> list[Metric]:
+    """The Reach (Umami) section for one month. Guards ONCE, at the lane.
+
+    `umami.count_event` is `sum(1 for r in rows if ...)`, and `sum([])` is 0
+    — a header-only, truncated, or wrong-date-range export parses cleanly,
+    yields zero rows, and every conversion would otherwise render a bare "0"
+    (numeric, delta-eligible) purely because a file was empty, fabricating a
+    collapse on every channel at once.
+
+    The guard is deliberately "any row of ANY kind in the window", not "any
+    row of a conversion type" — see umami.any_events_in_window. A genuinely
+    quiet month for ONE event is normal at this site's volume and must still
+    render a true bare "0"; only the total absence of traffic means the
+    export itself doesn't cover the month.
+    """
+    if not umami.any_events_in_window(rows, w.start, w.end):
+        return [
+            Metric(f"{canon} (raw event count)", "pending", "Umami", note=_UMAMI_UNCOVERED_NOTE)
+            for canon in umami.CONVERSION_EVENTS
+        ]
+    return [
+        Metric(
+            f"{canon} (raw event count)",
+            str(umami.count_event(rows, aliases, w.start, w.end)),
+            "Umami",
+        )
+        for canon, aliases in umami.CONVERSION_EVENTS.items()
+    ]
+
+
 def no_gsc_data_flags(month: str) -> list[Metric]:
     """The fetch_coverage-is-None branch: GSC returned nothing for this month.
 
@@ -133,10 +171,13 @@ def assemble_sections(
     channel: list[Metric],
     conversions_section: list[Metric],
     gsc_totals: list[Metric],
+    sitemap: list[Metric],
     gsc_queries: list[Metric],
     gsc_pages: list[Metric],
+    gsc_pinned: list[Metric],
     gsc_countries: list[Metric],
     indexation: list[Metric],
+    indexation_verdict: list[Metric],
     flagged: list[Metric],
 ) -> list[report.Section]:
     """The report's shape. These titles are a CONTRACT, not decoration:
@@ -152,10 +193,13 @@ def assemble_sections(
         report.Section("Channel & engagement (GA4)", channel),
         report.Section("Conversions", conversions_section),
         report.Section("Search demand — totals (GSC)", gsc_totals),
+        report.Section("Sitemap health (GSC)", sitemap),
         report.Section("Top queries (GSC)", gsc_queries),
         report.Section("Top pages (GSC)", gsc_pages),
+        report.Section("Pinned pages (GSC)", gsc_pinned),
         report.Section("Top countries (GSC)", gsc_countries),
         report.Section("Indexation (GSC)", indexation),
+        report.Section("Indexation verdict (GSC)", indexation_verdict),
         report.Section("Flagged / pending (no counterpart or traffic-gated)", flagged),
     ]
 
@@ -192,10 +236,7 @@ def main() -> int:
         canon: umami.count_event(rows, aliases, month_w.start, month_w.end)
         for canon, aliases in umami.CONVERSION_EVENTS.items()
     }
-    reach = [
-        Metric(f"{canon} (raw event count)", str(count), "Umami")
-        for canon, count in umami_counts.items()
-    ]
+    reach = build_reach(rows, month_w)
 
     # --- GA4 channel/conversion (overlapping window only) ---
     channel: list[Metric] = []
@@ -234,16 +275,29 @@ def main() -> int:
 
     # --- GSC search demand + indexation (third lane; own coverage window) ---
     gsc_totals: list[Metric] = []
+    sitemap: list[Metric] = []
     gsc_queries: list[Metric] = []
     gsc_pages: list[Metric] = []
+    gsc_pinned: list[Metric] = []
     gsc_countries: list[Metric] = []
     indexation: list[Metric] = []
-    if not args.skip_gsc:
+    indexation_verdict: list[Metric] = []
+    if args.skip_gsc:
+        indexation_verdict = indexation_mod.unmeasured_verdict(
+            "the GSC lane was deliberately skipped (--skip-gsc)"
+        )
+    else:
         sa_path, site = gsc.load_config()
         gclient = gsc.build_client(sa_path)
+        sitemap = gsc.sitemap_freshness_metrics(
+            gsc.get_sitemaps(gclient, site), today
+        )
         cov = gsc.fetch_coverage(gclient, site, month_w)
         if cov is None:
             flagged.extend(no_gsc_data_flags(args.month))
+            indexation_verdict = indexation_mod.unmeasured_verdict(
+                f"no Search Console data in {args.month}"
+            )
         else:
             cov_c = gsc_coverage_caveat(args.month, month_w, cov)
             if cov_c:
@@ -251,15 +305,26 @@ def main() -> int:
             gsc_totals = gsc.fetch_totals(gclient, site, cov)
             gsc_queries = gsc.fetch_top_queries(gclient, site, cov)
             gsc_pages = gsc.fetch_top_pages(gclient, site, cov)
+            gsc_pinned = pinned.pinned_metrics(gsc.fetch_page_rows(gclient, site, cov))
             gsc_countries = gsc.fetch_countries(gclient, site, cov)
             caveats.append(GSC_WITHHELD_CAVEAT)
             urls = published.published_in(published.run_post_status(REPO_ROOT), month_w)
             indexation = gsc.inspect_urls(gclient, site, urls)
+            indexation_verdict = indexation_mod.verdict_metrics(indexation)
 
     sections = assemble_sections(
-        reach, channel, conversions_section,
-        gsc_totals, gsc_queries, gsc_pages, gsc_countries,
-        indexation, flagged,
+        reach=reach,
+        channel=channel,
+        conversions_section=conversions_section,
+        gsc_totals=gsc_totals,
+        sitemap=sitemap,
+        gsc_queries=gsc_queries,
+        gsc_pages=gsc_pages,
+        gsc_pinned=gsc_pinned,
+        gsc_countries=gsc_countries,
+        indexation=indexation,
+        indexation_verdict=indexation_verdict,
+        flagged=flagged,
     )
 
     # Read history BEFORE this month is recorded, or the month becomes its own
