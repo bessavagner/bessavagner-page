@@ -75,6 +75,108 @@ class GscLaneBranches(unittest.TestCase):
         self.assertIsNone(mr.gsc_coverage_caveat("2026-07", JULY, JULY))
 
 
+class ReachLaneGuard(unittest.TestCase):
+    """Fix B. `umami.count_event` is `sum(1 for r in rows if ...)`, and
+    `sum([])` is 0 — a header-only, truncated, or wrong-date-range export
+    parses cleanly, yields zero rows, and every reach row used to render a
+    bare "0" (numeric, delta-eligible) purely because a file was empty,
+    fabricating a -100% collapse on every conversion channel at once. The
+    fix guards ONCE, at the lane, on "any row of ANY kind in the window" —
+    NOT "any row of a conversion type", so a genuinely quiet month for one
+    event must still render a true bare "0".
+    """
+
+    def test_an_export_with_no_rows_in_the_window_renders_every_reach_row_pending(self):
+        reach = mr.build_reach([], JULY)
+        self.assertEqual(len(reach), 4)
+        for m in reach:
+            self.assertEqual(m.value, "pending")
+            self.assertNotEqual(m.value, "0")
+            self.assertIn("does not cover the month", m.note)
+            self.assertIn("not a measured 0", m.note)
+
+    def test_real_traffic_with_a_genuine_zero_on_one_event_still_renders_bare_zero(self):
+        # Pageviews + some conversions inside the window, but zero
+        # whatsapp_click. The lane WAS measured (there is traffic), so this
+        # true zero must stay bare-numeric, not become "pending".
+        rows = [
+            {"event_type": "1", "event_name": "", "created_at": "2026-07-01T10:00:00Z"},
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-07-02T10:00:00Z"},
+            {"event_type": "2", "event_name": "generate_lead", "created_at": "2026-07-03T10:00:00Z"},
+            {"event_type": "2", "event_name": "newsletter_signup", "created_at": "2026-07-04T10:00:00Z"},
+        ]
+        reach = mr.build_reach(rows, JULY)
+        by_name = {m.name: m for m in reach}
+        self.assertEqual(by_name["cv_download (raw event count)"].value, "1")
+        self.assertEqual(by_name["whatsapp_click (raw event count)"].value, "0")
+        self.assertEqual(by_name["generate_lead (raw event count)"].value, "1")
+        self.assertEqual(by_name["newsletter_signup (raw event count)"].value, "1")
+
+    def test_a_zero_row_window_refuses_the_delta_instead_of_fabricating_a_collapse(self):
+        # End to end: history.rows_from_sections -> deltas.attach_deltas.
+        # Before the fix this would have computed "-4 (-100.0%)" etc. against
+        # a real prior month for every conversion channel.
+        import deltas
+        import history
+        from report import Section
+
+        june_w = Window(date(2026, 6, 1), date(2026, 6, 30))
+
+        june_rows_raw = [
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-06-01T10:00:00Z"},
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-06-02T10:00:00Z"},
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-06-03T10:00:00Z"},
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-06-04T10:00:00Z"},
+        ]
+        june_rows = history.rows_from_sections(
+            "2026-06", june_w,
+            [Section("Reach (Umami)", mr.build_reach(june_rows_raw, june_w))],
+            partial=False,
+        )
+
+        july = [Section("Reach (Umami)", mr.build_reach([], JULY))]
+        deltas.attach_deltas(july, "2026-07", JULY, june_rows, partial=False)
+
+        by_name = {m.name: m for m in july[0].metrics}
+        cv = by_name["cv_download (raw event count)"]
+        self.assertEqual(cv.value, "pending")
+        self.assertEqual(cv.delta, "n/a — non-numeric value")
+        self.assertNotIn("-4", cv.delta)
+        self.assertNotIn("-100", cv.delta)
+
+    def test_a_measured_lane_still_deltas_normally(self):
+        # The clean path must not regress: real traffic in both months,
+        # a real change on one event, still produces a real delta.
+        import deltas
+        import history
+        from report import Section
+
+        june_w = Window(date(2026, 6, 1), date(2026, 6, 30))
+
+        june_rows_raw = [
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-06-01T10:00:00Z"},
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-06-02T10:00:00Z"},
+        ]
+        june_rows = history.rows_from_sections(
+            "2026-06", june_w,
+            [Section("Reach (Umami)", mr.build_reach(june_rows_raw, june_w))],
+            partial=False,
+        )
+
+        july_rows_raw = [
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-07-01T10:00:00Z"},
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-07-02T10:00:00Z"},
+            {"event_type": "2", "event_name": "cv_download", "created_at": "2026-07-03T10:00:00Z"},
+        ]
+        july = [Section("Reach (Umami)", mr.build_reach(july_rows_raw, JULY))]
+        deltas.attach_deltas(july, "2026-07", JULY, june_rows, partial=False)
+
+        by_name = {m.name: m for m in july[0].metrics}
+        cv = by_name["cv_download (raw event count)"]
+        self.assertEqual(cv.value, "3")
+        self.assertEqual(cv.delta, "+1 (+50.0%)")
+
+
 class SectionAssembly(unittest.TestCase):
     """WHICH section a metric lands in is load-bearing: history.is_void and
     deltas.STABLE_KEY_SECTIONS both key off these exact titles. Renaming one
@@ -300,6 +402,135 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         self.assertEqual(indexed.delta, "n/a — non-numeric value")
         self.assertNotIn("-3", indexed.delta)
         self.assertNotIn("%", indexed.delta)
+
+    def test_all_inspections_failing_refuses_the_delta_instead_of_fabricating_deindexation(self):
+        # Fix A, case 1 from the repro: ALL 3 inspections 429'd — not one URL
+        # was successfully inspected. Before the fix this rendered "0" for
+        # indexed/not_indexed (bare numeric, delta-eligible) and the delta
+        # engine fabricated "-3 (-100.0%)" against a real prior count — a
+        # claim that Google deindexed every post in a month where nothing was
+        # actually inspected.
+        import deltas
+        import history
+        import indexation
+
+        august_w = Window(date(2026, 8, 1), date(2026, 8, 31))
+        september_w = Window(date(2026, 9, 1), date(2026, 9, 30))
+
+        august_index_rows = [
+            Metric("/a/", "Submitted and indexed", "GSC"),
+            Metric("/b/", "Submitted and indexed", "GSC"),
+            Metric("/c/", "Submitted and indexed", "GSC"),
+        ]
+        august_rows = history.rows_from_sections(
+            "2026-08", august_w,
+            [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
+            partial=False,
+        )
+
+        september_index_rows = [
+            Metric("/d/", "pending", "GSC", note="inspection failed (429)"),
+            Metric("/e/", "pending", "GSC", note="inspection failed (429)"),
+            Metric("/f/", "pending", "GSC", note="inspection failed (429)"),
+        ]
+        september = [Section(
+            "Indexation verdict (GSC)", indexation.verdict_metrics(september_index_rows),
+        )]
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False)
+
+        by_name = {m.name: m for m in september[0].metrics}
+        for name in ("Posts indexed", "Posts not indexed", "Posts pending inspection"):
+            self.assertEqual(by_name[name].value, "pending")
+            self.assertEqual(by_name[name].delta, "n/a — non-numeric value")
+            self.assertNotIn("-3", by_name[name].delta)
+            self.assertNotIn("+3", by_name[name].delta)
+            self.assertNotIn("%", by_name[name].delta)
+
+    def test_partial_pending_indexed_and_not_indexed_refuse_the_delta_but_pending_still_deltas(self):
+        # Fix A, case 2 from the repro: 1 of 3 inspected OK, 2 timed out —
+        # the LIKELIER real case. Before the fix this rendered indexed="1"
+        # (bare numeric) and the delta engine fabricated "-2 (-66.7%)" — a
+        # collapse claim built on a partial, not a full, inspection.
+        import deltas
+        import history
+        import indexation
+
+        august_w = Window(date(2026, 8, 1), date(2026, 8, 31))
+        september_w = Window(date(2026, 9, 1), date(2026, 9, 30))
+
+        august_index_rows = [
+            Metric("/a/", "Submitted and indexed", "GSC"),
+            Metric("/b/", "Submitted and indexed", "GSC"),
+            Metric("/c/", "Submitted and indexed", "GSC"),
+        ]
+        august_rows = history.rows_from_sections(
+            "2026-08", august_w,
+            [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
+            partial=False,
+        )
+
+        september_index_rows = [
+            Metric("/d/", "Submitted and indexed", "GSC"),
+            Metric("/e/", "pending", "GSC", note="inspection failed (429)"),
+            Metric("/f/", "pending", "GSC", note="inspection failed (timeout)"),
+        ]
+        september = [Section(
+            "Indexation verdict (GSC)", indexation.verdict_metrics(september_index_rows),
+        )]
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False)
+
+        by_name = {m.name: m for m in september[0].metrics}
+        indexed = by_name["Posts indexed"]
+        not_indexed = by_name["Posts not indexed"]
+        pending = by_name["Posts pending inspection"]
+
+        self.assertEqual(indexed.value, "1 (of 1 inspected)")
+        self.assertEqual(indexed.delta, "n/a — non-numeric value")
+        self.assertNotIn("-2", indexed.delta)
+
+        self.assertEqual(not_indexed.value, "0 (of 1 inspected)")
+        self.assertEqual(not_indexed.delta, "n/a — non-numeric value")
+
+        # `pending` IS a real measurement (of the failure) — it still deltas.
+        self.assertEqual(pending.value, "2")
+        self.assertEqual(pending.delta, "+2 (prior 0 — no percent change)")
+
+    def test_a_fully_inspected_month_still_deltas_normally(self):
+        # The clean path (pending == 0) must NOT regress: real bare counts,
+        # real deltas.
+        import deltas
+        import history
+        import indexation
+
+        august_w = Window(date(2026, 8, 1), date(2026, 8, 31))
+        september_w = Window(date(2026, 9, 1), date(2026, 9, 30))
+
+        august_index_rows = [
+            Metric("/a/", "Submitted and indexed", "GSC"),
+            Metric("/b/", "Submitted and indexed", "GSC"),
+        ]
+        august_rows = history.rows_from_sections(
+            "2026-08", august_w,
+            [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
+            partial=False,
+        )
+
+        september_index_rows = [
+            Metric("/c/", "Submitted and indexed", "GSC"),
+            Metric("/d/", "Submitted and indexed", "GSC"),
+            Metric("/e/", "Crawled - currently not indexed", "GSC"),
+        ]
+        september = [Section(
+            "Indexation verdict (GSC)", indexation.verdict_metrics(september_index_rows),
+        )]
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False)
+
+        by_name = {m.name: m for m in september[0].metrics}
+        self.assertEqual(by_name["Posts indexed"].value, "2")
+        self.assertEqual(by_name["Posts indexed"].delta, "+0 (+0.0%)")
+        self.assertEqual(by_name["Posts not indexed"].value, "1")
+        self.assertEqual(by_name["Posts not indexed"].delta, "+1 (prior 0 — no percent change)")
+        self.assertEqual(by_name["Posts pending inspection"].value, "0")
 
 
 class NoSilentZeroAnywhere(unittest.TestCase):

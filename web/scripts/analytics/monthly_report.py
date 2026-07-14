@@ -117,6 +117,42 @@ def no_ga4_window_flags(month: str, ga4_start: str) -> list[Metric]:
     )]
 
 
+_UMAMI_UNCOVERED_NOTE = (
+    "the Umami export contains no events at all inside this window — the "
+    "export does not cover the month; not a measured 0"
+)
+
+
+def build_reach(rows: list[dict[str, str]], w: Window) -> list[Metric]:
+    """The Reach (Umami) section for one month. Guards ONCE, at the lane.
+
+    `umami.count_event` is `sum(1 for r in rows if ...)`, and `sum([])` is 0
+    — a header-only, truncated, or wrong-date-range export parses cleanly,
+    yields zero rows, and every conversion would otherwise render a bare "0"
+    (numeric, delta-eligible) purely because a file was empty, fabricating a
+    collapse on every channel at once.
+
+    The guard is deliberately "any row of ANY kind in the window", not "any
+    row of a conversion type" — see umami.any_events_in_window. A genuinely
+    quiet month for ONE event is normal at this site's volume and must still
+    render a true bare "0"; only the total absence of traffic means the
+    export itself doesn't cover the month.
+    """
+    if not umami.any_events_in_window(rows, w.start, w.end):
+        return [
+            Metric(f"{canon} (raw event count)", "pending", "Umami", note=_UMAMI_UNCOVERED_NOTE)
+            for canon in umami.CONVERSION_EVENTS
+        ]
+    return [
+        Metric(
+            f"{canon} (raw event count)",
+            str(umami.count_event(rows, aliases, w.start, w.end)),
+            "Umami",
+        )
+        for canon, aliases in umami.CONVERSION_EVENTS.items()
+    ]
+
+
 def no_gsc_data_flags(month: str) -> list[Metric]:
     """The fetch_coverage-is-None branch: GSC returned nothing for this month.
 
@@ -200,10 +236,7 @@ def main() -> int:
         canon: umami.count_event(rows, aliases, month_w.start, month_w.end)
         for canon, aliases in umami.CONVERSION_EVENTS.items()
     }
-    reach = [
-        Metric(f"{canon} (raw event count)", str(count), "Umami")
-        for canon, count in umami_counts.items()
-    ]
+    reach = build_reach(rows, month_w)
 
     # --- GA4 channel/conversion (overlapping window only) ---
     channel: list[Metric] = []

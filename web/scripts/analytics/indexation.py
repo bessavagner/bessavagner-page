@@ -79,6 +79,26 @@ def verdict_metrics(index_rows: list[Metric]) -> list[Metric]:
     month's real count — fabricating a "-100%" deindexation out of an absence
     of measurement. So the empty case renders PENDING, exactly like
     unmeasured_verdict, never "0".
+
+    A FAILED inspection (429 quota, 403, 5xx, network) degrades to `pending`
+    per gsc.inspect_urls' documented contract, and the URL Inspection API is
+    quota-limited — a batch with some or all inspections failed is routine,
+    not exceptional. `indexed` and `not_indexed` are only MEASUREMENTS when
+    every inspection in the batch succeeded (`pending == 0`); with any
+    pending, they are a LOWER BOUND over the URLs that were actually
+    inspected, and a lower bound must not delta:
+
+    - ALL-PENDING (nothing in the batch was successfully inspected): the
+      whole verdict is an absence of measurement, identical in kind to the
+      empty-index_rows case above — all three buckets render PENDING, never
+      "0"/"N".
+    - PARTIAL-PENDING (some inspections failed, some succeeded): `indexed`
+      and `not_indexed` stay VISIBLE to a human as "N (of M inspected)" but
+      that string is not bare-numeric, so history.parse_numeric() yields ""
+      for it and deltas.delta_for() refuses it as "non-numeric value" instead
+      of computing real arithmetic on a partial count. `pending` itself IS a
+      real measurement — of the failure rate — and stays bare numeric so it
+      keeps deltaing.
     """
     if not index_rows:
         return [
@@ -89,9 +109,35 @@ def verdict_metrics(index_rows: list[Metric]) -> list[Metric]:
             for name in _NAMES
         ]
 
+    total = len(index_rows)
     pending = sum(1 for m in index_rows if m.value == PENDING)
+
+    if pending == total:
+        return [
+            Metric(name, PENDING, "GSC", note=(
+                f"all {pending} inspection(s) failed — nothing was measured; "
+                f"not a measured 0"
+            ))
+            for name in _NAMES
+        ]
+
     indexed = sum(1 for m in index_rows if m.value != PENDING and _is_indexed(m.value))
-    not_indexed = len(index_rows) - pending - indexed
+    not_indexed = total - pending - indexed
+
+    if pending > 0:
+        inspected = total - pending
+        lower_bound_note = (
+            f"{pending} of {total} inspection(s) failed — this is a LOWER "
+            f"BOUND over the {inspected} URL(s) actually inspected, not a "
+            f"full count; not delta-eligible"
+        )
+        return [
+            Metric(INDEXED, f"{indexed} (of {inspected} inspected)", "GSC",
+                   note=lower_bound_note),
+            Metric(NOT_INDEXED, f"{not_indexed} (of {inspected} inspected)", "GSC",
+                   note=lower_bound_note),
+            Metric(PENDING_INSPECTION, str(pending), "GSC", note=_DENOMINATOR_NOTE),
+        ]
 
     counts = (indexed, not_indexed, pending)
     return [
