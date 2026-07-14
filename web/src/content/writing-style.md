@@ -234,10 +234,12 @@ the authority of a page that is already ranking. The test, in order:
 3. **Is there a hub for it to hang off?** A spoke that links to no pillar, and
    that no pillar links back to, is an orphan. Write the pillar first.
 
-Worked examples, from this site's own Search Console data (2026-07):
+Worked examples, from a Search Console pull over 2026-06-22 → 2026-07-12 (21
+days, the window GSC had processed at the time — a live pull, not the monthly
+report, which covers a different, shorter window):
 
 - **`unstructured document parsing`** — 4 impressions, average position 30.5,
-  inside the 128-impression cluster around
+  inside the 151-impression demand around
   [pulling structured data out of unstructured documents](/blog/pulling-structured-data-from-unstructured-documents/).
   Low volume, but the intent is genuinely distinct: parsing the *document*
   (layout, geometry, tables) is a different question from extracting the
@@ -245,7 +247,7 @@ Worked examples, from this site's own Search Console data (2026-07):
   earns a spoke**, hung off the pillar.
 - **`fingerprint browser selenium`** — position 17.2 against
   [beating browser fingerprinting](/blog/beating-browser-fingerprinting/)'s own
-  average of 18.6. The page is already the right answer and is already closer on
+  average of 18.0. The page is already the right answer and is already closer on
   this query than on its average. **It earns a section, not a post.** Writing a
   second page here would compete with the first.
 - **A 2-impression one-off** earns nothing. Not a post, not a section, not a
