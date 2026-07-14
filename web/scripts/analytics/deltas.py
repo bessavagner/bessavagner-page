@@ -5,7 +5,7 @@ is not a smaller mistake than no delta at all: it is a fabricated finding with a
 real-looking number attached, and it is the one thing a history store makes
 newly possible.
 
-Five comparisons are refused, each by name, and none of them is ever zero-filled
+Six comparisons are refused, each by name, and none of them is ever zero-filled
 or silently omitted:
 
   1. ACROSS A BOUNDARY. boundaries.py holds the dates at which our own
@@ -23,6 +23,10 @@ or silently omitted:
   5. ON A CHURNING ROW SET. GSC's top-N tables and the per-URL indexation table
      are not metric series — their KEYS turn over month to month. A query that
      "appears" has usually moved from rank 11 to rank 10.
+  6. ACROSS UNEQUAL COVERAGE WINDOWS. GSC's window is detected empirically and
+     its reporting lag is not constant. A 29-day August against a 31-day July is
+     a -6% artifact of the window, not a decline in demand. An UNKNOWN window
+     refuses on the same rule: it is not a matching one.
 
 At the time of writing exactly ONE month is stored, so every cell in the next
 report will read "n/a — no 2026-06 in history". That is correct. The first real
@@ -60,6 +64,7 @@ STABLE_KEY_SECTIONS = frozenset({
 # Which boundaries can invalidate which instrument's history.
 _GA4_SOURCE = "GA4"
 _UMAMI_SOURCE = "Umami"
+_GSC_SOURCE = "GSC"
 
 
 def prior_month(month: str) -> str:
@@ -162,6 +167,22 @@ def delta_for(
     if crossed:
         return f"n/a — crosses the {crossed} boundary"
 
+    # 6. UNEQUAL COVERAGE WINDOWS. GSC's window is detected empirically, its lag
+    #    is ~2-3 days and NOT constant, and the row's `partial` flag comes from
+    #    the calendar month — so a 29-day August would delta against a 31-day
+    #    July and print a -6% WINDOW ARTIFACT as a measured decline. An unknown
+    #    window refuses too: "" is not "matching", and assuming it is would be
+    #    the silent-zero bug wearing a different hat.
+    if cur.source == _GSC_SOURCE:
+        if not cur.days_measured or not prior.days_measured:
+            return "n/a — GSC coverage window is unknown for one of the two months"
+        if cur.days_measured != prior.days_measured:
+            return (
+                f"n/a — GSC coverage windows differ in length "
+                f"({prior.days_measured}d in {prior.month}, "
+                f"{cur.days_measured}d in {cur.month})"
+            )
+
     if not cur.value_num or not prior.value_num:
         return "n/a — non-numeric value"
 
@@ -174,6 +195,7 @@ def attach_deltas(
     month_w: Window,
     history_rows: list[history.Row],
     partial: bool,
+    gsc_cov: Window | None = None,
 ) -> None:
     """Stamp Metric.delta on every metric in place. The one call main() makes.
 
@@ -198,6 +220,7 @@ def attach_deltas(
                 note=m.note,
                 void=history.is_void(s.title, m.source, month_w),
                 partial=partial,
+                days_measured=history.measured_days(m.source, gsc_cov),
             )
             m.delta = delta_for(
                 cur, index.get((s.title, m.name, m.source)),

@@ -15,11 +15,12 @@ MARKING = date(2026, 7, 15)      # GA4_KEY_EVENT_MARKING_DATE — if A1' lands
 
 
 def row(month, section="Search demand — totals (GSC)", name="Clicks",
-        value_raw="10", source="GSC", void=False, partial=False):
+        value_raw="10", source="GSC", void=False, partial=False,
+        days_measured="31"):
     return history.Row(
         month=month, section=section, name=name, value_raw=value_raw,
         value_num=history.parse_numeric(value_raw), source=source, note="",
-        void=void, partial=partial,
+        void=void, partial=partial, days_measured=days_measured,
     )
 
 
@@ -244,6 +245,78 @@ class NoTopNDelta(unittest.TestCase):
                 "Sitemap health (GSC)",
             }),
         )
+
+
+class UnequalCoverageWindows(unittest.TestCase):
+    """Rule 6. GSC lags ~2-3 days and the lag is NOT constant, so a 29-day
+    August deltas freely against a 31-day July: a -6% WINDOW ARTIFACT rendered
+    as a measured decline, across the ~24 pinned-page rows Epic D depends on.
+
+    Position and CTR are ratios and survive it. Impressions and clicks are raw
+    counts and do not. The rule refuses them all rather than trying to be clever
+    about which measure is robust.
+    """
+
+    def test_a_shorter_current_window_refuses_by_name(self):
+        cur = row("2026-08", name="Impressions", value_raw="120", days_measured="29")
+        prior = row("2026-07", name="Impressions", value_raw="128", days_measured="31")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage windows differ", out)
+        self.assertIn("29", out)
+        self.assertIn("31", out)
+        self.assertNotIn("%", out)   # not one character of it may read as a finding
+
+    def test_a_longer_current_window_refuses_too(self):
+        cur = row("2026-08", name="Impressions", value_raw="140", days_measured="31")
+        prior = row("2026-07", name="Impressions", value_raw="128", days_measured="29")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage windows differ", out)
+
+    def test_equal_windows_still_delta(self):
+        # The rule must not become a blanket refusal — a real, comparable GSC
+        # delta is the whole point of the store.
+        cur = row("2026-08", name="Impressions", value_raw="140", days_measured="31")
+        prior = row("2026-07", name="Impressions", value_raw="128", days_measured="31")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertEqual(out, "+12 (+9.4%)")
+
+    def test_an_unknown_current_window_refuses(self):
+        # "" is UNKNOWN, not "matching". A row stored before the column existed,
+        # or a month GSC returned nothing for, must refuse — assuming equality
+        # is exactly the silent-zero mistake in a new costume.
+        cur = row("2026-08", name="Impressions", value_raw="120", days_measured="")
+        prior = row("2026-07", name="Impressions", value_raw="128", days_measured="31")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage window is unknown", out)
+        self.assertNotIn("%", out)
+
+    def test_an_unknown_prior_window_refuses(self):
+        cur = row("2026-08", name="Impressions", value_raw="120", days_measured="31")
+        prior = row("2026-07", name="Impressions", value_raw="128", days_measured="")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage window is unknown", out)
+
+    def test_the_rule_governs_gsc_only(self):
+        # Umami and GA4 have their own window bugs (follow-ups C-2 and C-3) and
+        # they are Sprint 10's. This rule must not silently half-fix them and
+        # make someone think they are covered.
+        cur = row("2026-08", section="Reach (Umami)", name="cv_download (raw event count)",
+                  value_raw="6", source="Umami", days_measured="")
+        prior = row("2026-07", section="Reach (Umami)", name="cv_download (raw event count)",
+                    value_raw="4", source="Umami", days_measured="")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertEqual(out, "+2 (+50.0%)")
+
+    def test_a_pinned_position_row_is_refused_across_unequal_windows(self):
+        # The live exposure: 5 pinned pages x 4 measures = 20 rows, all GSC.
+        cur = row("2026-08", section="Pinned pages (GSC)",
+                  name="/blog/beating-browser-fingerprinting/ — position",
+                  value_raw="17.9", days_measured="29")
+        prior = row("2026-07", section="Pinned pages (GSC)",
+                    name="/blog/beating-browser-fingerprinting/ — position",
+                    value_raw="18.6", days_measured="31")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage windows differ", out)
 
 
 class CrossesBoundaryAtTheWindowEdges(unittest.TestCase):

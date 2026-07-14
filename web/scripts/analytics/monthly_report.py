@@ -282,6 +282,7 @@ def main() -> int:
     gsc_countries: list[Metric] = []
     indexation: list[Metric] = []
     indexation_verdict: list[Metric] = []
+    cov: Window | None = None
     if args.skip_gsc:
         indexation_verdict = indexation_mod.unmeasured_verdict(
             "the GSC lane was deliberately skipped (--skip-gsc)"
@@ -344,8 +345,8 @@ def main() -> int:
     # lookup keys on deltas.prior_month(month), a DIFFERENT month string, so
     # adding this month's own rows can never make it its own prior.
     hist = history.load()
-    deltas.attach_deltas(sections, args.month, month_w, hist, partial)
-    cur_rows = history.rows_from_sections(args.month, month_w, sections, partial)
+    deltas.attach_deltas(sections, args.month, month_w, hist, partial, cov)
+    cur_rows = history.rows_from_sections(args.month, month_w, sections, partial, gsc_cov=cov)
     md = report.render_report(
         args.month, sections, caveats,
         readouts=readouts.build_readouts(args.month, cur_rows + hist),
@@ -361,7 +362,7 @@ def main() -> int:
     # someone can forget. Rows go in after the .md is safely on disk, and the
     # upsert replaces this month wholesale — re-running is normal and must be
     # byte-identical.
-    history.record_month(args.month, month_w, sections, partial)
+    history.record_month(args.month, month_w, sections, partial, gsc_cov=cov)
     print(f"recorded {args.month} -> {history.HISTORY_PATH}")
     return 0
 
