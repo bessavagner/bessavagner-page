@@ -363,12 +363,6 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
     story exists to build.
     """
 
-    # August (31d) and September (30d) are different calendar lengths, so a
-    # real per-month GSC coverage window would trip rule 6 here — these tests
-    # are about the OTHER refusal paths, so both sides share one synthetic,
-    # equal-length (30d) coverage window instead.
-    _COV = Window(date(2026, 1, 1), date(2026, 1, 30))
-
     def test_the_verdict_section_is_in_stable_key_sections(self):
         import deltas
         self.assertIn("Indexation verdict (GSC)", deltas.STABLE_KEY_SECTIONS)
@@ -400,13 +394,13 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         august_rows = history.rows_from_sections(
             "2026-08", august_w,
             [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
-            partial=False, gsc_cov=self._COV,
+            partial=False, gsc_cov=august_w,
         )
 
         september = [Section(
             "Indexation verdict (GSC)", indexation.verdict_metrics([]),
         )]
-        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=self._COV)
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=september_w)
 
         by_name = {m.name: m for m in september[0].metrics}
         indexed = by_name["Posts indexed"]
@@ -437,7 +431,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         august_rows = history.rows_from_sections(
             "2026-08", august_w,
             [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
-            partial=False, gsc_cov=self._COV,
+            partial=False, gsc_cov=august_w,
         )
 
         september_index_rows = [
@@ -448,7 +442,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         september = [Section(
             "Indexation verdict (GSC)", indexation.verdict_metrics(september_index_rows),
         )]
-        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=self._COV)
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=september_w)
 
         by_name = {m.name: m for m in september[0].metrics}
         for name in ("Posts indexed", "Posts not indexed", "Posts pending inspection"):
@@ -478,7 +472,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         august_rows = history.rows_from_sections(
             "2026-08", august_w,
             [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
-            partial=False, gsc_cov=self._COV,
+            partial=False, gsc_cov=august_w,
         )
 
         september_index_rows = [
@@ -489,7 +483,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         september = [Section(
             "Indexation verdict (GSC)", indexation.verdict_metrics(september_index_rows),
         )]
-        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=self._COV)
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=september_w)
 
         by_name = {m.name: m for m in september[0].metrics}
         indexed = by_name["Posts indexed"]
@@ -524,7 +518,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         august_rows = history.rows_from_sections(
             "2026-08", august_w,
             [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
-            partial=False, gsc_cov=self._COV,
+            partial=False, gsc_cov=august_w,
         )
 
         september_index_rows = [
@@ -535,7 +529,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         september = [Section(
             "Indexation verdict (GSC)", indexation.verdict_metrics(september_index_rows),
         )]
-        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=self._COV)
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=september_w)
 
         by_name = {m.name: m for m in september[0].metrics}
         self.assertEqual(by_name["Posts indexed"].value, "2")

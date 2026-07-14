@@ -23,10 +23,15 @@ or silently omitted:
   5. ON A CHURNING ROW SET. GSC's top-N tables and the per-URL indexation table
      are not metric series — their KEYS turn over month to month. A query that
      "appears" has usually moved from rank 11 to rank 10.
-  6. ACROSS UNEQUAL COVERAGE WINDOWS. GSC's window is detected empirically and
-     its reporting lag is not constant. A 29-day August against a 31-day July is
-     a -6% artifact of the window, not a decline in demand. An UNKNOWN window
-     refuses on the same rule: it is not a matching one.
+  6. AGAINST INCOMPLETE COVERAGE. GSC's window is detected empirically and its
+     reporting lag is not constant, so a month can be measured over FEWER days
+     than it actually has — 29 of August's 31, say, because the lag ate the
+     last two. THAT is the artifact, and it is refused. Two months that were
+     each measured IN FULL compare honestly even when the calendar months are
+     different lengths: a complete 31-day August against a complete 30-day
+     September is a real delta, not a window artifact — refusing it anyway
+     was the bug this rule used to have. An UNKNOWN window refuses on the same
+     rule: it is not a matching one.
 
 At the time of writing exactly ONE month is stored, so every cell in the next
 report will read "n/a — no 2026-06 in history". That is correct. The first real
@@ -117,6 +122,31 @@ def crosses_boundary(
     return None
 
 
+def _days_in_month(month: str) -> int:
+    """The calendar length of `month` ("2026-08" -> 31). Same idiom as
+    window.month_window — reused, not reinvented.
+    """
+    w = window.month_window(month)
+    return (w.end - w.start).days + 1
+
+
+def _coverage_is_complete(row: history.Row) -> bool:
+    """True when `row` was measured over every day its own calendar month
+    has — not merely "the same number of days as the other row".
+
+    "0" is deliberately never complete: a malformed window that measured
+    zero days is not "matching", it is empty.
+    """
+    return row.days_measured == str(_days_in_month(row.month))
+
+
+def _incomplete_coverage_message(row: history.Row) -> str:
+    return (
+        f"n/a — GSC coverage incomplete for {row.month} "
+        f"({row.days_measured} of {_days_in_month(row.month)} days measured)"
+    )
+
+
 def format_delta(cur_num: str, prior_num: str) -> str:
     c, p = float(cur_num), float(prior_num)
     d = c - p
@@ -167,21 +197,24 @@ def delta_for(
     if crossed:
         return f"n/a — crosses the {crossed} boundary"
 
-    # 6. UNEQUAL COVERAGE WINDOWS. GSC's window is detected empirically, its lag
-    #    is ~2-3 days and NOT constant, and the row's `partial` flag comes from
-    #    the calendar month — so a 29-day August would delta against a 31-day
-    #    July and print a -6% WINDOW ARTIFACT as a measured decline. An unknown
-    #    window refuses too: "" is not "matching", and assuming it is would be
-    #    the silent-zero bug wearing a different hat.
+    # 6. INCOMPLETE COVERAGE. GSC's window is detected empirically, its lag is
+    #    ~2-3 days and NOT constant, and the row's `partial` flag comes from
+    #    the calendar month — so a month can be measured over FEWER days than
+    #    it actually has: 29 of August's 31, say. THAT is the artifact, and it
+    #    is refused by comparing days_measured against the row's OWN calendar
+    #    length, not against the other row's day count — two months each
+    #    measured in full compare honestly even when they are different
+    #    calendar lengths (a complete 31-day August against a complete 30-day
+    #    September is a real delta). An unknown window refuses too: "" is not
+    #    "matching" and not "complete", and assuming it is would be the
+    #    silent-zero bug wearing a different hat.
     if cur.source == _GSC_SOURCE:
         if not cur.days_measured or not prior.days_measured:
             return "n/a — GSC coverage window is unknown for one of the two months"
-        if cur.days_measured != prior.days_measured:
-            return (
-                f"n/a — GSC coverage windows differ in length "
-                f"({prior.days_measured}d in {prior.month}, "
-                f"{cur.days_measured}d in {cur.month})"
-            )
+        if not _coverage_is_complete(cur):
+            return _incomplete_coverage_message(cur)
+        if not _coverage_is_complete(prior):
+            return _incomplete_coverage_message(prior)
 
     if not cur.value_num or not prior.value_num:
         return "n/a — non-numeric value"
