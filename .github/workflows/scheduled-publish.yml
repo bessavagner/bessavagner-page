@@ -29,7 +29,12 @@ name: Scheduled publish (daily rebuild + digest)
 on:
   schedule:
     - cron: '5 12 * * *' # 12:05 UTC daily, after morning-BRT pubDates
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Override the digest cap and announce every provably-live post not yet sent.'
+        type: boolean
+        default: false
 
 # The reusable deploy below authenticates to Google Cloud via Workload Identity,
 # which needs `id-token: write`. A called workflow can never hold more permission
@@ -76,4 +81,6 @@ jobs:
       - name: Send the content digest
         env:
           BUTTONDOWN_KEY: ${{ secrets.BUTTONDOWN_KEY }}
-        run: node --experimental-strip-types scripts/digest.ts
+        # `force` (workflow_dispatch only) overrides the announce cap to clear a
+        # backlog; the scheduled run always leaves it off so the cap still guards.
+        run: node --experimental-strip-types scripts/digest.ts ${{ inputs.force && '--force' || '' }}
