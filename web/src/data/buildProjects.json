@@ -40,6 +40,16 @@
       "startDate": "2026-07-06",
       "status": "active",
       "stack": ["Python", "Selenium", "Playwright", "Camoufox", "pytest", "matplotlib"]
+    },
+    {
+      "slug": "supskill",
+      "title": "supskill",
+      "tagline": "A sprint conductor for Claude Code",
+      "blurb": "Drives one sprint from a markdown backlog to a merged branch: a fresh context boundary at every stage, three human gates, and all authoritative state on disk so the conductor survives its own context death. A pure-Python CLI is the only thing allowed to mutate state and refuses any transition whose preconditions aren't met; the conductor skill runs the gates in the one place a human can actually answer.",
+      "repo": "https://github.com/bessavagner/supskill",
+      "startDate": "2026-07-12",
+      "status": "active",
+      "stack": ["Python", "Claude Code", "pytest", "subagents", "state machine"]
     }
   ]
 }
