@@ -49,6 +49,11 @@ jobs:
     name: Send the digest for anything now provably live
     needs: deploy # only runs if the deploy succeeded
     runs-on: ubuntu-latest
+    # The project lives in web/ — there is no lockfile or package.json at the
+    # repo root, so pnpm install must run there, matching the deploy job.
+    defaults:
+      run:
+        working-directory: web
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -63,7 +68,7 @@ jobs:
         with:
           node-version: '22'
           cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          cache-dependency-path: web/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -71,4 +76,4 @@ jobs:
       - name: Send the content digest
         env:
           BUTTONDOWN_KEY: ${{ secrets.BUTTONDOWN_KEY }}
-        run: node --experimental-strip-types web/scripts/digest.ts
+        run: node --experimental-strip-types scripts/digest.ts
