@@ -260,14 +260,16 @@ class PinnedPagesAreDeltaEligibleAndSurviveTheTop10(unittest.TestCase):
                          [{"keys": [f"https://bessavagner.com{home}"], "clicks": 0,
                            "impressions": 30, "ctr": 0.0, "position": 7.8}],
                          paths=(home,)))],
-            partial=False,
+            partial=False, gsc_cov=july_w,
         )
 
         august = [Section("Pinned pages (GSC)", pinned.pinned_metrics(
             [{"keys": [f"https://bessavagner.com{home}"], "clicks": 2,
               "impressions": 34, "ctr": 0.0588, "position": 6.0}],
             paths=(home,)))]
-        deltas.attach_deltas(august, "2026-08", august_w, july_rows, partial=False)
+        # Equal-length (31d/31d) coverage windows — this test is not about rule
+        # 6, so it must not trip the unequal/unknown-window refusal.
+        deltas.attach_deltas(august, "2026-08", august_w, july_rows, partial=False, gsc_cov=august_w)
 
         by_name = {m.name: m.delta for m in august[0].metrics}
         self.assertEqual(by_name[f"{home} — impressions"], "+4 (+13.3%)")
@@ -292,11 +294,13 @@ class PinnedPagesAreDeltaEligibleAndSurviveTheTop10(unittest.TestCase):
                 [{"keys": [f"https://bessavagner.com{home}"], "clicks": 0,
                   "impressions": 30, "ctr": 0.0, "position": 7.8}],
                 paths=(home,)))],
-            partial=False,
+            partial=False, gsc_cov=july_w,
         )
 
         august = [Section("Pinned pages (GSC)", pinned.pinned_metrics([], paths=(home,)))]
-        deltas.attach_deltas(august, "2026-08", august_w, july_rows, partial=False)
+        # Equal-length (31d/31d) coverage windows — this test is about the
+        # non-numeric refusal, not rule 6's unequal/unknown-window refusal.
+        deltas.attach_deltas(august, "2026-08", august_w, july_rows, partial=False, gsc_cov=august_w)
 
         impressions = [m for m in august[0].metrics if m.name.endswith("impressions")][0]
         self.assertEqual(impressions.value, "pending")
@@ -334,13 +338,15 @@ class SitemapNeverDownloadedRefusesRatherThanFabricatingADelta(unittest.TestCase
         july_rows = history.rows_from_sections(
             "2026-07", july_w,
             [Section("Sitemap health (GSC)", never_downloaded(date(2026, 7, 31)))],
-            partial=False,
+            partial=False, gsc_cov=july_w,
         )
 
         august = [Section(
             "Sitemap health (GSC)", never_downloaded(date(2026, 8, 9)),
         )]
-        deltas.attach_deltas(august, "2026-08", august_w, july_rows, partial=False)
+        # Equal-length (31d/31d) coverage windows — this test is about the
+        # non-numeric refusal, not rule 6's unequal/unknown-window refusal.
+        deltas.attach_deltas(august, "2026-08", august_w, july_rows, partial=False, gsc_cov=august_w)
 
         by_name = {m.name: m for m in august[0].metrics}
         submitted = by_name[f"{sitemap_url} — URLs submitted"]
@@ -388,13 +394,13 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         august_rows = history.rows_from_sections(
             "2026-08", august_w,
             [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
-            partial=False,
+            partial=False, gsc_cov=august_w,
         )
 
         september = [Section(
             "Indexation verdict (GSC)", indexation.verdict_metrics([]),
         )]
-        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False)
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=september_w)
 
         by_name = {m.name: m for m in september[0].metrics}
         indexed = by_name["Posts indexed"]
@@ -425,7 +431,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         august_rows = history.rows_from_sections(
             "2026-08", august_w,
             [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
-            partial=False,
+            partial=False, gsc_cov=august_w,
         )
 
         september_index_rows = [
@@ -436,7 +442,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         september = [Section(
             "Indexation verdict (GSC)", indexation.verdict_metrics(september_index_rows),
         )]
-        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False)
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=september_w)
 
         by_name = {m.name: m for m in september[0].metrics}
         for name in ("Posts indexed", "Posts not indexed", "Posts pending inspection"):
@@ -466,7 +472,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         august_rows = history.rows_from_sections(
             "2026-08", august_w,
             [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
-            partial=False,
+            partial=False, gsc_cov=august_w,
         )
 
         september_index_rows = [
@@ -477,7 +483,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         september = [Section(
             "Indexation verdict (GSC)", indexation.verdict_metrics(september_index_rows),
         )]
-        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False)
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=september_w)
 
         by_name = {m.name: m for m in september[0].metrics}
         indexed = by_name["Posts indexed"]
@@ -512,7 +518,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         august_rows = history.rows_from_sections(
             "2026-08", august_w,
             [Section("Indexation verdict (GSC)", indexation.verdict_metrics(august_index_rows))],
-            partial=False,
+            partial=False, gsc_cov=august_w,
         )
 
         september_index_rows = [
@@ -523,7 +529,7 @@ class IndexationVerdictIsDeltaEligible(unittest.TestCase):
         september = [Section(
             "Indexation verdict (GSC)", indexation.verdict_metrics(september_index_rows),
         )]
-        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False)
+        deltas.attach_deltas(september, "2026-09", september_w, august_rows, partial=False, gsc_cov=september_w)
 
         by_name = {m.name: m for m in september[0].metrics}
         self.assertEqual(by_name["Posts indexed"].value, "2")

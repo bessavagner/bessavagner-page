@@ -3,6 +3,7 @@ from datetime import date
 
 import deltas
 import history
+import window as window_module
 from window import Window
 
 JUNE = Window(date(2026, 6, 1), date(2026, 6, 30))
@@ -14,12 +15,26 @@ FIX = date(2026, 7, 12)          # GA4_FIX_DEPLOY_DATE — real, already stamped
 MARKING = date(2026, 7, 15)      # GA4_KEY_EVENT_MARKING_DATE — if A1' lands
 
 
+def _complete_days_for(month: str) -> str:
+    w = window_module.month_window(month)
+    return str((w.end - w.start).days + 1)
+
+
 def row(month, section="Search demand — totals (GSC)", name="Clicks",
-        value_raw="10", source="GSC", void=False, partial=False):
+        value_raw="10", source="GSC", void=False, partial=False,
+        days_measured=None):
+    # Rule 6 now compares COVERAGE COMPLETENESS (days_measured against the
+    # row's OWN calendar month), not a fixed constant — so the default here
+    # must be "fully measured for whichever month this row is" or every GSC
+    # test whose month is not 31 days long (September, February, ...) would
+    # become "incomplete" and start refusing for reasons unrelated to what it
+    # was written to test.
+    if days_measured is None:
+        days_measured = _complete_days_for(month)
     return history.Row(
         month=month, section=section, name=name, value_raw=value_raw,
         value_num=history.parse_numeric(value_raw), source=source, note="",
-        void=void, partial=partial,
+        void=void, partial=partial, days_measured=days_measured,
     )
 
 
@@ -244,6 +259,132 @@ class NoTopNDelta(unittest.TestCase):
                 "Sitemap health (GSC)",
             }),
         )
+
+
+class IncompleteCoverageWindows(unittest.TestCase):
+    """Rule 6, reworked. GSC lags ~2-3 days and the lag is NOT constant, so a
+    month can be measured over FEWER days than it actually has: 29 of
+    August's 31, say. That is the artifact — a month measured incompletely
+    relative to ITSELF — and it is refused.
+
+    A raw day-count comparison is the wrong test for this: adjacent calendar
+    months are different lengths (August 31, September 30), so comparing two
+    FLAWLESSLY measured months would wrongly refuse ~7 of every 11 adjacent
+    month pairs, including the exact position readings Epic D is judged on.
+    So the rule compares COVERAGE COMPLETENESS — days_measured against the
+    row's own calendar month — not the raw day count against the other row's.
+
+    Position and CTR are ratios and would survive an unequal-length-but-
+    complete pairing; impressions and clicks are raw counts and would too.
+    Both still refuse when either side is genuinely incomplete or unknown.
+    """
+
+    def test_a_shorter_current_window_refuses_by_name(self):
+        # 29 of August's 31 days — incomplete. This IS the real bug rule 6
+        # exists to catch.
+        cur = row("2026-08", name="Impressions", value_raw="120", days_measured="29")
+        prior = row("2026-07", name="Impressions", value_raw="128")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage incomplete", out)
+        self.assertIn("2026-08", out)
+        self.assertIn("29", out)
+        self.assertIn("31", out)
+        self.assertNotIn("%", out)   # not one character of it may read as a finding
+
+    def test_a_longer_current_window_refuses_too(self):
+        # Current month (August, 31/31) is complete; the PRIOR month (July,
+        # 29/31) is the incomplete one here — still refuses.
+        cur = row("2026-08", name="Impressions", value_raw="140")
+        prior = row("2026-07", name="Impressions", value_raw="128", days_measured="29")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage incomplete", out)
+        self.assertIn("2026-07", out)
+        self.assertIn("29", out)
+        self.assertNotIn("%", out)
+
+    def test_equal_windows_still_delta(self):
+        # Both fully measured, both 31-day months — the rule must not become
+        # a blanket refusal.
+        cur = row("2026-08", name="Impressions", value_raw="140")
+        prior = row("2026-07", name="Impressions", value_raw="128")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertEqual(out, "+12 (+9.4%)")
+
+    def test_two_complete_months_of_different_calendar_length_still_delta_the_kpi(self):
+        # THE test that would have caught the original flaw. A flawlessly
+        # measured 31-day August against a flawlessly measured 30-day
+        # September must produce a real delta on a pinned-page POSITION row
+        # — this is exactly the Aug->Sep reading Epic D's success measure is
+        # judged on, and the old raw-day-count rule refused it for no reason
+        # but the calendar.
+        cur = row("2026-09", section="Pinned pages (GSC)",
+                  name="/blog/beating-browser-fingerprinting/ — position",
+                  value_raw="17.9")
+        prior = row("2026-08", section="Pinned pages (GSC)",
+                    name="/blog/beating-browser-fingerprinting/ — position",
+                    value_raw="18.6")
+        out = deltas.delta_for(cur, prior, AUGUST, SEPTEMBER, prior_month_exists=True)
+        self.assertFalse(out.startswith("n/a"), f"expected a real delta, got {out!r}")
+        self.assertTrue(out.startswith("-0.7"), out)
+
+    def test_two_complete_months_of_different_calendar_length_still_delta_a_raw_count(self):
+        # Same shape, for a raw-count measure (impressions, not a ratio) —
+        # the rule refuses them all the same way, so it must also DELTA them
+        # all the same way once both sides are complete.
+        cur = row("2026-09", name="Impressions", value_raw="140")
+        prior = row("2026-08", name="Impressions", value_raw="128")
+        out = deltas.delta_for(cur, prior, AUGUST, SEPTEMBER, prior_month_exists=True)
+        self.assertEqual(out, "+12 (+9.4%)")
+
+    def test_a_zero_day_window_is_incomplete_not_a_matching_length(self):
+        # "0" used to be a non-empty string that could compare equal to
+        # another "0" and slip through as if it were a real, matching
+        # measurement. Zero days of coverage is never complete — pin it.
+        cur = row("2026-08", name="Impressions", value_raw="120", days_measured="0")
+        prior = row("2026-07", name="Impressions", value_raw="128")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage incomplete", out)
+        self.assertIn("0", out)
+        self.assertNotIn("%", out)
+
+    def test_an_unknown_current_window_refuses(self):
+        # "" is UNKNOWN, not "matching" and not "complete". A row stored
+        # before the column existed, or a month GSC returned nothing for,
+        # must refuse.
+        cur = row("2026-08", name="Impressions", value_raw="120", days_measured="")
+        prior = row("2026-07", name="Impressions", value_raw="128")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage window is unknown", out)
+        self.assertNotIn("%", out)
+
+    def test_an_unknown_prior_window_refuses(self):
+        cur = row("2026-08", name="Impressions", value_raw="120")
+        prior = row("2026-07", name="Impressions", value_raw="128", days_measured="")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage window is unknown", out)
+
+    def test_the_rule_governs_gsc_only(self):
+        # Umami and GA4 have their own window bugs (follow-ups C-2 and C-3) and
+        # they are Sprint 10's. This rule must not silently half-fix them and
+        # make someone think they are covered.
+        cur = row("2026-08", section="Reach (Umami)", name="cv_download (raw event count)",
+                  value_raw="6", source="Umami", days_measured="")
+        prior = row("2026-07", section="Reach (Umami)", name="cv_download (raw event count)",
+                    value_raw="4", source="Umami", days_measured="")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertEqual(out, "+2 (+50.0%)")
+
+    def test_a_pinned_position_row_is_refused_across_unequal_windows(self):
+        # The live exposure: 5 pinned pages x 4 measures = 20 rows, all GSC.
+        # 29 of August's 31 days is incomplete — still refuses.
+        cur = row("2026-08", section="Pinned pages (GSC)",
+                  name="/blog/beating-browser-fingerprinting/ — position",
+                  value_raw="17.9", days_measured="29")
+        prior = row("2026-07", section="Pinned pages (GSC)",
+                    name="/blog/beating-browser-fingerprinting/ — position",
+                    value_raw="18.6")
+        out = deltas.delta_for(cur, prior, JULY, AUGUST, prior_month_exists=True)
+        self.assertIn("coverage incomplete", out)
 
 
 class CrossesBoundaryAtTheWindowEdges(unittest.TestCase):

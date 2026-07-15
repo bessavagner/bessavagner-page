@@ -9,6 +9,7 @@ from window import Window
 
 JULY = Window(date(2026, 7, 1), date(2026, 7, 31))
 JUNE = Window(date(2026, 6, 1), date(2026, 6, 30))
+AUGUST = Window(date(2026, 8, 1), date(2026, 8, 31))
 FIX = date(2026, 7, 12)
 
 
@@ -212,6 +213,104 @@ class StoreRoundTrip(unittest.TestCase):
         history.record_month("2026-06", JUNE, self._july(), partial=False, path=self.path)
         rows = history.load(self.path)
         self.assertEqual([r.key for r in rows], sorted(r.key for r in rows))
+
+
+class MeasuredDays(unittest.TestCase):
+    """The store must record the window it ACTUALLY measured, not the calendar
+    month it was asked about. GSC's coverage window is detected empirically and
+    its lag is not constant, so a 29-day August against a 31-day July is a -6%
+    window artifact wearing a measured decline's clothes.
+
+    "" is the EMPTY state again, exactly as in parse_numeric: an unknown window
+    is not a matching window. It must refuse, never assume.
+    """
+
+    def test_a_gsc_row_records_its_coverage_day_count(self):
+        cov = Window(date(2026, 8, 1), date(2026, 8, 29))
+        self.assertEqual(history.measured_days("GSC", cov), "29")
+
+    def test_the_count_is_inclusive_of_both_endpoints(self):
+        # Aug 1..Aug 31 is 31 days measured, not 30.
+        cov = Window(date(2026, 8, 1), date(2026, 8, 31))
+        self.assertEqual(history.measured_days("GSC", cov), "31")
+
+    def test_a_single_day_of_coverage_is_one_day(self):
+        cov = Window(date(2026, 8, 1), date(2026, 8, 1))
+        self.assertEqual(history.measured_days("GSC", cov), "1")
+
+    def test_no_gsc_coverage_is_empty_not_zero(self):
+        # fetch_coverage returned None: the month has no GSC data at all. That
+        # is an ABSENCE of measurement. "0" here would be a fabrication with a
+        # prior month waiting to divide into it.
+        self.assertEqual(history.measured_days("GSC", None), "")
+
+    def test_a_non_gsc_row_has_no_measured_window(self):
+        # Rule 6 governs GSC only. Umami and GA4 have their own window bugs
+        # (follow-ups C-2, C-3) and are Sprint 10's, not this rule's.
+        cov = Window(date(2026, 8, 1), date(2026, 8, 29))
+        self.assertEqual(history.measured_days("Umami", cov), "")
+        self.assertEqual(history.measured_days("GA4", cov), "")
+
+
+class RowsCarryTheMeasuredWindow(unittest.TestCase):
+    def _sections(self):
+        return [Section("Search demand — totals (GSC)", [
+            Metric("Impressions", "128", "GSC"),
+        ]), Section("Reach (Umami)", [
+            Metric("cv_download (raw event count)", "4", "Umami"),
+        ])]
+
+    def test_the_gsc_row_carries_the_coverage_length(self):
+        cov = Window(date(2026, 8, 1), date(2026, 8, 29))
+        rows = history.rows_from_sections(
+            "2026-08", AUGUST, self._sections(), partial=False, gsc_cov=cov
+        )
+        gsc_row = next(r for r in rows if r.source == "GSC")
+        self.assertEqual(gsc_row.days_measured, "29")
+
+    def test_the_umami_row_does_not(self):
+        cov = Window(date(2026, 8, 1), date(2026, 8, 29))
+        rows = history.rows_from_sections(
+            "2026-08", AUGUST, self._sections(), partial=False, gsc_cov=cov
+        )
+        umami_row = next(r for r in rows if r.source == "Umami")
+        self.assertEqual(umami_row.days_measured, "")
+
+
+class LegacyRowsLoadWithoutTheColumn(unittest.TestCase):
+    """A history.csv written before this column existed must still load — and
+    must load as UNKNOWN, which rule 6 refuses. Back-filling it with the
+    calendar length would silently re-enable the exact artifact this rule
+    exists to catch.
+    """
+
+    def test_a_csv_without_days_measured_loads_as_unknown(self):
+        legacy = (
+            "month,section,name,value_raw,value_num,source,note,void,partial\n"
+            "2026-07,Search demand — totals (GSC),Impressions,128,128,GSC,,false,false\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "metrics.csv")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(legacy)
+            rows = history.load(path)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].days_measured, "")
+
+
+class TheColumnSurvivesARoundTrip(unittest.TestCase):
+    def test_write_then_load_preserves_days_measured(self):
+        cov = Window(date(2026, 8, 1), date(2026, 8, 29))
+        rows = history.rows_from_sections(
+            "2026-08", AUGUST,
+            [Section("Search demand — totals (GSC)", [Metric("Impressions", "128", "GSC")])],
+            partial=False, gsc_cov=cov,
+        )
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "metrics.csv")
+            history.write(rows, path)
+            back = history.load(path)
+        self.assertEqual(back[0].days_measured, "29")
 
 
 if __name__ == "__main__":

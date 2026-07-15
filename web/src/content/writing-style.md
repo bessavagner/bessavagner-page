@@ -75,8 +75,17 @@ The roadblocks and what they taught are the heart — but only the real ones.
    the series." Vary it; never bolt on a generic "what do you think?".
 
 ## Length & format
-~600–1,200 words. Scannable: short paragraphs, descriptive subheads, real code
-blocks where they earn their place. One clear idea per post. Lead with substance.
+**1,500–2,500 words for a standard post.** (Measured 2026-07-14: the 17
+published posts run 1,545 to 2,850, median 1,900. The old ~600–1,200 range was
+aspirational and every post broke it, so it was not governing anything.) A
+**pillar** — a page that a cluster of spokes hangs off, and that has to answer
+the whole intent rather than one slice of it — runs longer, and that is expected;
+it earns the length by covering the cluster, not by padding. Below ~1,200 words,
+ask whether it is a post at all or a section of an existing one (see *What earns
+a new post* above).
+
+Scannable: short paragraphs, descriptive subheads, real code blocks where they
+earn their place. One clear idea per post. Lead with substance.
 
 ## Voice notes — observed from the published posts
 These are habits the early posts already show; lean into them, don't sand them off.
@@ -207,6 +216,46 @@ These are habits the early posts already show; lean into them, don't sand them o
   land on "my design/discipline held up" makes the series feel formulaic even when each
   is individually fine. Rotate the frame (discovery, decision, honest grind,
   struggle→breakthrough) deliberately.
+
+## What earns a new post, and what deepens an existing one
+
+A query with real, measured demand and a distinct intent earns its own post. A
+query with a handful of impressions is noise, and writing a post for it splits
+the authority of a page that is already ranking. The test, in order:
+
+1. **Is there measured demand?** Look it up in Search Console (the pinned-page
+   and top-query tables in the monthly report, `docs/.ai/reports/analytics/`).
+   Fewer than ~5 impressions in a month is noise at this site's volume: it does
+   not earn anything, and it does not deserve a section either.
+2. **Is the intent distinct from an existing page's?** If a reader searching it
+   would be satisfied by a section inside an existing post, it is a **section**.
+   If they would bounce off that post because it answers a different question,
+   it is a **spoke**.
+3. **Is there a hub for it to hang off?** A spoke that links to no pillar, and
+   that no pillar links back to, is an orphan. Write the pillar first.
+
+Worked examples, from a Search Console pull over 2026-06-22 → 2026-07-12 (21
+days, the window GSC had processed at the time — a live pull, not the monthly
+report, which covers a different, shorter window):
+
+- **`unstructured document parsing`** — 4 impressions, average position 30.5,
+  inside the 151-impression demand around
+  [pulling structured data out of unstructured documents](/blog/pulling-structured-data-from-unstructured-documents/).
+  Low volume, but the intent is genuinely distinct: parsing the *document*
+  (layout, geometry, tables) is a different question from extracting the
+  *fields*, and it already ranks better than the pillar's own average. **It
+  earns a spoke**, hung off the pillar.
+- **`fingerprint browser selenium`** — position 17.2 against
+  [beating browser fingerprinting](/blog/beating-browser-fingerprinting/)'s own
+  average of 18.0. The page is already the right answer and is already closer on
+  this query than on its average. **It earns a section, not a post.** Writing a
+  second page here would compete with the first.
+- **A 2-impression one-off** earns nothing. Not a post, not a section, not a
+  line. It is below the noise floor of a site with this much traffic, and
+  treating it as a signal is how a content plan becomes busywork.
+
+A pillar is deepened, never split. If a question belongs inside the pillar's
+argument, it goes in the pillar.
 
 ## Internal linking (every post earns its place in the web)
 Before publishing any post, run this checklist so the post is stitched into the

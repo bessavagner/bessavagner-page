@@ -42,13 +42,18 @@ HISTORY_PATH = os.path.join(
 
 FIELDS = [
     "month", "section", "name", "value_raw", "value_num",
-    "source", "note", "void", "partial",
+    "source", "note", "void", "partial", "days_measured",
 ]
 
 # The only section whose GA4 rows the gtag bug made structurally impossible.
 # Reach (Umami) was never affected — Umami received the events throughout — and
 # GSC is a different pipeline entirely.
 _GA4_CONVERSION_SECTION = "Conversions"
+
+# The only lane whose measured window is detected empirically rather than
+# assumed to be the calendar month. GSC lags ~2-3 days and the lag is NOT
+# constant — see deltas.py rule 6.
+_GSC_SOURCE = "GSC"
 
 
 @dataclass(frozen=True)
@@ -62,6 +67,7 @@ class Row:
     note: str
     void: bool
     partial: bool
+    days_measured: str = ""  # "" when unknown. NEVER "0" — see measured_days.
 
     @property
     def key(self) -> tuple[str, str, str, str]:
@@ -86,6 +92,25 @@ def parse_numeric(value_raw: str) -> str:
     if v != v or v in (float("inf"), float("-inf")):  # NaN / inf are not measurements
         return ""
     return s
+
+
+def measured_days(source: str, gsc_cov: Window | None) -> str:
+    """How many days this row's figure was ACTUALLY measured over, or "".
+
+    Only GSC needs this. Its window is detected empirically (gsc.fetch_coverage)
+    because the reporting lag is real and variable, while the row's `partial`
+    flag is computed from the CALENDAR month. The two disagree, and nothing
+    noticed — so a 29-day August could delta against a 31-day July and print a
+    -6% window artifact as a finding.
+
+    "" means UNKNOWN, and unknown must refuse (deltas.py rule 6). It does not
+    mean zero and it does not mean "same as the other month". A month with no
+    GSC data at all is an ABSENCE of measurement: returning "0" here would be
+    the silent-zero bug one more time, with a prior month waiting to divide.
+    """
+    if source != _GSC_SOURCE or gsc_cov is None:
+        return ""
+    return str((gsc_cov.end - gsc_cov.start).days + 1)  # inclusive of both ends
 
 
 def is_void(
@@ -115,7 +140,11 @@ def is_void(
 
 
 def rows_from_sections(
-    month: str, w: Window, sections: list[Section], partial: bool
+    month: str,
+    w: Window,
+    sections: list[Section],
+    partial: bool,
+    gsc_cov: Window | None = None,
 ) -> list[Row]:
     """Flatten a rendered report's sections into store rows. Pure."""
     return [
@@ -129,6 +158,7 @@ def rows_from_sections(
             note=m.note,
             void=is_void(s.title, m.source, w),
             partial=partial,
+            days_measured=measured_days(m.source, gsc_cov),
         )
         for s in sections
         for m in s.metrics
@@ -161,6 +191,10 @@ def load(path: str = HISTORY_PATH) -> list[Row]:
                 note=r["note"],
                 void=_bool_in(r["void"]),
                 partial=_bool_in(r["partial"]),
+                # A file written before this column existed loads as UNKNOWN,
+                # which rule 6 refuses. Back-filling the calendar length here
+                # would silently re-enable the artifact the rule exists to catch.
+                days_measured=r.get("days_measured", "") or "",
             )
             for r in csv.DictReader(f)
         ]
@@ -193,6 +227,7 @@ def write(rows: list[Row], path: str = HISTORY_PATH) -> None:
             w.writerow([
                 r.month, r.section, r.name, r.value_raw, r.value_num,
                 r.source, r.note, _bool_out(r.void), _bool_out(r.partial),
+                r.days_measured,
             ])
 
 
@@ -201,7 +236,11 @@ def record_month(
     w: Window,
     sections: list[Section],
     partial: bool,
+    gsc_cov: Window | None = None,
     path: str = HISTORY_PATH,
 ) -> None:
     """Persist one month's metrics. The single call monthly_report.main() makes."""
-    write(upsert(load(path), rows_from_sections(month, w, sections, partial)), path)
+    write(
+        upsert(load(path), rows_from_sections(month, w, sections, partial, gsc_cov)),
+        path,
+    )
