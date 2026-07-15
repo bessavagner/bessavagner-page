@@ -15,7 +15,7 @@ const links = [
   </div>
   <div class="flex items-center gap-3">
     {links.map((l) => (
-      <a href={l.href} class="btn btn-ghost btn-sm font-base hidden sm:inline-flex">{l.label}</a>
+      <a href={l.href} class="btn btn-ghost btn-sm font-base max-sm:hidden">{l.label}</a>
     ))}
     <a href="/#section-contact" class="btn btn-primary btn-sm font-base">Contact</a>
     <button type="button" data-open-search class="btn btn-ghost btn-square btn-sm" aria-label="Search" title="Search (⌘K)">
