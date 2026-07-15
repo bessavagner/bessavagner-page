@@ -5,8 +5,10 @@ project: "supskill"
 update: 1
 pubDate: 2026-07-16T08:00:00-03:00
 tags: ["claude-code", "subagents", "ai-agents", "orchestration", "python", "state-machine", "tdd", "building-in-public"]
-status: draft
+status: approved
 cta: "follow-build"
+reviewedAt: 2026-07-15T15:08:05.409Z
+reviewHash: sha256:1775dfaba08a742a7769ff1d7c50bb2ea9370e79d908c6255f1cfd79b7f37507
 ---
 
 supskill is a sprint conductor for Claude Code. It takes one sprint from a markdown backlog to a merged branch, and it does that by drawing a fresh context boundary at every stage (SCOPE, REFINE, PLAN, EXECUTE, REVIEW), holding three human gates where a person actually decides, and keeping all of its authoritative state in a file on disk so the conductor itself can be thrown away and rebuilt at any moment. The whole design rests on a single claim about how Claude Code behaves when it runs work you cannot see. Before I wrote this first update, I went back and re-ran that claim on the current runtime. It had moved under me.
