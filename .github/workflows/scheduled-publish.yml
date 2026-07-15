@@ -31,6 +31,15 @@ on:
     - cron: '5 12 * * *' # 12:05 UTC daily, after morning-BRT pubDates
   workflow_dispatch: {}
 
+# The reusable deploy below authenticates to Google Cloud via Workload Identity,
+# which needs `id-token: write`. A called workflow can never hold more permission
+# than its caller, and this repo's default workflow token is read-only — so
+# without declaring the token here, every scheduled run failed at startup
+# ("workflow file issue") before any job ran, and no timed post ever went live.
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
     uses: ./.github/workflows/deploy-web-cloudrun.yml
