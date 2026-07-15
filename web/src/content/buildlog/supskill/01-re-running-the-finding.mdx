@@ -1,0 +1,83 @@
+---
+title: "Building on a moving runtime: I re-ran the finding my sprint conductor is built on"
+description: "Update 1 of the supskill build log. supskill is a sprint conductor for Claude Code: it drives one sprint from a markdown backlog to a merged branch, drawing a fresh context boundary at every stage and holding three human gates, with all authoritative state on disk so it survives its own context death. The whole project rests on one finding: a delegated agent cannot ask you anything. Before writing this, I re-ran that finding on Claude Code 2.1.210, and the runtime had moved: AskUserQuestion is now absent from a subagent's manifest and a headless session's 62-tool manifest, and calling it returns a loud error instead of the silently-invented empty answer a cited issue reported. That makes supskill's core invariant stronger, not weaker: a delegated agent still has no channel to escalate, so nothing forces it to stop-and-ask rather than guess. This update shows the probe, the turn, and the on-disk state spine (280 offline tests) that makes a skipped gate structurally impossible."
+project: "supskill"
+update: 1
+pubDate: 2026-07-16T08:00:00-03:00
+tags: ["claude-code", "subagents", "ai-agents", "orchestration", "python", "state-machine", "tdd", "building-in-public"]
+status: draft
+cta: "follow-build"
+---
+
+supskill is a sprint conductor for Claude Code. It takes one sprint from a markdown backlog to a merged branch, and it does that by drawing a fresh context boundary at every stage (SCOPE, REFINE, PLAN, EXECUTE, REVIEW), holding three human gates where a person actually decides, and keeping all of its authoritative state in a file on disk so the conductor itself can be thrown away and rebuilt at any moment. The whole design rests on a single claim about how Claude Code behaves when it runs work you cannot see. Before I wrote this first update, I went back and re-ran that claim on the current runtime. It had moved under me.
+
+## The claim it was built on
+
+supskill's README opens with the premise the rest of the project is a response to: a delegated agent cannot ask you anything. When Claude Code runs a subagent, or runs headless with `-p`, there is no human sitting in that loop to answer a question. The README went further and described the failure concretely: in headless mode the agent does not stop and wait, it silently receives an empty answer in about 37 milliseconds and proceeds as if you had spoken.
+
+That 37ms number was never my measurement, and the post you are reading is careful about whose fact it is. It comes from [claude-code issue #50728](https://github.com/anthropics/claude-code/issues/50728), reported on 2026-04-19 against the Python Agent SDK and closed as not planned. Someone else filed it, someone else timed the empty answer, and supskill cited it as the runtime behavior it was designed against. When you build a safety property on a bug report, the honest thing to do before you write about it is to check whether the bug is still there.
+
+## The re-check
+
+I ran two probes on Claude Code 2.1.210, the version on my machine the day I wrote this.
+
+The first asks a headless session what tools it even has. A `claude -p` run emits an init event listing its tool manifest, so I dumped it and checked one name:
+
+```
+tools: 62
+AskUserQuestion present? false
+```
+
+Sixty-two tools, and `AskUserQuestion` is not one of them. The tool that would let a session ask the human a structured question is simply absent from the headless manifest.
+
+The second probe goes at it from inside delegated work. I dispatched a subagent and told it to call `AskUserQuestion` once and report back the verbatim result, without inventing an answer. This is what it got:
+
+```
+Error: No such tool available: AskUserQuestion. AskUserQuestion is not
+available inside subagents. Complete the task with the tools provided and
+return findings to the orchestrator.
+```
+
+Not a silent empty answer. A loud error that names exactly what happened and tells the agent what to do instead: finish with the tools you have and hand your findings back up. The ~37ms silent answer from #50728 did not reproduce on either path I tested. What the runtime does today is refuse, visibly.
+
+## The turn
+
+My first reaction was that this weakened the case for supskill. If the runtime now refuses loudly instead of fabricating quietly, isn't the danger the project guards against already handled?
+
+It is not, and working through why is the actual finding here. A loud refusal is strictly better than a silent invented answer: absence plus an error beats a made-up empty string every time, because you cannot accidentally trust it. But the load-bearing half of the original claim survives the runtime change completely intact. A delegated agent still has no channel to escalate a decision to the human mid-task. The old runtime let it guess and hid the guess; the new runtime stops it from calling the tool at all. Neither one gives it a way to actually stop, surface a real question, and wait for a real answer. Stop-and-ask is not expressible from inside delegated work, so nothing forces an agent to prefer it over guessing with the tools it does have.
+
+That gap has a name worth using: out-of-band escalation. The decision that needs a human has to leave the agent's execution context entirely and land somewhere a person will see it and act on it, because in-band (a tool call, mid-task) is exactly the thing that does not exist. The runtime moving from silent-invent to loud-refuse does not close that gap. It just makes the gap honest. And an honest gap is something you can build a structure around, which is what supskill is.
+
+## The answer supskill builds
+
+If an agent cannot be trusted to stop and ask, then the stopping has to live somewhere the agent cannot route around. In supskill that somewhere is a file: `.supskill/state.json`, holding the sprint's stage, its gate decisions, its recorded artifacts, its task statuses. A pure-Python CLI, `supskill-state`, is the only thing in the whole system allowed to mutate that file, and it refuses any transition whose preconditions are not met on disk. Not by asking the model to be careful. By checking.
+
+Here is one real refusal, from a fresh sprint I initialized at the SCOPE stage and then tried to move forward too fast:
+
+```
+$ supskill-state advance --to REFINE
+supskill-state: refused: cannot advance to REFINE:
+artifacts.sprint_doc is not recorded
+```
+
+REFINE is the next legal stage after SCOPE, so the sequencing is fine. What the CLI refuses is the substance: you cannot enter REFINE until the artifact SCOPE is supposed to produce actually exists and has been recorded. The gate is not a sentence in a prompt hoping the agent reads it. It is a precondition the CLI evaluates against the state file, and a failed precondition is a non-zero exit and no state change. A [machine-readable plan the agent executes task by task](/blog/machine-readable-plan-format/) can be as detailed as you like, but the plan is advice; the state file is the law. The one that can say no is the one that holds the state.
+
+I lean on this pattern in more than one project. [ReplayGate's regress gate](/building/replaygate/03-the-regress-gate-catching-cross-turn-bugs/) does the same move from the testing side: a bug in an agent becomes a non-zero exit code that fails CI, not a note somebody might read. And keeping the authoritative memory [on disk rather than in the model's head](/blog/giving-an-llm-agent-memory/) is what lets supskill's conductor be disposable in the first place. The idea that only one narrow, auditable component gets to change the important state is the same instinct behind [running generated code inside a boundary you control](/blog/running-llm-generated-code-safely/): trust the structure, not the good intentions of whatever is running inside it.
+
+The CLI and its rules are covered by an offline test suite that reads no keys and opens no sockets:
+
+```
+280 passed in 1.86s
+```
+
+Two hundred eighty tests, under two seconds, fully offline, because the state machine is pure logic over a file and none of it needs a network or a model to verify. As of this writing the conductor has E1 through E5 shipped: the state spine, the conductor skill, SCOPE and REFINE with Gate 1, PLAN with Gate 2, and EXECUTE. E6, the REVIEW stage with its PAR pass and Gate 3, is still in the backlog. A green test suite proves the CLI enforces its own rules. It does not prove the runtime an agent runs under will keep matching the assumptions those rules were written for. This whole update exists because I checked the second thing and it had drifted.
+
+## The caveat
+
+I measured two paths: the subagent manifest and the headless `claude -p` session. I did not measure the Python Agent SDK, which is the path issue #50728 was actually filed against. I cannot tell you that the SDK behaves the same today, because I did not run it. Everything above is what I observed on the CLI and subagent paths on 2.1.210, and nothing more. The finding that made me write this post is also a reminder of its own limit: runtimes move, and a claim is only as current as the last time you ran it yourself.
+
+## What's next
+
+Update #2 is about the piece that makes all of this survive its own fragility: the disposable conductor. The conductor holds no memory of its own. It is rebuilt from `state.json` on every invocation, so you can clear its context in the middle of a sprint, invoke it again, and it picks up exactly where the file says it is. I want to show why I decided never to trust the conductor to remember anything, and what that bought.
+
+If you have built agents that delegate work they cannot supervise, I would genuinely like to know how you handle the escalation gap. I landed on an out-of-band gate the agent cannot skip because the runtime gave me no in-band way to make it stop and ask. Have you found a way to make a delegated agent actually pause mid-task and wait for a human, or is pushing the decision out onto disk the only honest answer right now? The conductor, the CLI, and the state spine are all being built in the open, and you can [follow the supskill log here](/building/supskill/).
