@@ -1,22 +1,22 @@
 ---
 title: "Generating branded social-preview images at build time"
-description: "Every page wants its own 1200×630 social card. Instead of designing each one by hand, drive headless Chrome over a parameterized HTML template at build time — then shrink the output ~80% with a PNG8 palette step, using one counter-intuitive trick most guides skip."
+description: "Every page wants its own 1200×630 social card. Instead of designing each one by hand, drive headless Chrome over a parameterized HTML template at build time, then shrink the output ~80% with a PNG8 palette step, using one counter-intuitive trick most guides skip."
 pubDate: 2026-07-17T05:00:00-03:00
 heroImage: ../../assets/blog/branded-social-preview-images-at-build-time/filesize.svg
 tags: ["automation", "images", "headless-chrome", "build-tools", "devops"]
-status: draft
+status: review
 ---
 
 import { Image } from 'astro:assets';
 import filesize from '../../assets/blog/branded-social-preview-images-at-build-time/filesize.svg';
 
-Share a link to one of your pages on LinkedIn, Slack, or X and the platform reaches back to your site, looks for an `og:image`, and renders a preview card from it. If you don't supply one, you get whatever the scraper guesses — usually nothing, or a stray logo cropped badly. A good preview image is cheap marketing: it's the difference between a bare blue link and a branded card with a title and a tagline.
+Share a link to one of your pages on LinkedIn, Slack, or X and the platform reaches back to your site, looks for an `og:image`, and renders a preview card from it. If you don't supply one, you get whatever the scraper guesses: usually nothing, or a stray logo cropped badly. A good preview image is cheap marketing: it's the difference between a bare blue link and a branded card with a title and a tagline.
 
-The catch is *volume*. A portfolio has a dozen projects; a blog has dozens of posts. Hand-designing a 1200×630 card for each one in Figma is the kind of chore that never gets done. So I didn't. I render them — one per project — from a single HTML template, driven by headless Chrome, as a build step. This post is how that pipeline works, and the one palette-compression trick that took the output from ~300 KB per card to ~60 KB without any visible loss.
+The catch is *volume*. A portfolio has a dozen projects; a blog has dozens of posts. Hand-designing a 1200×630 card for each one in Figma is the kind of chore that never gets done. So I didn't. I render them (one per project) from a single HTML template, driven by headless Chrome, as a build step. This post is how that pipeline works, and the one palette-compression trick that took the output from ~300 KB per card to ~60 KB without any visible loss.
 
 ## One card per page, automatically
 
-The whole thing rests on a fact that's easy to forget: a social card is just a 1200×630 web page. If you can render a web page, you can render a card. And the most faithful HTML-to-pixels renderer in the world is already on your machine — it's the browser.
+The whole thing rests on a fact that's easy to forget: a social card is just a 1200×630 web page. If you can render a web page, you can render a card. And the most faithful HTML-to-pixels renderer in the world is already on your machine. It's the browser.
 
 So the design is: keep the *content* of each card in structured data you already maintain, write *one* HTML template that lays out a card, and for each entry, render the template with that entry's data and screenshot it. My portfolio's single source of truth is a `projects.json` that drives the whole site; the generator walks it and emits one PNG per project:
 
@@ -58,11 +58,11 @@ The cheapest possible templating engine is one you already have in every browser
 </script>
 ```
 
-The body is set with `textContent`, not `innerHTML`, so a stray `<` in a project name can't break the layout. The styling is plain CSS — a radial gradient, a dotted grid overlay, a couple of web fonts, flexbox to lay out a header, a hero title, and a row of stack "chips." Because it's a real page, I can open `template.html?name=Demo&tagline=...` in my own browser and tweak the design live, then trust that the build produces pixel-identical output. The template *is* the design tool.
+The body is set with `textContent`, not `innerHTML`, so a stray `<` in a project name can't break the layout. The styling is plain CSS: a radial gradient, a dotted grid overlay, a couple of web fonts, flexbox to lay out a header, a hero title, and a row of stack "chips." Because it's a real page, I can open `template.html?name=Demo&tagline=...` in my own browser and tweak the design live, then trust that the build produces pixel-identical output. The template *is* the design tool.
 
 ## Screenshotting with headless Chrome
 
-Chrome can take a screenshot straight from the command line, no Puppeteer or Playwright required. The [`--screenshot` flag](https://developer.chrome.com/docs/chromium/headless) "takes a screenshot of the target page and saves it," and pairs with `--window-size` to fix the dimensions. We want exactly 1200×630 — the [Open Graph](https://ogp.me/) preview size that Facebook, LinkedIn, and X all render cleanly — so we pin the window to that and force a 1× device scale:
+Chrome can take a screenshot straight from the command line, no Puppeteer or Playwright required. The [`--screenshot` flag](https://developer.chrome.com/docs/chromium/headless) "takes a screenshot of the target page and saves it," and pairs with `--window-size` to fix the dimensions. We want exactly 1200×630 (the [Open Graph](https://ogp.me/) preview size that Facebook, LinkedIn, and X all render cleanly), so we pin the window to that and force a 1× device scale:
 
 ```python
 subprocess.run([
@@ -73,13 +73,13 @@ subprocess.run([
 ], check=True)
 ```
 
-A few of those flags earn their place. `--headless=new` selects the [modern headless implementation](https://developer.chrome.com/docs/chromium/headless) — since Chrome 112 it's the same browser engine as the visible Chrome, "creating but not displaying" windows, so what you screenshot matches what you'd see on screen. `--force-device-scale-factor=1` guarantees one CSS pixel maps to exactly one image pixel, so the output is 1200×630 and not a surprise 2400×1260 on a HiDPI box. And `--virtual-time-budget=4000` is the clever one: rather than sleeping for four real seconds to let the web fonts load, it *fast-forwards Chrome's internal clock* as if four seconds had passed, then captures — so the fonts paint but the build doesn't stall.
+A few of those flags earn their place. `--headless=new` selects the [modern headless implementation](https://developer.chrome.com/docs/chromium/headless): since Chrome 112 it's the same browser engine as the visible Chrome, "creating but not displaying" windows, so what you screenshot matches what you'd see on screen. It's the same flag that closed much of the headless-detection gap I leaned on in [beating browser fingerprinting](/blog/beating-browser-fingerprinting/), a nice side benefit here since a stealthier headless mode is also a more faithful one. `--force-device-scale-factor=1` guarantees one CSS pixel maps to exactly one image pixel, so the output is 1200×630 and not a surprise 2400×1260 on a HiDPI box. And `--virtual-time-budget=4000` is the clever one: rather than sleeping for four real seconds to let the web fonts load, it *fast-forwards Chrome's internal clock* as if four seconds had passed, then captures, so the fonts paint but the build doesn't stall.
 
 Under the hood, `--screenshot` is the CLI surface of the DevTools Protocol's [`Page.captureScreenshot`](https://chromedevtools.github.io/devtools-protocol/tot/Page/) command, the same primitive Puppeteer and Playwright call. We just don't need a driver process to reach it for a one-shot capture.
 
 ## The PNG8 trick (and when it backfires)
 
-Chrome writes a 24-bit truecolor PNG. For one of these flat cards — a gradient, some text, a dotted overlay — that's wildly more color depth than the image actually uses, and each card lands around **300 KB**. That's not catastrophic, but multiply it across every project and blog post and it's real bytes on every share, every crawl, every page that lists the cards.
+Chrome writes a 24-bit truecolor PNG. For one of these flat cards (a gradient, some text, a dotted overlay) that's wildly more color depth than the image actually uses, and each card lands around **300 KB**. That's not catastrophic, but multiply it across every project and blog post and it's real bytes on every share, every crawl, every page that lists the cards.
 
 The fix is *color quantization*: collapse the image to a 256-color palette and store it as a [PNG8](https://usage.imagemagick.org/quantize/). ImageMagick does it in one line:
 
@@ -90,25 +90,25 @@ subprocess.run([
 ], check=True)
 ```
 
-The non-obvious part is `-dither None`. By default, when ImageMagick reduces colors it [*dithers*](https://usage.imagemagick.org/quantize/) — it scatters pixels of the available palette colors to fake the missing in-between shades, using a Riemersma (Hilbert-curve) error-diffusion pass. On a photograph that's exactly what you want: dithering hides the banding you'd otherwise see across a smooth sky.
+The non-obvious part is `-dither None`. By default, when ImageMagick reduces colors it [*dithers*](https://usage.imagemagick.org/quantize/): it scatters pixels of the available palette colors to fake the missing in-between shades, using a Riemersma (Hilbert-curve) error-diffusion pass. On a photograph that's exactly what you want: dithering hides the banding you'd otherwise see across a smooth sky.
 
-But on a *flat* graphic it's actively harmful, for a reason that's pure information theory. PNG compresses by finding runs and patterns of identical pixels. Dithering deliberately breaks those runs — it sprinkles high-frequency noise across every gradient to smooth the eye's perception. That noise is incompressible, so the dithered PNG8 is both noisier *and bigger*. Turning dithering off lets long runs of identical palette colors survive, which is precisely what the compressor feasts on. On a gradient-and-text card, the gradient quantizes to a handful of smooth bands and PNG packs them tight.
+But on a *flat* graphic it's actively harmful, for a reason that's pure information theory. PNG compresses by finding runs and patterns of identical pixels. Dithering deliberately breaks those runs: it sprinkles high-frequency noise across every gradient to smooth the eye's perception. That noise is incompressible, so the dithered PNG8 is both noisier *and bigger*. Turning dithering off lets long runs of identical palette colors survive, which is precisely what the compressor feasts on. On a gradient-and-text card, the gradient quantizes to a handful of smooth bands and PNG packs them tight.
 
-The measured difference on the real card is stark: the truecolor PNG was 300 KB, the no-dither PNG8 was **62 KB**, and the *dithered* PNG8 was 80 KB — dithering gave back roughly a third of the savings for a card that looks identical either way.
+The measured difference on the real card is stark: the truecolor PNG was 300 KB, the no-dither PNG8 was **62 KB**, and the *dithered* PNG8 was 80 KB. Dithering gave back roughly a third of the savings for a card that looks identical either way.
 
 ## Measuring the savings
 
 To check the trick isn't fooling me, I ran it against two inputs: the actual branded card, and a synthetic continuous-tone image (plasma plus Gaussian noise) standing in for a photograph. Same PNG8 step, dithering on and off, real bytes measured with ImageMagick 6.9:
 
-<Image src={filesize} alt="On the flat OG card, PNG8 with dithering off cuts file size about 80 percent, far more than with dithering on; on a photographic image, palette quantization helps far less and dithering makes almost no difference — the trick is a flat-graphics optimization, not a general one." />
+<Image src={filesize} alt="On the flat OG card, PNG8 with dithering off cuts file size about 80 percent, far more than with dithering on; on a photographic image, palette quantization helps far less and dithering makes almost no difference: the trick is a flat-graphics optimization, not a general one." />
 
-Two things jump out. On the flat card, dither-off PNG8 cuts ~80% and beats dither-on comfortably — the trick works. On the photographic input, palette reduction helps far less in relative terms, and dithering on vs off is a wash (within a fraction of a percent), because there are no long flat runs for the absence of noise to preserve. The lesson: **this is a flat-graphics optimization.** Reach for it on cards, charts, diagrams, and screenshots of UI; for genuine photographs, quantizing to 256 colors throws away tone you'll miss, and you should stay truecolor or reach for JPEG/WebP instead. The generator guards the step in a `try/except` so a missing ImageMagick just skips it and ships the truecolor PNG rather than failing the build.
+Two things jump out. On the flat card, dither-off PNG8 cuts ~80% and beats dither-on comfortably. The trick works. On the photographic input, palette reduction helps far less in relative terms, and dithering on vs off is a wash (within a fraction of a percent), because there are no long flat runs for the absence of noise to preserve. The lesson: **this is a flat-graphics optimization.** Reach for it on cards, charts, diagrams, and screenshots of UI; for genuine photographs, quantizing to 256 colors throws away tone you'll miss, and you should stay truecolor or reach for JPEG/WebP instead. The generator guards the step in a `try/except` so a missing ImageMagick just skips it and ships the truecolor PNG rather than failing the build.
 
 ## Where I used this
 
-This is the pipeline behind the social cards on my own portfolio. Each project entry in `projects.json` carries an `ogImage` path; the build renders the template once per project and writes a palette-optimized PNG to `public/images/og/`, plus a single static card for the home page. Adding a project is a JSON edit — the branded preview comes along automatically, at a fraction of the byte cost, and I never open a design tool to get it.
+This is the pipeline behind the social cards on [my own portfolio](/). Each project entry in `projects.json` carries an `ogImage` path; the build renders the template once per project and writes a palette-optimized PNG to `public/images/og/`, plus a single static card for the home page. Adding a project is a JSON edit: the branded preview comes along automatically, at a fraction of the byte cost, and I never open a design tool to get it. Share [weberist](/projects/weberist)'s link and the card that shows up is one of these.
 
-The shape generalizes well beyond OG images. Anywhere you need to turn structured data into a pixel-perfect image at build time — certificates, receipts, chart thumbnails, report covers — "render real HTML, screenshot it with headless Chrome, then quantize the flat output" is a sturdy little pattern. The browser is the most capable renderer you'll ever have; you might as well let it do your design work while you sleep.
+The shape generalizes well beyond OG images. Anywhere you need to turn structured data into a pixel-perfect image at build time (certificates, receipts, chart thumbnails, report covers), "render real HTML, screenshot it with headless Chrome, then quantize the flat output" is a sturdy little pattern. The browser is the most capable renderer you'll ever have; you might as well let it do your design work while you sleep.
 
 ## References
 

@@ -116,6 +116,37 @@ These are habits the early posts already show; lean into them, don't sand them o
   about dates:` became `A caveat:`, and `measured it instead of hand-waving` became
   `measured it`. The candor belongs in the facts, not in adverbs about them. (A
   corollary of "Show, don't announce" above.)
+- **Cut a trailing "X, not Y" clause once the positive statement already lands.**
+  A recurring habit: state a claim, then append a contrastive clause spelling out
+  the negative case the claim already implies, `cost is visible per tenant, not
+  just as one aggregate bill at the end of the month`; `gets onto a laptop, not a
+  copy-paste from a teammate`; `gets rotated the moment there's any doubt it
+  stayed contained, not just when a scanner flags it`. The positive half almost
+  always carries the point on its own; the "not Y" half restates it rather than
+  adding anything. Cut it before it ships. (Observed across four separate answers
+  in one editing pass, 2026-07-16; distinct from "don't announce honesty" above,
+  this is redundant negation, not self-conscious framing.) The same instinct
+  applies front-loaded: `isn't A, it's B` or `doesn't do X, it does Y` gets cut
+  to just `B` / `Y` once the positive statement can carry the sentence alone,
+  e.g. `The dangerous gap isn't the one on a list with an owner and a deadline.
+  It's the one nobody thought to check` became `The dangerous gap is the one
+  nobody thought to check`; `The matcher code doesn't check first and insert
+  second, it calls a single get-or-create operation` became `The matcher calls
+  a single get-or-create operation`. Negation-first framing reads as
+  throat-clearing the same way a trailing "not Y" does, whichever end of the
+  sentence it sits on. (Three separate instances, 2026-07-16.)
+- **Cut the closing "here's the takeaway" recap once parallel examples already show it.** When an answer builds two or more structurally parallel examples on purpose (a uniqueness constraint here, a `sent`-flag check there), a final paragraph spelling out the shared logic afterward restates rather than adds: `That contrast is the actual lesson: a unique constraint or an idempotent upsert make a duplicate structurally impossible, while a check-then-write pattern only makes it unlikely` got cut entirely once the two examples above it already made the point. Same family as "show, don't announce," at the paragraph/structural level instead of the sentence level. Watch for this whenever a draft ends with an explicit "the pattern here is..." / "what ties these together is..." line after 2+ parallel illustrations, and cut it before it ships. (Observed across two separate answers in a questionnaire pass, 2026-07-16.)
+- **Don't narrate the Q&A format itself, answer as if there is no format.** Cut
+  any line that comments on the question being asked or the document's own
+  structure instead of just answering it: `so I'll walk through both` (announcing
+  the answer's own organization), `that's exactly the gap the next question is
+  about` (referencing a different question), `so I'd say that plainly in an
+  interview` (narrating the act of answering), `the core problem with that
+  question is baked into its own premise` (commentary about the question rather
+  than the answer). Skip straight to the content the meta-line was about to
+  introduce. (Observed across three separate answers in a questionnaire pass,
+  2026-07-16; a corollary of "don't announce what you're about to do," extended
+  from whole-document framing to individual Q&A pairs.)
 - **Ground a cold reader before the recap.** Open by defining the domain and the
   product in their own short, standalone sentences (what the *Diário Oficial* is,
   what RegWatch does) *before* any "in #2 I…". A recap that buries the definition
@@ -171,6 +202,15 @@ These are habits the early posts already show; lean into them, don't sand them o
   model, "AI" as the umbrella term). Overclaiming reads as hype to the exact
   technical readers you most want to convince, and it collides with the
   never-fabricate rule.
+- **Don't pre-empt confusion the reader doesn't have.** A term can be technically
+  overloaded (e.g. "framework" meaning something different at build time than at
+  runtime) without needing a defensive clarification. The reader is the fellow
+  developer defined above; explaining a distinction they already know reads as
+  talking down. Add a clarifying beat only when there's a real, specific signal of
+  confusion in the material itself, not just because a term is overloaded in
+  general. (Observed on a questionnaire draft: an "Astro isn't a JS framework"
+  aside got written to head off a contradiction I imagined, then cut once it was
+  clear the actual reader wouldn't have raised it.)
 - **Titles: wordplay plus famous keywords, still specific.** A little play in the
   title is welcome (e.g. #3's "From mocking to knocking" rhyme, where "mocking" is
   also the literal testing term for the fakes being replaced), but pair it with
