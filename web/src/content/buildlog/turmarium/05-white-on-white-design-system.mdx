@@ -3,9 +3,11 @@ title: "White on white: making dark mode a token decision, and the palette that 
 description: "Update 5 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1-4 proved tenant isolation, switched it on, built the academic catalog behind an import boundary, and fired the first domain event. Update 5 is the detour before the big feature epics: one web-led sprint that turns the working-but-unstyled scaffold into a real design system. Dark mode becomes a three-layer token decision (primitive to semantic to component); the styling engine the plan had locked (shadcn) gets swapped for daisyUI at the mandatory brainstorm; the chosen Azure palette fails its own WCAG contrast math; and the per-tenant accent ships as a seam with the pipeline deferred on purpose. 144 web tests, 130 backend tests, coverage 92.76% on the browser app and 97% on the API, import-linter still two contracts kept and zero broken."
 project: "turmarium"
 update: 5
-pubDate: 2026-07-19T05:00:00-03:00
+pubDate: 2026-07-21T17:00:00-03:00
 tags: ["react", "tailwind", "daisyui", "design-tokens", "dark-mode", "accessibility", "wcag", "i18n", "tdd", "building-in-public"]
-status: draft
+status: approved
+reviewedAt: 2026-07-21T15:03:42.154Z
+reviewHash: sha256:863b5cf30ab0bf52db0d523195a55e4b002a40cfc349cd622df4ec2a9e154b15
 ---
 
 import ThemedFigure from '../../../components/ThemedFigure.astro';
@@ -13,6 +15,8 @@ import paletteContrastLight from '../../../assets/buildlog/turmarium/palette-con
 import paletteContrastDark from '../../../assets/buildlog/turmarium/palette-contrast.dark.svg';
 import overviewLight from '../../../assets/buildlog/turmarium/overview.light.png';
 import overviewDark from '../../../assets/buildlog/turmarium/overview.dark.png';
+import loginFixedLight from '../../../assets/buildlog/turmarium/login-fixed.light.png';
+import loginFixedDark from '../../../assets/buildlog/turmarium/login-fixed.dark.png';
 
 I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it. It's English-first because I build in the open, with Brazilian Portuguese as a first-class locale because that's who I want to sell it to.
 
@@ -76,15 +80,19 @@ Turmarium sells to schools, and schools will want their own color. So the azure 
 --color-accentramp-600: var(--t-accent-600, #1f5fd6);
 ```
 
-Set `--t-accent-600` under a `[data-tenant="..."]` block and the accent re-hues everywhere, with no code change. But the actual pipeline behind it (a per-org seed, a generated OKLCH ramp, sanitizing a tenant-supplied color before it ever reaches the DOM, and choosing a contrast-safe foreground for whatever they pick) is deferred on purpose. Tenant color flowing into CSS is both an injection surface and a contrast risk, and I'm not shipping that half-proven. Ship the seam, defer the pipeline: the same move as [update 4's first domain event](/building/turmarium/04-shouting-into-an-empty-room/), fired onto a bus no module subscribes to yet. The hook is real and tested; the machine behind it arrives when it's the sprint's actual job.
+The pipeline behind it is deferred on purpose: a per-org seed, a generated OKLCH ramp, sanitizing a tenant-supplied color before it ever reaches the DOM, and picking a contrast-safe foreground for whatever they choose. Tenant color flowing into CSS is both an injection surface and a contrast risk, and I'm not shipping that half-proven. The variable is real and pinned by a token test; the machine behind it arrives when it's a sprint's actual job.
 
 The rest of the sprint was the unglamorous half of a design system, and it's real: `Intl` dates rendering `dd/mm/yyyy` for pt-BR, an `errors` namespace mapping backend codes to localized messages announced through an `aria-live` region, a CI key-parity check so `en` and `pt-br` can't drift apart, a reusable empty/loading/error pattern wired to TanStack Query's `isPending`/`isError`, and an admin dashboard reading a real tenant-scoped overview endpoint. A caveat: the new status tables are styled on mock data for now, design-forward ahead of their real wiring, so I don't restyle them twice.
 
 ## What I learned
 
-Two things surprised me this sprint, and neither was on the plan. Accessible contrast is arithmetic, not taste: my Azure palette failed its own WCAG math on the first status color I checked, and the formula, not my eye, picked the foregrounds. Writing the ratios next to the colors is part of the fix. The other surprise was procedural. The plan had "locked" shadcn as the styling engine, and reopening that lock at the brainstorm gate turned out to be the right call: with the real Tailwind-v4 docs open, daisyUI was plainly the better fit. A locked decision stays a default I can argue with, and the honest move when I win the argument is to write the override down rather than let it live only in my head.
+Accessible contrast is arithmetic, not taste. My Azure palette failed its own WCAG math on the first status color I checked, and the formula, not my eye, picked the foregrounds. Writing the ratios next to the colors is part of the fix.
 
-Where it landed: 144 web tests green (up from 80 last update) at 92.76% statement and 86.24% branch coverage, and 130 backend tests green at 97%, both above their gates. import-linter still reports two contracts kept and zero broken. Both themes are verified in a real browser, axe is clean on the screens I touched, and the white-on-white login is gone.
+The other lesson was procedural. The plan had "locked" shadcn as the styling engine, and reopening that lock at the brainstorm gate turned out to be the right call: with the real Tailwind-v4 docs open, daisyUI was plainly the better fit. A locked decision stays a default I can argue with, and the honest move when I win the argument is to write the override down rather than let it live only in my head.
+
+Where it landed: 144 web tests green (up from 80 last update) at 92.76% statement and 86.24% branch coverage, and 130 backend tests green at 97%, both above their gates. import-linter still reports two contracts kept and zero broken. Both themes are verified in a real browser, axe is clean on the screens I touched, and the screen that named the sprint reads in both:
+
+<ThemedFigure light={loginFixedLight} dark={loginFixedDark} alt="The Turmarium login screen in light and dark theme, side by side. Both show the same form: a 'Turmarium' heading, an Email field, a Password field, and a blue 'Log in' button, with the theme toggle in the top-right corner. In dark theme the card and page sit on deep slate with near-white labels; in light theme the fields are white on a pale surface with dark slate labels. The white-on-white text that opened this update is gone in both." />
 
 ## What's next
 
