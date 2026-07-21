@@ -1,12 +1,12 @@
 ---
 title: "Generating branded social-preview images at build time"
-description: "Every page wants its own 1200×630 social card. Instead of designing each one by hand, drive headless Chrome over a parameterized HTML template at build time, then shrink the output ~80% with a PNG8 palette step, using one counter-intuitive trick most guides skip."
+description: "Every page wants its own 1200×630 social card. Instead of designing each one by hand, drive headless Chrome over a parameterized HTML template at build time, then shrink the output ~80% with a PNG8 palette step whose key move is turning dithering off on flat graphics."
 pubDate: 2026-07-17T05:00:00-03:00
 heroImage: ../../assets/blog/branded-social-preview-images-at-build-time/filesize.svg
 tags: ["automation", "images", "headless-chrome", "build-tools", "devops"]
 status: approved
-reviewedAt: 2026-07-21T00:03:44.498Z
-reviewHash: sha256:451d17b805f9b9bc893fed293216774ffeca6c464cc71b04e7bb975c5ea2cfef
+reviewedAt: 2026-07-21T00:08:13.156Z
+reviewHash: sha256:c33b0ac0b64db17e4f567fb97e55c22c1e52ff4c56cf50c651dfd543d1f6cd1f
 ---
 
 import { Image } from 'astro:assets';
