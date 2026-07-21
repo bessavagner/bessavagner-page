@@ -4,7 +4,9 @@ description: "Every page wants its own 1200×630 social card. Instead of designi
 pubDate: 2026-07-17T05:00:00-03:00
 heroImage: ../../assets/blog/branded-social-preview-images-at-build-time/filesize.svg
 tags: ["automation", "images", "headless-chrome", "build-tools", "devops"]
-status: review
+status: approved
+reviewedAt: 2026-07-21T00:03:44.498Z
+reviewHash: sha256:451d17b805f9b9bc893fed293216774ffeca6c464cc71b04e7bb975c5ea2cfef
 ---
 
 import { Image } from 'astro:assets';
@@ -94,15 +96,15 @@ The non-obvious part is `-dither None`. By default, when ImageMagick reduces col
 
 But on a *flat* graphic it's actively harmful, for a reason that's pure information theory. PNG compresses by finding runs and patterns of identical pixels. Dithering deliberately breaks those runs: it sprinkles high-frequency noise across every gradient to smooth the eye's perception. That noise is incompressible, so the dithered PNG8 is both noisier *and bigger*. Turning dithering off lets long runs of identical palette colors survive, which is precisely what the compressor feasts on. On a gradient-and-text card, the gradient quantizes to a handful of smooth bands and PNG packs them tight.
 
-The measured difference on the real card is stark: the truecolor PNG was 300 KB, the no-dither PNG8 was **62 KB**, and the *dithered* PNG8 was 80 KB. Dithering gave back roughly a third of the savings for a card that looks identical either way.
+The measured difference on the real card is stark: the truecolor PNG was ~296 KB, the no-dither PNG8 was **59 KB**, and the *dithered* PNG8 was 78 KB. The dithered file ran about a third larger, for a card that looks identical either way.
 
 ## Measuring the savings
 
-To check the trick isn't fooling me, I ran it against two inputs: the actual branded card, and a synthetic continuous-tone image (plasma plus Gaussian noise) standing in for a photograph. Same PNG8 step, dithering on and off, real bytes measured with ImageMagick 6.9:
+To check the trick isn't fooling me, I ran it against two inputs: the actual branded card, and a real photograph (Grace Hopper's portrait, the classic image-processing test image) fit to the same 1200×630 canvas. Same PNG8 step, dithering on and off, real bytes measured with ImageMagick 6.9:
 
-<Image src={filesize} alt="On the flat OG card, PNG8 with dithering off cuts file size about 80 percent, far more than with dithering on; on a photographic image, palette quantization helps far less and dithering makes almost no difference: the trick is a flat-graphics optimization, not a general one." />
+<Image src={filesize} alt="On the flat OG card, PNG8 with dithering off cuts file size about 80 percent, well below what dithering on achieves; on a real photograph, palette quantization helps noticeably less (about 62 percent) and dithering barely changes the result: the trick is a flat-graphics optimization, not a general one." />
 
-Two things jump out. On the flat card, dither-off PNG8 cuts ~80% and beats dither-on comfortably. The trick works. On the photographic input, palette reduction helps far less in relative terms, and dithering on vs off is a wash (within a fraction of a percent), because there are no long flat runs for the absence of noise to preserve. The lesson: **this is a flat-graphics optimization.** Reach for it on cards, charts, diagrams, and screenshots of UI; for genuine photographs, quantizing to 256 colors throws away tone you'll miss, and you should stay truecolor or reach for JPEG/WebP instead. The generator guards the step in a `try/except` so a missing ImageMagick just skips it and ships the truecolor PNG rather than failing the build.
+Two things jump out. On the flat card, dither-off PNG8 cuts ~80% and beats dither-on comfortably. The trick works. On the photograph, palette reduction helps noticeably less (~62%), and dithering on vs off barely moves the file (within a couple percent either way), because there are no long flat runs for turning dithering off to preserve. The lesson: **this is a flat-graphics optimization.** Reach for it on cards, charts, diagrams, and screenshots of UI; for genuine photographs, quantizing to 256 colors throws away tone you'll miss, and you should stay truecolor or reach for JPEG/WebP instead. The generator guards the step in a `try/except` so a missing ImageMagick just skips it and ships the truecolor PNG rather than failing the build.
 
 ## Where I used this
 

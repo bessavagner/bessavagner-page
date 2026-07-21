@@ -2,10 +2,14 @@
 
 Numbers are REAL measurements taken on this machine (ImageMagick 6.9.12 Q16):
 
-* "flat" is the actual branded OG card rendered by tools/og/project.html via
-  headless Chrome (a gradient + text card).
-* "photo" is a 1200x630 plasma+Gaussian-noise image standing in for a
-  photographic source (continuous tone, lots of unique colors).
+* "flat" is the actual branded OG card for the `weberist` project, rendered by
+  tools/og/project.html via headless Chrome (a gradient + text card). Its
+  no-dither PNG8 is the file shipped at web/public/images/og/weberist.png.
+* "photo" is a real photograph (matplotlib's classic `grace_hopper.jpg` test
+  image) fit to the same 1200x630 canvas: continuous tone, ~230k unique colors.
+  An earlier draft used a synthetic plasma+Gaussian-noise image, but pure noise
+  is incompressible as truecolor PNG (~4.2 MB), which inflated its apparent
+  palette-reduction to ~86% and misrepresented how a real photo behaves.
 
 For each input we measure three encodings:
   - original truecolor PNG (Chrome's output / 24-bit)
@@ -13,9 +17,13 @@ For each input we measure three encodings:
   - PNG8 palette, dithering ENABLED   (default Riemersma -colors 256)
 
 Reproduce with:
-  google-chrome --headless=new --window-size=1200,630 --screenshot=flat.png \
-      'file:///.../tools/og/project.html?name=...&tagline=...'
-  convert -size 1200x630 plasma:fractal -attenuate 0.6 +noise Gaussian photo.png
+  # flat card (as tools/og/generate.py renders it, before the PNG8 step):
+  google-chrome --headless=new --disable-gpu --no-sandbox --hide-scrollbars \
+      --force-device-scale-factor=1 --window-size=1200,630 \
+      --screenshot=flat.png --virtual-time-budget=4000 \
+      'file:///.../tools/og/project.html?name=Weberist&tagline=...&role=...&stack=...'
+  # photo (any real photograph fit to the card canvas):
+  convert grace_hopper.jpg -resize 1200x630^ -gravity center -extent 1200x630 photo.png
   for s in flat photo; do
     convert $s.png -strip -dither None -colors 256 PNG8:$s-nodither.png
     convert $s.png -strip            -colors 256 PNG8:$s-dither.png
@@ -37,9 +45,9 @@ apply()
 # Measured bytes -> KB (1 KB = 1024 B).
 KB = 1024.0
 groups = ["Flat OG card\n(gradient + text)", "Photographic\n(continuous tone)"]
-original = [307490 / KB, 4284369 / KB]
-nodither = [63156 / KB, 586726 / KB]
-dither = [82277 / KB, 586156 / KB]
+original = [303520 / KB, 763013 / KB]
+nodither = [60079 / KB, 291784 / KB]
+dither = [80070 / KB, 298829 / KB]
 
 x = np.arange(len(groups))
 w = 0.26
@@ -49,8 +57,8 @@ ax.bar(x - w, original, w, label="Truecolor PNG (Chrome output)", color=PALETTE[
 ax.bar(x, nodither, w, label="PNG8, dither off (the trick)", color=PALETTE[2])
 ax.bar(x + w, dither, w, label="PNG8, dither on (default)", color=PALETTE[1])
 
-# Log scale: the photographic bars are ~14x the flat ones, so a linear axis
-# would crush the flat group into invisibility.
+# Log scale: the photographic bars are several times the flat ones, so a linear
+# axis would crush the flat group into invisibility.
 ax.set_yscale("log")
 ax.set_ylabel("File size (KB, log scale)")
 ax.set_title("PNG8 palette optimization: flat graphics vs photos")
