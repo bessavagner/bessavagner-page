@@ -5,8 +5,8 @@ pubDate: 2026-07-24T05:00:00-03:00
 heroImage: ../../assets/blog/idempotent-scheduled-jobs-with-celery-beat/quota_cycle.svg
 tags: ["celery", "scheduling", "idempotency", "saas", "python"]
 status: approved
-reviewedAt: 2026-07-21T15:03:42.409Z
-reviewHash: sha256:94f8e4177e9f2c16d3cfd2f09fac6c79f72f2f38ccde2c03c8ff0cbe8222645b
+reviewedAt: 2026-07-21T16:44:24.579Z
+reviewHash: sha256:cb41051cf62278d85b9b09e364243ea3407088a6ee05cc25203ff77c127ab3f9
 ---
 
 import { Image } from 'astro:assets';
@@ -141,7 +141,7 @@ Two things about how this survived in production. The tests were green because t
 
 ## Where I used this
 
-This is the quota-reset path in a production SaaS chatbot I built on Django and Celery. The schedule is a daily midnight heartbeat; the per-user `restored_at` guard and the set-not-increment reset are what make it correct under duplicate deliveries and restarts. The lesson generalizes beyond quotas: any recurring job that mutates shared state wants the same treatment, whether it sends monthly invoices, expires trials, rolls up usage, or builds [the unattended daily digest behind RegWatch](/building/regwatch/03-the-daily-run-made-real/). Assume the scheduler will sometimes fire twice, push the "should this happen now?" decision into the task, key it on state you already store, and make the mutation idempotent. Then a duplicate is a shrug instead of an incident.
+This was the quota-reset path in a SaaS chatbot I ran on Django and Celery. The schedule was a daily midnight heartbeat; the per-user `restored_at` guard and the set-not-increment reset are what kept it correct under duplicate deliveries and restarts. The lesson generalizes beyond quotas: any recurring job that mutates shared state wants the same treatment, whether it sends monthly invoices, expires trials, rolls up usage, or builds [the unattended daily digest behind RegWatch](/building/regwatch/03-the-daily-run-made-real/). Assume the scheduler will sometimes fire twice, push the "should this happen now?" decision into the task, key it on state you already store, and make the mutation idempotent. Then a duplicate is a shrug instead of an incident.
 
 ## References and further reading
 
