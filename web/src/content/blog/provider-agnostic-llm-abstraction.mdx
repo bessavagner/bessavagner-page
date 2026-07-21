@@ -1,14 +1,16 @@
 ---
 title: "Write Once, Talk to Any LLM: a Provider-Agnostic Abstraction"
-description: "Every LLM provider has its own message shape, token counting, and errors. Here's how to hide all of it behind one Chatter interface — using mixin composition instead of factory boilerplate."
+description: "Every LLM provider has its own message shape, token counting, and errors. Here's how to hide all of it behind one Chatter interface, using mixin composition instead of factory boilerplate."
 pubDate: 2026-07-21T05:00:00-03:00
 tags: ["llm", "architecture", "design-patterns", "python"]
-status: draft
+status: approved
+reviewedAt: 2026-07-21T00:36:30.916Z
+reviewHash: sha256:40b90dfd5c06abb36fcdd6e84af8be731c8cfc58a1734d37a33e6b097d60d53f
 ---
 
 If you've wired an application to more than one language-model provider, you've felt the friction. OpenAI wants a list of `{"role": ..., "content": ...}` messages. Google's Gemini wants `{"role": ..., "parts": [...]}`. Token counting is a `tiktoken` lookup for one and an API call for the other. The errors are named differently, the clients are constructed differently, and the role vocabularies don't even agree on what to call the model's own turns.
 
-Leave that difference exposed and it metastasizes: every feature that calls a model grows an `if provider == "openai"` branch, and adding a fifth provider means editing a dozen call sites. The fix is old and boring and works — put an adapter in front of the mess so application code talks to *one* interface and never branches on provider, the same bet that let me store recipes, bookmarks, and groceries behind [one polymorphic REST endpoint](/blog/polymorphic-vaults-in-drf/) instead of one per shape. This post is about a specific, slightly unusual way to build that adapter: with mixins instead of factories.
+Leave that difference exposed and it metastasizes: every feature that calls a model grows an `if provider == "openai"` branch, and adding a fifth provider means editing a dozen call sites. The fix is old and boring and works: put an adapter in front of the mess so application code talks to *one* interface and never branches on provider, the same bet that let me store recipes, bookmarks, and groceries behind [one polymorphic REST endpoint](/blog/polymorphic-vaults-in-drf/) instead of one per shape. This post is about a specific, slightly unusual way to build that adapter: with mixins instead of factories.
 
 ## Four providers, four shapes
 
@@ -16,12 +18,12 @@ Here's the matrix the abstraction has to absorb. These are the providers, models
 
 | Provider | Example model | Message shape | Roles | Context window |
 | --- | --- | --- | --- | --- |
-| OpenAI | `gpt-4o` | `{role, content}` | system / user / assistant | 128k |
-| Google Gemini | `gemini-2.0-flash-001` | `{role, parts: [...]}` | user / model | 1,048,576 |
-| DeepSeek | `deepseek-chat` | `{role, content}` (OpenAI-compatible) | system / user / assistant | 64k |
-| Bing (unofficial) | `gpt-4` via `g4f` | `{role, content}` | system / user / assistant | — |
+| OpenAI | `gpt-5.6` | `{role, content}` | system / user / assistant | 1,050,000 |
+| Google Gemini | `gemini-2.5-flash` | `{role, parts: [...]}` | user / model | 1,048,576 |
+| DeepSeek | `deepseek-v4-flash` | `{role, content}` (OpenAI-compatible) | system / user / assistant | 1,000,000 |
+| Bing (unofficial) | `gpt-4-turbo-preview` via `g4f` | `{role, content}` | system / user / assistant | — |
 
-Two things jump out. First, the message shape genuinely differs: OpenAI and its compatible cousins use a flat `content` string ([OpenAI text generation docs](https://developers.openai.com/api/docs/guides/text)), while Gemini wraps content in a `parts` list and renames `assistant` to `model` ([Gemini API reference](https://ai.google.dev/api/generate-content)). Second, some of this *isn't* a real difference — DeepSeek is wire-compatible with OpenAI and just needs a different base URL and key.
+Two things jump out. First, the message shape genuinely differs: OpenAI and its compatible cousins use a flat `content` string ([OpenAI text generation docs](https://developers.openai.com/api/docs/guides/text)), while Gemini wraps content in a `parts` list and renames `assistant` to `model` ([Gemini API reference](https://ai.google.dev/api/generate-content)). Second, some of this *isn't* a real difference: DeepSeek is wire-compatible with OpenAI and just needs a different base URL and key.
 
 That second observation is the whole reason to prefer composition over a tree of subclasses: the variation isn't one axis, it's several partly-overlapping ones.
 
@@ -30,11 +32,11 @@ That second observation is the whole reason to prefer composition over a tree of
 The application should only ever see this:
 
 ```python
-chatter = OpenAIChatter(setup="You are a helpful assistant.", model="gpt-4o")
+chatter = OpenAIChatter(setup="You are a helpful assistant.", model="gpt-5.6")
 reply = chatter.answer("Summarize this paragraph.")
 ```
 
-Swap `OpenAIChatter` for `GoogleChatter` and nothing else changes. `answer(prompt)` returns a string. The conversation history, the token accounting, the provider-specific client object — all of it lives behind the interface. That contract is pinned down by an abstract base class (`base.py`), which declares what every chatter must provide and nothing about how:
+Swap `OpenAIChatter` for `GoogleChatter` and nothing else changes. `answer(prompt)` returns a string. The conversation history, the token accounting, the provider-specific client object: all of it lives behind the interface. That contract is pinned down by an abstract base class (`base.py`), which declares what every chatter must provide and nothing about how:
 
 ```python
 class BaseChatter(ABC):
@@ -56,7 +58,7 @@ class BaseChatter(ABC):
     def _update(self, *args, role: str, content: str, **kwargs): ...
 ```
 
-The base defines the *vocabulary* — `_configure` builds the client and sets the token budget, `_update` appends to history in the provider's shape, `answer` runs the round-trip. It deliberately implements none of them. This is the Adapter pattern from the Gang of Four: convert each provider's interface into the one the client expects. The twist is how the conversion gets supplied.
+The base defines the *vocabulary*: `_configure` builds the client and sets the token budget, `_update` appends to history in the provider's shape, `answer` runs the round-trip. It deliberately implements none of them. This is the Adapter pattern from the Gang of Four: convert each provider's interface into the one the client expects. The twist is how the conversion gets supplied.
 
 ## Mixins over factories
 
@@ -70,13 +72,13 @@ class GoogleChatter(GoogleChatterMixin, BaseChatter): ...
 class BingChatter(BingChatterMixin, BaseChatter): ...
 ```
 
-That single line *is* the configuration. There's no factory function, no registry dict, no strategy field — the class declaration composes behavior directly. When `BaseChatter.__init__` calls `self._configure(...)`, Python's method resolution order finds the mixin's `_configure` first (mixin is listed before the base), so the right provider logic runs without any dispatch code you had to write. The MRO *is* the dispatch ([Python docs: multiple inheritance](https://docs.python.org/3/tutorial/classes.html#multiple-inheritance)).
+That single line *is* the configuration. There's no factory function, no registry dict, no strategy field. The class declaration composes behavior directly. When `BaseChatter.__init__` calls `self._configure(...)`, Python's method resolution order finds the mixin's `_configure` first (mixin is listed before the base), so the right provider logic runs without any dispatch code you had to write. The MRO *is* the dispatch ([Python docs: multiple inheritance](https://docs.python.org/3/tutorial/classes.html#multiple-inheritance)).
 
 This is the same shape as a JDBC driver or a SQLAlchemy dialect: a stable top-level interface, with the database- or provider-specific differences encapsulated below it so application code stays portable ([JDBC overview](https://www.theserverside.com/definition/Java-Database-Connectivity-JDBC); [SQLAlchemy dialects](https://docs.sqlalchemy.org/en/20/dialects/index.html)). The difference is that here the "driver" is mixed straight into the class rather than loaded at runtime.
 
 ## What each provider must supply
 
-A mixin earns its place by answering three questions: how do I build the client, how do I shape a message, and how do I count tokens. Putting two mixins side by side makes the contract concrete — watch the message shape diverge.
+A mixin earns its place by answering three questions: how do I build the client, how do I shape a message, and how do I count tokens. Putting two mixins side by side makes the contract concrete: watch the message shape diverge.
 
 OpenAI builds a flat message and counts tokens locally with `tiktoken`:
 
@@ -121,9 +123,9 @@ class GoogleChatterMixin:
         self._reduce_number_of_tokens_if_needed(use_agent, agent)
 ```
 
-Same method names, completely different bodies. The application never sees either one — it sees `answer`, which calls `_update` and lets the MRO route to whichever body belongs to the class it's running in. (`ROLES` and `MAX_TOKENS` live in `constants.py`, so the role vocabulary and the per-model budgets are data, not scattered literals.)
+Same method names, completely different bodies. The application never sees either one. It sees `answer`, which calls `_update` and lets the MRO route to whichever body belongs to the class it's running in. (`ROLES` and `MAX_TOKENS` live in `constants.py`, so the role vocabulary and the per-model budgets live as data.)
 
-A nice payoff of inheritance-as-composition: DeepSeek is wire-compatible with OpenAI, so it's *one* subclass that overrides only credential loading and the base URL —
+A nice payoff of inheritance-as-composition: DeepSeek is wire-compatible with OpenAI, so it's *one* subclass that overrides only credential loading and the base URL:
 
 ```python
 class DeepSeekChatter(OpenAIChatter):
@@ -145,21 +147,21 @@ This is the test of an abstraction: what does it cost to add the next one? With 
 | Approach | Lines the *caller* changes to add a provider |
 | --- | --- |
 | Scattered `if provider == ...` branching | grows at every call site (N branches × M call sites) |
-| One `Chatter` interface (mixin + base) | 0 — application code already calls `.answer()` |
+| One `Chatter` interface (mixin + base) | 0: application code already calls `.answer()` |
 
-The honest framing: the *implementation* still costs a mixin either way — abstraction doesn't make the provider's quirks vanish, it just quarantines them. What drops to zero is the change *application* code absorbs, because it was never branching on provider to begin with. That's the whole point of an adapter: pay the cost once, at the seam.
+The *implementation* still costs a mixin either way: abstraction doesn't make the provider's quirks vanish, it just quarantines them. What drops to zero is the change *application* code absorbs, because it was never branching on provider to begin with. That's the whole point of an adapter: pay the cost once, at the seam.
 
 ## Where I used this
 
-I built this for an agent library that needed to survive provider outages and pricing changes without rewrites. Because every chatter answers to the same `answer(prompt)` contract, the surrounding code — retry logic, [conversation summarization when history overflows the context window](/blog/pruning-chat-context-by-summarization/), the agent loop itself — is written exactly once and runs against all of them. When one provider rate-limits or degrades, falling back to another is swapping the class behind the interface, not rewriting the caller. (The fallback machinery itself is a separate concern; I wrote about graceful provider degradation and circuit breakers in an [earlier post](/blog/sub-second-llm-triage).)
+I built this for an agent library that needed to survive provider outages and pricing changes without rewrites. Because every chatter answers to the same `answer(prompt)` contract, the surrounding code (retry logic, [conversation summarization when history overflows the context window](/blog/pruning-chat-context-by-summarization/), the agent loop itself) is written exactly once and runs against all of them. When one provider rate-limits or degrades, falling back to another is swapping the class behind the interface. (The fallback machinery itself is a separate concern; I wrote about graceful provider degradation and circuit breakers in an [earlier post](/blog/sub-second-llm-triage).)
 
-One caveat worth stating plainly: the `g4f`/Bing backend in the matrix is an *unofficial* route to a model and depends on undocumented endpoints. It's useful for tinkering, but it can break without notice and may run afoul of a provider's terms of service — respect the ToS and don't build anything load-bearing on it. The abstraction's value is exactly that swapping it out for an official provider is a one-line change.
+A caveat: the `g4f`/Bing backend in the matrix is an *unofficial* route to a model and depends on undocumented endpoints. It's useful for tinkering, but it can break without notice and may run afoul of a provider's terms of service. Respect the ToS and don't build anything load-bearing on it. The abstraction's value is exactly that swapping it out for an official provider is a one-line change.
 
 ## References
 
-- Gamma, Helm, Johnson, Vlissides — *Design Patterns: Elements of Reusable Object-Oriented Software* (the Adapter pattern).
-- [Python tutorial: multiple inheritance and MRO](https://docs.python.org/3/tutorial/classes.html#multiple-inheritance) — how method resolution order makes mixin composition work.
-- [OpenAI text generation guide](https://developers.openai.com/api/docs/guides/text) — the `{role, content}` message shape and `system`/`user`/`assistant`/`developer` roles.
-- [Gemini API: generateContent](https://ai.google.dev/api/generate-content) — the `{role, parts}` `Content` object and `user`/`model` roles.
-- [Java Database Connectivity (JDBC)](https://www.theserverside.com/definition/Java-Database-Connectivity-JDBC) — driver abstraction: one API, many databases.
-- [SQLAlchemy dialects](https://docs.sqlalchemy.org/en/20/dialects/index.html) — a unified interface over PostgreSQL, MySQL, SQLite, and more.
+- Gamma, Helm, Johnson, Vlissides. *Design Patterns: Elements of Reusable Object-Oriented Software* (the Adapter pattern).
+- [Python tutorial: multiple inheritance and MRO](https://docs.python.org/3/tutorial/classes.html#multiple-inheritance): how method resolution order makes mixin composition work.
+- [OpenAI text generation guide](https://developers.openai.com/api/docs/guides/text): the `{role, content}` message shape and `system`/`user`/`assistant`/`developer` roles.
+- [Gemini API: generateContent](https://ai.google.dev/api/generate-content): the `{role, parts}` `Content` object and `user`/`model` roles.
+- [Java Database Connectivity (JDBC)](https://www.theserverside.com/definition/Java-Database-Connectivity-JDBC). Driver abstraction: one API, many databases.
+- [SQLAlchemy dialects](https://docs.sqlalchemy.org/en/20/dialects/index.html): a unified interface over PostgreSQL, MySQL, SQLite, and more.
