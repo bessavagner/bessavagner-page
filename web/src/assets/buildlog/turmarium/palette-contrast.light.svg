@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" font-family="Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+  <rect x="0" y="0" width="1200" height="675" fill="#ffffff"/>
+
+  <!-- title -->
+  <text x="600" y="72" text-anchor="middle" font-size="30" font-weight="600" fill="#20242e">Picking a foreground by contrast ratio, not by eye</text>
+
+  <!-- ===== info panel (sky) ===== -->
+  <rect x="100" y="150" width="460" height="380" rx="16" fill="#0284c7"/>
+  <text x="132" y="206" font-size="24" font-weight="700" fill="#ffffff">info · sky #0284c7</text>
+
+  <!-- white 4.10 FAIL -->
+  <text x="132" y="310" font-size="32" fill="#ffffff">white</text>
+  <rect x="336" y="274" width="192" height="52" rx="11" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="358" y="308" font-size="23" font-weight="600" fill="#334155">4.10</text>
+  <text x="510" y="308" text-anchor="end" font-size="22" font-weight="700" fill="#b91c1c">FAIL</text>
+
+  <!-- slate-900 4.36 FAIL -->
+  <text x="132" y="392" font-size="32" fill="#0f172a">slate-900</text>
+  <rect x="336" y="356" width="192" height="52" rx="11" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="358" y="390" font-size="23" font-weight="600" fill="#334155">4.36</text>
+  <text x="510" y="390" text-anchor="end" font-size="22" font-weight="700" fill="#b91c1c">FAIL</text>
+
+  <!-- slate-950 4.93 PASS -->
+  <text x="132" y="474" font-size="32" fill="#020617">slate-950</text>
+  <rect x="336" y="438" width="192" height="52" rx="11" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="358" y="472" font-size="23" font-weight="600" fill="#334155">4.93</text>
+  <text x="510" y="472" text-anchor="end" font-size="22" font-weight="700" fill="#15803d">PASS</text>
+
+  <!-- ===== danger panel (red) ===== -->
+  <rect x="640" y="150" width="460" height="380" rx="16" fill="#dc2626"/>
+  <text x="672" y="206" font-size="24" font-weight="700" fill="#ffffff">danger · red #dc2626</text>
+
+  <!-- slate-100 4.41 FAIL -->
+  <text x="672" y="340" font-size="32" fill="#f1f5f9">slate-100</text>
+  <rect x="876" y="304" width="192" height="52" rx="11" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="898" y="338" font-size="23" font-weight="600" fill="#334155">4.41</text>
+  <text x="1050" y="338" text-anchor="end" font-size="22" font-weight="700" fill="#b91c1c">FAIL</text>
+
+  <!-- white 4.83 PASS -->
+  <text x="672" y="440" font-size="32" fill="#ffffff">white</text>
+  <rect x="876" y="404" width="192" height="52" rx="11" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <text x="898" y="438" font-size="23" font-weight="600" fill="#334155">4.83</text>
+  <text x="1050" y="438" text-anchor="end" font-size="22" font-weight="700" fill="#15803d">PASS</text>
+
+  <!-- caption -->
+  <text x="600" y="600" text-anchor="middle" font-size="23" fill="#363b45">Same fill, different ink: the ratio picks info-content = slate-950, danger-content = white.</text>
+</svg>

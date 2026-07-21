@@ -1,6 +1,6 @@
 ---
 title: "White on white: making dark mode a token decision, and the palette that failed its own contrast test"
-description: "Update 5 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1-4 proved tenant isolation, switched it on, built the academic catalog behind an import boundary, and fired the first domain event. Update 5 is the detour before the big feature epics: one web-led sprint that turns the working-but-unstyled scaffold into a real design system. Dark mode stops being a per-component bug and becomes a three-layer token decision (primitive to semantic to component, every token dual-valued); the styling engine the plan had locked (shadcn) gets swapped for daisyUI in the mandatory brainstorm; the chosen Azure palette fails its own WCAG contrast math and the numbers get written down next to the colors; and the per-tenant accent ships as a seam with the pipeline deferred on purpose. 144 web tests, 130 backend tests, coverage 92.76% on the browser app and 97% on the API, import-linter still two contracts kept and zero broken."
+description: "Update 5 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Updates 1-4 proved tenant isolation, switched it on, built the academic catalog behind an import boundary, and fired the first domain event. Update 5 is the detour before the big feature epics: one web-led sprint that turns the working-but-unstyled scaffold into a real design system. Dark mode becomes a three-layer token decision (primitive to semantic to component); the styling engine the plan had locked (shadcn) gets swapped for daisyUI at the mandatory brainstorm; the chosen Azure palette fails its own WCAG contrast math; and the per-tenant accent ships as a seam with the pipeline deferred on purpose. 144 web tests, 130 backend tests, coverage 92.76% on the browser app and 97% on the API, import-linter still two contracts kept and zero broken."
 project: "turmarium"
 update: 5
 pubDate: 2026-07-19T05:00:00-03:00
@@ -8,19 +8,25 @@ tags: ["react", "tailwind", "daisyui", "design-tokens", "dark-mode", "accessibil
 status: draft
 ---
 
+import ThemedFigure from '../../../components/ThemedFigure.astro';
+import paletteContrastLight from '../../../assets/buildlog/turmarium/palette-contrast.light.svg';
+import paletteContrastDark from '../../../assets/buildlog/turmarium/palette-contrast.dark.svg';
+import overviewLight from '../../../assets/buildlog/turmarium/overview.light.png';
+import overviewDark from '../../../assets/buildlog/turmarium/overview.dark.png';
+
 I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it. It's English-first because I build in the open, with Brazilian Portuguese as a first-class locale because that's who I want to sell it to.
 
 Four updates went into the parts you can't retrofit. [Update 1](/building/turmarium/01-proving-tenant-isolation-at-the-database/) proved tenant isolation at the database with Postgres row-level security. [Update 2](/building/turmarium/02-green-tests-red-browser/) switched it on for real traffic and built the first browser screens. [Update 3](/building/turmarium/03-good-fences-import-boundary/) built the academic catalog behind a strict import boundary. [Update 4](/building/turmarium/04-shouting-into-an-empty-room/) added offerings and enrollments and fired the first domain event.
 
-All four shipped a front end that worked and looked like scaffolding: functional React screens, one hardcoded indigo, and a dark mode that was half-wired, where some components read a theme variable and some carried a raw color. Update 4 ended pointing at two feature epics, scheduling and grading. Before either, I stopped and spent one web-led sprint turning the scaffold into an actual design system, so those epics build their tables and their gradebook on a matured system instead of re-styling a scaffold twice.
+All four shipped a front end that worked and looked like scaffolding: functional React screens, one hardcoded indigo, and a dark mode that was half-wired, where some components read a theme variable and some carried a raw color. Update 4 ended pointing at two feature epics, scheduling and grading. Before either, I stopped and spent one web-led sprint turning the scaffold into an actual design system, so those epics build their tables and their gradebook on a mature system instead of re-styling a scaffold twice.
 
 Two things I did not see coming: the palette I chose failed its own accessibility math, and I threw out the styling engine the plan had already locked.
 
 ## The bug that named the sprint
 
-Open the app in dark mode and the login screen was white text on a white card. Not dim, not low-contrast: unreadable, a flat WCAG 1.4.3 failure on the first screen every user sees. It passed every unit test, because a green Vitest run says nothing about whether two colors can be read against each other. That's the [same lesson update 2 learned in a browser](/building/turmarium/02-green-tests-red-browser/), one layer up.
+Open the app in dark mode and the login screen was white text on a white card. Unreadable, a flat WCAG 1.4.3 failure on the first screen every user sees. It passed every unit test, because a green Vitest run says nothing about whether two colors can be read against each other. That's the [same lesson update 2 learned in a browser](/building/turmarium/02-green-tests-red-browser/), one layer up.
 
-The wrong fix is to paint the login card. White-on-white on one screen is not a typo on one screen; it's what a half-wired dark mode looks like from the first place it happens to show. The right fix is to make dark mode a property of the system, so no single screen gets to be light while the rest goes dark.
+The wrong fix is to paint the login card. White-on-white on one screen is what a half-wired dark mode looks like from the first place it happens to show. The right fix is to make dark mode a property of the system, so no single screen gets to be light while the rest goes dark.
 
 ## Dark mode is a token problem, not a CSS problem
 
@@ -37,15 +43,17 @@ The whole trick is that a semantic name resolves to a different value per theme,
 
 A component asks for `bg-surface text-ink` and gets the right pair automatically. Dark mode goes from a bug scattered across every component to one place you configure. Get the three layers right and it's config; get them wrong, as I had, and it's a defect hiding in whichever component someone forgot, invisible until they open the app at night. The theme toggle then is almost nothing: a pre-paint script in `index.html` sets `data-theme` from the stored choice (or the OS default) before React mounts, so there's no flash of the wrong theme.
 
-## The engine I swapped after the plan locked it
+<ThemedFigure light={overviewLight} dark={overviewDark} alt="The Turmarium admin overview screen rendered in light and dark theme. The same layout in both: a term-progress card with a percentage ring and classes/students/members tiles, an 'Enrollment by class' panel, and a 'Journal & attendance metrics' column. Every surface, text color, and border swaps together with the theme; nothing is left light while the rest goes dark." />
+
+Same screen, same components, one `data-theme` flip: every surface and ink swaps together, which is the whole payoff of routing colors through semantic tokens instead of per-component hexes.
 
 The sprint plan had a **Locked decisions** table, and one row picked shadcn/ui as the styling engine. Then the mandatory brainstorming gate re-opened it. Looking at it with fresh eyes and the actual Tailwind-v4 docs open, daisyUI was the better fit for this app: Tailwind-v4-native, themes expressed as `data-theme` plus CSS-variable tokens, no JavaScript color objects to parse. So the "locked" decision got unlocked and changed.
 
-That's the point of the gate, and I want to name it plainly. A locked decision is a default with reasons, not a sacred cow. The gate exists precisely to re-open one when the evidence in the room has moved, and the honest move is to write the override into a decisions doc rather than let it live only in my head. One consequence I took on with eyes open: daisyUI isn't Radix-grade for accessibility, so the modal is a native `<dialog>` with `showModal()`, which gives a real focus-trap, a top-layer scrim, and browser-managed Escape for free, and closes the keyboard-trap finding. That's what I'd have wanted anyway.
+That's the point of the gate. A locked decision is a default with reasons, not a sacred cow. The gate exists precisely to re-open one when the evidence in the room has moved, and the honest move is to write the override into a decisions doc rather than let it live only in my head. One consequence I took on with eyes open: daisyUI isn't Radix-grade for accessibility, so the modal is a native `<dialog>` with `showModal()`, which gives a real focus-trap, a top-layer scrim, and browser-managed Escape for free, and closes the keyboard-trap finding. That's what I'd have wanted anyway.
 
 ## The palette that failed its own contrast test
 
-I picked Azure Institutional, and then the arithmetic argued back. Status "info" is sky (`#0284c7`). WCAG AA wants a contrast ratio of at least 4.5:1 for text, and my first two guesses for the foreground on that sky fill both failed: white came in at about 4.10:1, near-black slate-900 at about 4.36:1. The color that clears it is slate-950 (`#020617`), at about 4.93:1. In dark mode the error text (`#f1f5f9` on the danger red) landed at about 4.41:1 and also failed; pure white clears it at about 4.83:1.
+I picked Azure Institutional, and then the arithmetic argued back. Status "info" is sky (`#0284c7`). WCAG AA wants a contrast ratio of at least 4.5:1 for text, and my first two guesses for the foreground on that sky fill both failed: white came in at about 4.10:1, near-black slate-900 at about 4.36:1. The color that clears it is slate-950 (`#020617`), at about 4.93:1. In dark mode the error text (`#f1f5f9` on the danger red, red-600 `#dc2626`) landed at about 4.41:1 and also failed; pure white clears it at about 4.83:1.
 
 None of those were taste calls. The formula chose the foregrounds, and I wrote the ratios into the token file as comments so the next person (probably me) doesn't quietly "simplify" a passing color back to a failing one:
 
@@ -54,6 +62,8 @@ None of those were taste calls. The formula chose the foregrounds, and I wrote t
 --color-status-info-content: #020617; /* white & slate-900 both fail 4.5:1 on sky-600
                                          (4.10 / 4.36); slate-950 clears it (4.93) */
 ```
+
+<ThemedFigure light={paletteContrastLight} dark={paletteContrastDark} alt="Two status colors and the foreground candidates the contrast formula allows. Left panel, info on sky #0284c7: white text scores 4.10 and slate-900 scores 4.36, both marked FAIL against the 4.5:1 threshold; slate-950 scores 4.93, marked PASS. Right panel, danger on red #dc2626: slate-100 #f1f5f9 scores 4.41, marked FAIL; pure white scores 4.83, marked PASS. Caption: same fill, different ink, the ratio picks info-content = slate-950 and danger-content = white." />
 
 That comment is the same reflex as [update 1's CI note](/building/turmarium/01-proving-tenant-isolation-at-the-database/) about running the isolation suite as an unprivileged role: a guarantee that's invisible in the diff needs its reason written down where someone would otherwise undo it.
 
@@ -66,18 +76,18 @@ Turmarium sells to schools, and schools will want their own color. So the azure 
 --color-accentramp-600: var(--t-accent-600, #1f5fd6);
 ```
 
-Set `--t-accent-600` under a `[data-tenant="..."]` block and the accent re-hues everywhere, with no code change. But the actual pipeline behind it (a per-org seed, a generated OKLCH ramp, sanitizing a tenant-supplied color before it ever reaches the DOM, and choosing a contrast-safe foreground for whatever they pick) is deferred on purpose. Tenant color flowing into CSS is both an injection surface and a contrast risk, and I'm not shipping that half-proven. Ship the seam, defer the pipeline: the same move as the event bus in update 1 that sat unused until a subscriber earned its place. The hook is real and tested; the machine behind it arrives when it's the sprint's actual job.
+Set `--t-accent-600` under a `[data-tenant="..."]` block and the accent re-hues everywhere, with no code change. But the actual pipeline behind it (a per-org seed, a generated OKLCH ramp, sanitizing a tenant-supplied color before it ever reaches the DOM, and choosing a contrast-safe foreground for whatever they pick) is deferred on purpose. Tenant color flowing into CSS is both an injection surface and a contrast risk, and I'm not shipping that half-proven. Ship the seam, defer the pipeline: the same move as [update 4's first domain event](/building/turmarium/04-shouting-into-an-empty-room/), fired onto a bus no module subscribes to yet. The hook is real and tested; the machine behind it arrives when it's the sprint's actual job.
 
-The rest of the sprint was the unglamorous half of a design system, and it's real: `Intl` dates rendering `dd/mm/yyyy` for pt-BR, an `errors` namespace mapping backend codes to localized messages announced through an `aria-live` region, a CI key-parity check so `en` and `pt-br` can't drift apart, a reusable empty/loading/error pattern wired to TanStack Query's `isPending`/`isError`, and an admin dashboard reading a real tenant-scoped overview endpoint. One honest caveat: the new status tables are styled on mock data for now, design-forward ahead of their real wiring, so I don't restyle them twice.
+The rest of the sprint was the unglamorous half of a design system, and it's real: `Intl` dates rendering `dd/mm/yyyy` for pt-BR, an `errors` namespace mapping backend codes to localized messages announced through an `aria-live` region, a CI key-parity check so `en` and `pt-br` can't drift apart, a reusable empty/loading/error pattern wired to TanStack Query's `isPending`/`isError`, and an admin dashboard reading a real tenant-scoped overview endpoint. A caveat: the new status tables are styled on mock data for now, design-forward ahead of their real wiring, so I don't restyle them twice.
 
 ## What I learned
 
-Dark mode isn't a feature you bolt on; it's a property of your token architecture. And accessible contrast is arithmetic, not taste: the formula vetoes your palette whether or not you like the veto, and putting the ratios next to the colors is part of the fix, not a footnote. Both lessons rhyme with the whole series so far. Do the part you can't cheaply retrofit (isolation, an event contract, a token layer) before you build the thing that leans on it.
+Two things surprised me this sprint, and neither was on the plan. Accessible contrast is arithmetic, not taste: my Azure palette failed its own WCAG math on the first status color I checked, and the formula, not my eye, picked the foregrounds. Writing the ratios next to the colors is part of the fix. The other surprise was procedural. The plan had "locked" shadcn as the styling engine, and reopening that lock at the brainstorm gate turned out to be the right call: with the real Tailwind-v4 docs open, daisyUI was plainly the better fit. A locked decision stays a default I can argue with, and the honest move when I win the argument is to write the override down rather than let it live only in my head.
 
 Where it landed: 144 web tests green (up from 80 last update) at 92.76% statement and 86.24% branch coverage, and 130 backend tests green at 97%, both above their gates. import-linter still reports two contracts kept and zero broken. Both themes are verified in a real browser, axe is clean on the screens I touched, and the white-on-white login is gone.
 
 ## What's next
 
-Now the system is matured, the two epics update 4 teased build on it instead of re-scaffolding. Scheduling turns an offering into a calendar (meeting patterns, and the sessions they generate); grading turns it into an outcome (evaluation schemes, assessments, a final grade). The gradebook grid (frozen axes, inline edit, live averages) is the real stress test of these tokens, and the first screen I'll let reach for a heavier grid library on top of them.
+Now the system is mature, the two epics update 4 teased build on it instead of re-scaffolding. Scheduling turns an offering into a calendar (meeting patterns, and the sessions they generate); grading turns it into an outcome (evaluation schemes, assessments, a final grade). The gradebook grid (frozen axes, inline edit, live averages) is the real stress test of these tokens, and the first screen I'll let reach for a heavier grid library on top of them.
 
 So the question I'll leave with, for anyone who has retrofitted dark mode onto an app that shipped without it. Did you find a real shortcut, or is a token-layer refactor the only honest fix? Every quick patch I tried just moved the white-on-white bug to a different screen. I'd like to hear what actually worked.
