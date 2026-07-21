@@ -1,18 +1,20 @@
 ---
 title: "Getting scheduled jobs right: idempotent monthly resets with Celery Beat"
-description: "Resetting every user's quota on the 1st sounds like a one-liner. Month-boundary math, duplicate executions, and partial failures say otherwise — and the fix is an idempotent task keyed on state, not a cleverer schedule."
-pubDate: 2026-07-19T05:00:00-03:00
+description: "Resetting every user's quota on the 1st sounds like a one-liner. Duplicate executions and month-boundary math say otherwise. Writing this post is also how I found the bug that refilled December's users every single day."
+pubDate: 2026-07-24T05:00:00-03:00
 heroImage: ../../assets/blog/idempotent-scheduled-jobs-with-celery-beat/quota_cycle.svg
 tags: ["celery", "scheduling", "idempotency", "saas", "python"]
-status: draft
+status: approved
+reviewedAt: 2026-07-21T15:03:42.409Z
+reviewHash: sha256:94f8e4177e9f2c16d3cfd2f09fac6c79f72f2f38ccde2c03c8ff0cbe8222645b
 ---
 
 import { Image } from 'astro:assets';
 import quotaCycle from '../../assets/blog/idempotent-scheduled-jobs-with-celery-beat/quota_cycle.svg';
 
-Every subscription product eventually needs the same thing: on the first of the month, give every user their allowance back. Reset the question quota, refill the page credits, zero the counters. It reads like a one-line cron job — fire a task on the 1st, loop over users, set the numbers back to the plan defaults.
+Every subscription product eventually needs the same thing: on the first of the month, give every user their allowance back. Reset the question quota, refill the page credits, zero the counters. It reads like a one-line cron job: fire a task on the 1st, loop over users, set the numbers back to the plan defaults.
 
-I built exactly that for a SaaS chatbot product, and the one-liner was a trap. Not because the *reset* is hard — it isn't — but because "fire a task once a month" is a promise a distributed system can't actually keep. The schedule will sometimes fire twice. The clock will sometimes be wrong. The worker will sometimes die halfway through the loop. The interesting engineering isn't in the reset; it's in making the reset survive all of that. The answer turns out to be **idempotency**: write the task so that running it twice does the same thing as running it once.
+I built exactly that for a SaaS chatbot product, and the one-liner was a trap. The reset itself is easy. The trap is that "fire a task once a month" is a promise a distributed system can't keep. The schedule will sometimes fire twice. The clock will sometimes be wrong. The worker will sometimes die halfway through the loop. The interesting engineering is in making the reset survive all of that, and the answer turns out to be **idempotency**: write the task so that running it twice does the same thing as running it once.
 
 ## "Just run it on the 1st"
 
@@ -29,9 +31,9 @@ app.conf.beat_schedule = {
 }
 ```
 
-Tidy. It also quietly bets the entire correctness of your billing on the scheduler firing exactly once, at exactly the right instant, forever. That bet loses. Beat itself warns, in plain language, that "you have to ensure only a single scheduler is running for a schedule at a time, otherwise you'd end up with duplicate tasks" ([periodic-tasks docs](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html)) — and during a deploy, a failover, or a misconfigured container, two beats *do* sometimes run at once. Lean on the schedule for correctness and a double-fire means every user gets their quota reset twice. If the reset were additive, that's free money you didn't mean to give away.
+Tidy. It also quietly bets the entire correctness of your billing on the scheduler firing exactly once, at exactly the right instant, forever. That bet loses. Beat itself warns, in plain language, that "you have to ensure only a single scheduler is running for a schedule at a time, otherwise you'd end up with duplicate tasks" ([periodic-tasks docs](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html)). During a deploy, a failover, or a misconfigured container, two beats *do* sometimes run at once. Lean on the schedule for correctness and a double-fire means every user gets their quota reset twice. If the reset were additive, that's free money you didn't mean to give away.
 
-So I moved the date logic *out* of the schedule and *into* the task. Beat runs the task every day; the task decides whether today is actually a reset day. That sounds wasteful, but it's the move that makes everything else robust — the schedule becomes a cheap heartbeat, and the task owns the truth.
+So I moved the date logic *out* of the schedule and *into* the task. Beat runs the task every day; the task decides whether today is actually a reset day. That sounds wasteful, but it's the move that makes everything else robust: the schedule becomes a cheap heartbeat, and the task owns the truth.
 
 ```python
 app.conf.beat_schedule = {
@@ -44,7 +46,7 @@ app.conf.beat_schedule = {
 
 ## Month math that doesn't drift
 
-The first thing the task needs is a correct notion of "a month later." This is where naive arithmetic quietly breaks. There is no fixed number of days in a month, so `today + timedelta(days=30)` drifts and `today.replace(month=today.month + 1)` blows up in December and on the 31st. The boundary cases — January 31st, leap-year February 29th — are exactly the dates a quota system will eventually hit.
+The first thing the task needs is a correct notion of "a month later." This is where naive arithmetic quietly breaks. There is no fixed number of days in a month, so `today + timedelta(days=30)` drifts and `today.replace(month=today.month + 1)` blows up in December and on the 31st. The boundary cases (January 31st, leap-year February 29th) are exactly the dates a quota system will eventually hit.
 
 `dateutil`'s `relativedelta` exists for precisely this. Adding a month with it "will never cross the month boundary": if the target month is shorter, it clamps to the last valid day rather than producing an invalid date ([dateutil docs](https://dateutil.readthedocs.io/en/stable/relativedelta.html)). January 31 + 1 month is February 28, not an exception. That single guarantee is why the task can reason about "one month after the last reset" without a pile of special cases:
 
@@ -67,11 +69,11 @@ def restore_users_quota():
             instance.restore_values()
 ```
 
-The condition reads off each user's *own* `restored_at` and asks whether a month has elapsed since their last reset. Note that the reset day is per-user, anchored to when they last got refilled — not a global "the 1st" — which also sidesteps the thundering-herd problem of resetting everyone in the same midnight. `@shared_task` is just Celery's way of defining a task that isn't bound to a specific app instance, so it can live in a reusable Django app.
+The condition reads off each user's *own* `restored_at` and asks whether a month has elapsed since their last reset. It also has a bug in it, which I did not notice until I sat down to write this post. More on that below. The reset day is per-user, anchored to when they last got refilled, which also sidesteps the thundering herd of refilling everyone at the same midnight. `@shared_task` is Celery's way of defining a task that isn't bound to a specific app instance, so it can live in a reusable Django app.
 
 ## At-least-once means run-twice
 
-Here's the part that catches people. Even with a single, correctly-scheduled beat, Celery does **not** promise your task runs exactly once. It can't — exactly-once delivery isn't something a message broker hands you for free.
+Here's the part that catches people. Even with a single, correctly-scheduled beat, Celery does **not** promise your task runs exactly once. It can't: exactly-once delivery isn't something a message broker hands you for free.
 
 By default Celery acknowledges a task message *before* it runs, "so that a task invocation that already started is never executed again." Flip on `acks_late` and the trade-off reverses: the message is acknowledged only after the task finishes, which is safer against lost work but means "the task may be executed multiple times should the worker crash in the middle of execution." Either way the docs are blunt about the consequence: "ideally task functions should be idempotent" ([Celery task docs](https://docs.celeryq.dev/en/stable/userguide/tasks.html)). A message isn't removed from the queue until acknowledged, and a worker that dies after reserving it will see it "redelivered to another worker."
 
@@ -81,7 +83,7 @@ So I stopped trying to guarantee the task runs once and instead made it not *mat
 
 ## Idempotency via state
 
-The idempotency here doesn't come from a dedup table or a distributed lock. It comes from the data the task already owns: `restored_at`, the date a user's quota was last refilled. The reset *advances* that date, and the guard *reads* it. So a second run on the same day finds `restored_at` already set to today, computes `one_month_later` as a month in the future, and the condition is false. The second run is a no-op — not because we caught the duplicate, but because there's nothing left to do.
+The idempotency here comes from the data the task already owns: `restored_at`, the date a user's quota was last refilled. No dedup table, no distributed lock. The reset *advances* that date, and the guard *reads* it. So a second run on the same day finds `restored_at` already set to today, computes `one_month_later` as a month in the future, and the condition is false. The second run is a no-op because there's nothing left to do.
 
 The state lives on the model, and so does the reset:
 
@@ -104,26 +106,47 @@ class UserQuota(models.Model):
         self.save()
 ```
 
-Two things make this work. First, the reset is a **set, not an increment** — `self.questions = quota_for_plan` rather than `self.questions += quota_for_plan`. Setting to an absolute value is naturally idempotent; running it twice lands on the same number. Incrementing is not, and would hand a double-fire straight to the user as a doubled allowance. Second, `restore_values` writes `restored_at = today` in the *same* save, so the guard that gated the call is immediately closed behind it. State-checked idempotency is exactly the cheap, durable pattern DDIA recommends when the broker only gives you at-least-once: re-running converges on the same state instead of compounding.
+The metered fields are the plan's whole product surface: pages, questions, documents, and `context_max_length`, the per-plan ceiling on conversation history that makes [pruning a long chat by summarization](/blog/pruning-chat-context-by-summarization/) worth doing in the first place.
 
-It's worth being honest about the limits of *this particular* implementation. Reading `restored_at` and later writing it is a read-then-write, so two workers racing on the *same* user in the same second could both pass the guard before either saves. In practice a single daily beat makes that vanishingly unlikely, and the fix when it matters is a row lock (`select_for_update`) or a conditional update that only writes rows where `restored_at` is still the old value — the set-not-increment shape keeps even a lost race merely redundant rather than harmful.
+Two things make this work. First, the reset is a **set, not an increment**: `self.questions = quota_for_plan` rather than `self.questions += quota_for_plan`. Setting to an absolute value is naturally idempotent; running it twice lands on the same number. Incrementing would hand a double-fire straight to the user as a doubled allowance. Second, `restore_values` writes `restored_at = today` in the *same* save, so the guard that gated the call is immediately closed behind it. That single-save discipline is the same instinct as [wrapping a multi-table write in one atomic block](/blog/polymorphic-vaults-in-drf/): the state a later reader depends on has to land with the change that earned it. State-checked idempotency is the cheap, durable pattern DDIA recommends when the broker only gives you at-least-once: re-running converges on the same state instead of compounding.
 
-## Watching the cycle
+A caveat about *this particular* implementation. Reading `restored_at` and later writing it is a read-then-write, so two workers racing on the *same* user in the same second could both pass the guard before either saves. In practice a single daily beat makes that vanishingly unlikely, and the fix when it matters is a row lock (`select_for_update`) or a conditional update that only writes rows where `restored_at` is still the old value. The set-not-increment shape keeps even a lost race merely redundant.
 
-It helps to picture what the schedule and the guard actually do over a billing cycle. The task fires every single day, but only the boundary day changes anything; every other run reads the guard and stops.
+## The bug I found writing this post
 
-<Image src={quotaCycle} alt="A user's remaining quota refills to the cap on the first of each month and drains through the month; daily Beat runs are marked, and only the boundary runs reset state — a duplicate redelivery on the boundary is a harmless no-op because the quota was already restored." />
+I went to explain that guard line by line and couldn't. Read it again:
 
-The sawtooth is the user's remaining quota: full at the boundary, draining as they spend, full again a month later. The small dots are the daily Beat runs that find nothing to do. The one to watch is the duplicate on the second boundary — a redelivery firing the task a second time — landing as a no-op, because `restore_values` already advanced `restored_at` to today. (The numbers here are synthetic, chosen to show the *shape*; the point is the dynamics, not the values.) That harmless duplicate is the entire payoff: the system doesn't *prevent* the second run, it makes the second run boring.
+```python
+if today == one_month_later or today.month > one_month_later.month:
+```
+
+The second clause is there to catch a missed day: if beat was down on the due date, a later run should still refill. But it compares month *numbers*, and December breaks that. A user whose `restored_at` is December 10th has `one_month_later` in January, so `one_month_later.month` is 1 while `today.month` is 12, and `12 > 1` is true on every remaining day of the year.
+
+So I ran a daily beat against both versions of the guard over the same calendar. The firing days below are computed from the two expressions, not drawn by hand:
+
+<Image src={quotaCycle} alt="Questions remaining over 100 days for a user whose quota was last reset on 10 December, under two versions of the guard. The shipped guard, comparing month numbers, holds the user pinned at the 1000-question cap for the whole of December, with a refill marker on every single day, then falls into a monthly sawtooth from 31 December. The fixed guard, comparing dates, draws down steadily and refills on 10 January, 10 February and 10 March. The legend reads: shipped guard 23 refills, fixed guard 3 refills." />
+
+Twenty-three refills against three. Anyone whose reset date lands in December is pinned at the cap until January, and never draws down the allowance they paid for. The clause also fails at the job it was written for: a June user whose due date is missed waits until the 1st of the next month, the first day the month numbers cross.
+
+The fix is the comparison itself:
+
+```python
+if today >= one_month_later:
+    instance.restore_values()
+```
+
+Dates compare correctly across a year boundary, and a run three days late still refills. `relativedelta` was already doing the hard part; I was asking it the wrong question.
+
+Two things about how this survived in production. The tests were green because they build their fixed dates from the real `datetime.today()`, so the December path only runs if you happen to run the suite in December. And the blast radius was bounded by the shape of the reset: because `restore_values` *sets* the quota rather than incrementing it, a wrongly-timed run handed a user their allowance early instead of corrupting the number. The idempotency held. The due-date logic is what broke.
 
 ## Where I used this
 
-This is the quota-reset path in a production SaaS chatbot I built on Django and Celery. The schedule is a daily midnight heartbeat; the per-user `restored_at` guard and the set-not-increment reset are what make it correct under duplicate deliveries and restarts. The lesson generalizes well beyond quotas: any recurring job that mutates shared state — sending monthly invoices, expiring trials, rolling up usage — wants the same treatment. Don't ask the scheduler to fire exactly once. Assume it will sometimes fire twice, push the "should this happen now?" decision into the task, key it on state you already store, and make the mutation idempotent. Then a duplicate is a shrug instead of an incident.
+This is the quota-reset path in a production SaaS chatbot I built on Django and Celery. The schedule is a daily midnight heartbeat; the per-user `restored_at` guard and the set-not-increment reset are what make it correct under duplicate deliveries and restarts. The lesson generalizes beyond quotas: any recurring job that mutates shared state wants the same treatment, whether it sends monthly invoices, expires trials, rolls up usage, or builds [the unattended daily digest behind RegWatch](/building/regwatch/03-the-daily-run-made-real/). Assume the scheduler will sometimes fire twice, push the "should this happen now?" decision into the task, key it on state you already store, and make the mutation idempotent. Then a duplicate is a shrug instead of an incident.
 
 ## References and further reading
 
-- [Celery — Periodic Tasks](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html) — Beat scheduling, `crontab` schedules, and the warning to run only one scheduler to avoid duplicate tasks. *(Link verified.)*
-- [Celery — Tasks](https://docs.celeryq.dev/en/stable/userguide/tasks.html) — default vs. `acks_late` acknowledgement, redelivery on worker crash, and the recommendation that tasks be idempotent. *(Link verified.)*
-- [dateutil — relativedelta](https://dateutil.readthedocs.io/en/stable/relativedelta.html) — month arithmetic that never crosses a month boundary and clamps to the last valid day. *(Link verified.)*
-- M. Kleppmann, [*Designing Data-Intensive Applications*](https://dataintensive.net/) — O'Reilly; at-least-once delivery and recovering exactly-once *effects* through idempotence. *(Link verified.)*
-- [Celery — first steps with `@shared_task`](https://docs.celeryq.dev/en/stable/django/first-steps-with-django.html) — defining app-independent tasks in a reusable Django app. *(Link verified.)*
+- [Celery: Periodic Tasks](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html): Beat scheduling, `crontab` schedules, and the warning to run only one scheduler to avoid duplicate tasks.
+- [Celery: Tasks](https://docs.celeryq.dev/en/stable/userguide/tasks.html): default vs. `acks_late` acknowledgement, redelivery on worker crash, and the recommendation that tasks be idempotent.
+- [dateutil: relativedelta](https://dateutil.readthedocs.io/en/stable/relativedelta.html): month arithmetic that never crosses a month boundary and clamps to the last valid day.
+- M. Kleppmann, [*Designing Data-Intensive Applications*](https://dataintensive.net/) (O'Reilly): at-least-once delivery and recovering exactly-once *effects* through idempotence.
+- [Celery: first steps with Django](https://docs.celeryq.dev/en/stable/django/first-steps-with-django.html): defining app-independent tasks with `@shared_task` in a reusable Django app.
