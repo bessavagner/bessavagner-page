@@ -50,7 +50,7 @@ A JSON string is a truthy primitive, so nodriver's `if remote_object.value:` unw
 
 ## What the wider net caught
 
-With nodriver reporting honestly, here's the full matrix, five configs against five detectors. The tells panel is ~17 individual automation giveaways; I show it and rebrowser as a fraction of checks passed, Sannysoft as checks passed, and CreepJS as its count of locally-detected lies:
+With nodriver reporting honestly, here's the full matrix, five configs against five detectors. The tells panel is ~17 individual automation giveaways ([what each of these checks looks for, and how you pass them](/blog/beating-browser-fingerprinting/)); I show it and rebrowser as a fraction of checks passed, Sannysoft as checks passed, and CreepJS as its count of locally-detected lies:
 
 | Config | Tells % | BotD | Sannysoft | rebrowser | CreepJS lies |
 |---|---|:---:|:---:|:---:|:---:|
@@ -60,9 +60,9 @@ With nodriver reporting honestly, here's the full matrix, five configs against f
 | camoufox | 82 ± 0 [82–82] | **passed** | 17/18 | 9/9 | 0 |
 | nodriver | 95 ± 2 [94–100] | **passed** | 18/18 | 10/10 | 0 |
 
-Unlike the tells score, Sannysoft and rebrowser returned the same counts on almost every trial, so those columns show flat fractions rather than a spread. The wider net mostly agreed with what I already had, which is its own kind of result. The two new panels ranked the configs the same way the tells panel did: `undetected-chromedriver` and `nodriver` pass everything cleanly, `vanilla` and `selenium-stealth` get dinged on the same handful of checks that already caught them, and `camoufox` sits just behind the Chrome leaders. A new detector that overturns your ranking is exciting; a new detector that confirms it is evidence the ranking was measuring something real.
+Unlike the tells score, Sannysoft and rebrowser returned the same counts on almost every trial, so those columns show flat fractions rather than [the trial-to-trial spread I measured last update](/building/stealthbench/02-scores-that-dont-repeat/). The wider net mostly agreed with what I already had, which is its own kind of result. The two new panels ranked the configs the same way the tells panel did: `undetected-chromedriver` and `nodriver` pass everything cleanly, `vanilla` and `selenium-stealth` get dinged on the same handful of checks that already caught them, and `camoufox` sits just behind the Chrome leaders. A new detector that overturns your ranking is exciting; a new detector that confirms it is evidence the ranking was measuring something real.
 
-Two details are worth calling out. `nodriver` joins `undetected-chromedriver` as a runtime-patching config that occasionally aces the tells panel outright (`[94–100]`), and it aces both new panels too, so the DevTools-Protocol approach holds up under more scrutiny, not less. And `camoufox` runs only **9** of rebrowser's 10 tests (8 on one of the ten trials): at least one test is Chrome-specific and a real Firefox has nothing to answer it with, the same honest gap I hit in [update 1](/building/stealthbench/01-a-second-browser-zero-detector-changes/) where camoufox "fails" three Chrome-only tells. A panel written to catch Chrome automation has blind spots on Firefox by construction, and that shows up as a smaller denominator, not a worse score.
+Two details are worth calling out. `nodriver` joins `undetected-chromedriver` as a runtime-patching config that occasionally aces the tells panel outright (`[94–100]`), and it aces both new panels too, so the DevTools-Protocol approach holds up under more scrutiny, not less. And `camoufox` runs only **9** of rebrowser's 10 tests (8 on one of the ten trials): at least one test is Chrome-specific and a real Firefox has nothing to answer it with, the same honest gap I hit in [update 1](/building/stealthbench/01-a-second-browser-zero-detector-changes/) where camoufox "fails" three Chrome-only tells. A panel written to catch Chrome automation has blind spots on Firefox by construction, and that shows up as a smaller denominator.
 
 ## What's next
 
