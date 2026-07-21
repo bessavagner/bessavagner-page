@@ -1,0 +1,81 @@
+---
+title: "Shipping the gate: supskill becomes an installable Claude Code plugin"
+description: "Update 2 of the supskill build log. supskill is a sprint conductor for Claude Code, built on one finding: a delegated agent has no channel to escalate a decision to a human. This update covers E7, the packaging milestone: supskill's first marketplace publish under the immutable slug supskill@supskill, its two cross-marketplace dependencies (superpowers and pm-execution) declared and resolving at install time, and a should-trigger/should-not-trigger eval loop composed from the skill-creator plugin's own evaluation harness rather than a bespoke scorer, measuring whether the conductor's SKILL.md description fires on the right prompts and stays silent on the rest. The offline suite is up to 314 passing tests, still under a second. It also covers the smaller, less glamorous discipline this sprint needed: what it took to finalize the README without accidentally taking credit for someone else's uncommitted work."
+project: "supskill"
+update: 2
+pubDate: 2026-07-23T08:00:00-03:00
+tags: ["claude-code", "subagents", "ai-agents", "orchestration", "python", "plugin-marketplace", "evals", "building-in-public"]
+status: draft
+cta: "follow-build"
+---
+
+[Update 1](/building/supskill/01-re-running-the-finding/) opened with the claim supskill is a response to: a delegated agent cannot ask you anything. Run Claude Code as a subagent, or headless with `-p`, and there is no human in that loop to answer a question. I re-ran that claim against the current runtime for that post and it had moved: `AskUserQuestion` is absent from a headless session's tool manifest and unavailable inside a subagent, and calling it now returns a loud, named error instead of the silently-invented empty answer an old bug report described. The load-bearing half of the claim survived intact. A delegated agent still has no channel to escalate a decision mid-task, so nothing forces it to stop and ask rather than guess with the tools it has. I am restating it that way here on purpose: the corrected version, not the walked-back one.
+
+This update is not about the finding. It is about what you do with a finding once the code that enforces it actually works: you package it so someone other than you can install it.
+
+## What E7 is
+
+supskill drives one sprint from a markdown backlog to a merged branch, holding three human gates and keeping all of its authoritative state in a file on disk. Through E6 it worked, but only if you already had this exact checkout. E7 is the epic that turns "clone this repo and run it from source" into "install a plugin." Three things shipped under it this sprint: the marketplace publish, an eval loop for the conductor's own trigger phrase, and a README pass that had to earn the right to call any of it done.
+
+### The publish
+
+supskill is now installed the way any other Claude Code plugin is:
+
+```bash
+claude plugin marketplace add bessavagner/supskill
+claude plugin install supskill@supskill
+```
+
+`supskill@supskill` is the slug in `.claude-plugin/marketplace.json`, a single plugin named `supskill` sourced from `./`, and it shipped unrenamed. The `v0.1.0` tag sits on the same commit the manifests describe, and it is a GitHub marker, not what installation resolves against: the plugin resolves from the marketplace source path regardless of whether a release was ever cut. A test earns its keep here for a reason that has nothing to do with GitHub polish: `test_plugin_version_matches_pyproject_so_the_release_tag_is_consistent` guards that `plugin.json`'s version and `pyproject.toml`'s version cannot drift apart, because a plugin manifest and a release tag that disagree is exactly the kind of small rot that erodes trust in a "v0.1.0" label six months from now.
+
+The more interesting mechanic is the two dependencies declared in `plugin.json`:
+
+| Dependency | Marketplace | Provides | Used by |
+|---|---|---|---|
+| `superpowers` | `claude-plugins-official` | `writing-plans`, `subagent-driven-development` | PLAN, EXECUTE |
+| `pm-execution` | `pm-skills` | `sprint-plan` | SCOPE |
+
+Claude Code blocks cross-marketplace dependencies by default, on the reasonable assumption that a plugin should not be able to silently pull code from a marketplace its author never named. supskill's `marketplace.json` opts in explicitly, listing both in `allowCrossMarketplaceDependenciesOn`. That line is invariant 1 made literal: supskill composes skills it trusts instead of reimplementing planning or execution logic itself, and the dependency declaration is the mechanism that makes the composition real instead of aspirational. A test in `tests/test_plugin_manifest.py` asserts that every skill the conductor actually dispatches has its owning plugin declared as a dependency, because an undeclared skill would not crash a stage cleanly. It would make the stage improvise, and silent improvisation at a stage boundary is the exact failure this whole project exists to prevent.
+
+**A caveat on how far the install test actually reached.** The publish and install were run from a clean directory, not the development checkout, and the install succeeded under the exact `supskill@supskill` slug with no rename. But the machine running that test already had `superpowers` and `pm-execution` installed from earlier work, so the specific claim I cannot make is that cross-marketplace dependency *fetching* was exercised from zero. The manifest declares both dependencies and the plugin installs correctly on a machine that already has them; whether a genuinely bare Claude Code profile pulls both fresh across marketplaces on first install is still unverified. That is a real gap, not a rounding error, and closing it is on the list for a future update rather than something I am papering over here.
+
+### The eval loop
+
+The conductor is only useful if it triggers on the prompts that mean "start or resume a sprint" and stays quiet on everything adjacent to that. Getting that right is a description-writing problem, and description-writing problems are exactly the kind of thing you should not eyeball. So this sprint built a should-trigger / should-not-trigger corpus and wired it to a real evaluation harness instead of a bespoke scorer, because invariant 1 applies to tooling decisions as much as to runtime ones: compose, never reinvent.
+
+The corpus lives at `evals/description-corpus.json`: sixteen entries, seven that should trigger the conductor (start-sprint and resume-sprint intents) and nine that should not, split across three near-miss buckets designed to be genuinely confusable rather than obviously off-topic: a read-only question about a sprint's status, a prompt about other repo tooling that happens to share vocabulary, and a prompt that names a sprint without asking to run one. Near-misses are the actual test of a description; a corpus of only obviously-wrong negatives would pass trivially and prove nothing.
+
+The harness itself is not supskill's. It is the `skill-creator` plugin's own `run_eval.py` and `run_loop.py`, installed under the `claude-plugins-official` marketplace. `run_eval.py` reads the description straight from `skills/supskill/SKILL.md`, registers it as a command in a scratch project's `.claude/commands/`, and fires `claude -p <query>` three times per query, reporting a per-query trigger rate. `run_loop.py` layers a description-improvement loop on top, with a train/test holdout, for when the rate needs to go up rather than just be measured. Composing someone else's real eval loop instead of writing a scorer from scratch is a small decision that says something about the project's priorities: correctness of the enforcement layer earns exhaustive offline tests, and everything downstream of "does the model trigger correctly" gets to lean on a tool built by people whose whole job is evaluating exactly that.
+
+`skill-creator` is explicitly not a runtime dependency. It does not appear in `pyproject.toml`, in `plugin.json`'s dependency list, or in the set of skills the conductor dispatches during a sprint, and `test_skill_creator_is_not_a_runtime_dependency` guards that boundary so it cannot quietly grow into one. The eval also stays out of the offline suite on purpose: `run_eval.py` spends real tokens on real `claude -p` calls, and the project draws a hard line between what proves itself for free in under a second and what costs money and varies by model, documented in `evals/README.md` down to the exact budget math (16 queries times 3 runs per query, 48 calls per pass, times however many loop iterations you choose to run).
+
+I want to be precise about what shipped and what did not. What shipped this sprint is the corpus, the harness wiring, the runbook, and the guard tests, all offline-verified. What has not happened yet, as of this writing, is an actual scored run against a real model producing a real trigger rate. That number does not exist yet, so I am not going to invent one. It is the next honest thing to go measure, not a result to report today.
+
+### The README, and the smaller kind of discipline
+
+The last piece of E7 sounds almost too small to write about: update the README's test count and verify the install snippet is still literally true. It turned into the most concrete example this sprint has of the project's discipline showing up somewhere nobody would think to look for it.
+
+Partway through that pass, `git status` showed unstaged changes sitting in the working tree that belonged to someone else's already-completed work: a README edit flipping E6's status row from backlog to shipped, plus changes across three other files. None of it was mine to commit, and none of it was part of the README task's own scope, which was exactly two lines: the pytest count going from 251 to 314. Staging the whole file with a plain `git add README.md`, the obvious move, would have folded that unrelated change into a commit message that only claims to be about test counts. So the fix was to build a patch containing only the two lines that were actually in scope, apply it to the index with `git apply --cached`, and leave the rest of the working tree exactly as it was found: modified, unstaged, someone else's to commit.
+
+```
+$ uv run pytest -q
+314 passed in 0.58s
+```
+
+Two hundred eighty tests in Update 1. Three hundred fourteen now, still fully offline, still under a second, six of them the new corpus-shape checks and two the plugin-manifest guards this sprint added. The number moved because the coverage moved, not because anyone padded it.
+
+The reason the git-apply detour is worth a paragraph and not a footnote: it is the same instinct as the state machine's own refusal to advance on a missing precondition, just running at the level of a single commit instead of a sprint gate. `supskill-state advance` will not move to a stage whose artifact was never recorded. A commit here should not claim credit for a change it did not make. Neither is enforced by a person being careful in the moment. Both come from checking before acting, which is the whole thesis of this project applied one layer further down than usual.
+
+## What I learned
+
+Composition has a cost that only shows up once you actually depend on someone else's tool instead of talking about doing so. `skill-creator`'s eval harness assumes it can discover a `.claude/` directory by walking up from wherever it is invoked, and the runbook has to say plainly which directory to run it from so that assumption resolves the way you expect. That is not a flaw in `skill-creator`. It is the ordinary price of invariant 1: compose, never reinvent buys you a harness you did not have to write and debug yourself, and it also means you inherit its working-directory assumptions instead of controlling every variable. Writing the runbook down, including the "open wiring detail" the operator needs to confirm at run time, is what keeps that price from turning into a surprise three months from now when someone runs the eval from the wrong directory and gets a number that means nothing.
+
+## The design record
+
+None of E7's shape (compose the dependencies rather than vendor them, compose the eval harness rather than write a scorer) was decided in this sprint. It follows directly from decisions the project made and wrote down back in July, in a design-decisions document that walks through nine numbered calls, D1 through D9, including why the closest existing competitor got forked in spirit but not in code, after reading its actual source rather than its README. That document is not published anywhere public yet. `[design record — needs URL]`.
+
+## What's next
+
+E8 is next, and its own framing in the backlog is the most honest line in the project: validation, drive a real sprint or don't ship. Everything through E7 is provable offline or by a single clean-environment install. What has never happened is running supskill against a real backlog, end to end, SCOPE through Gate 3, with the model actually doing the work instead of a test double standing in for it. A green suite and a working install are necessary. They are not the same claim as "this tool runs a sprint," and the README already says so out loud rather than letting the test count imply more than it proves.
+
+The `README.md` still says "Alpha, and honest about it." That line does not get to expire just because a plugin now installs cleanly. If you have shipped a Claude Code plugin across marketplace boundaries, I would like to hear how you actually isolated the install test, because I know mine did not go all the way, and pretending otherwise would undercut the exact thing this build log exists to practice.
