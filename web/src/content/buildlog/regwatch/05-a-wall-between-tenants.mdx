@@ -1,0 +1,183 @@
+---
+title: "A wall between tenants: RegWatch grows a secured DRF API"
+description: "Update 5 of the RegWatch build log: the daily pipeline had a database full of matches nobody could reach, so I gave it an HTTP surface. Session auth, invite-only access, and a single workspace-scoping chokepoint that makes one firm's data 404 for another. Plus the secure-by-default reflex that crashed the batch jobs, and why one image now has to boot two ways."
+project: "regwatch"
+update: 5
+pubDate: 2026-07-20T08:00:00-03:00
+tags: ["django", "drf", "rest-api", "authentication", "multi-tenant", "security", "cloud-run", "tdd", "building-in-public", "govtech"]
+status: approved
+reviewedAt: 2026-07-21T00:11:42.794Z
+reviewHash: sha256:836e1217fc418e927b7c0f6ead2a26af4a09e99fa856e458e7d045437aedd804
+---
+
+*Diário Oficial da União* (DOU) is Brazil's official federal gazette: the daily record where laws, fines, appointments, grants and public tenders get published. RegWatch is the product I'm building in public, a "Google Alerts for the DOU" that watches the gazette on behalf of a firm's clients and emails a short, categorized digest of every hit.
+
+By the end of [#4](/building/regwatch/04-deploying-regwatch-to-cloud-run/) the pipeline ran on its own. A Cloud Run Job woke up on weekday mornings, fetched the gazette, matched it against each client's watch terms, summarized the hits with an LLM, and stored everything in Postgres. Unattended, on schedule, off my laptop.
+
+And completely mute. The matches piled up in a database no human could reach. There was no way to log in and look, no way for a firm to mark a hit as relevant or wave one away. This update is the front door: a real HTTP API on top of the models the pipeline already fills. The moment I added that door, a batch job that had only ever written to one database became a service that many firms read from, and the interesting work stopped being the endpoints. It became the wall between them.
+
+## The database nobody could reach
+
+The pipeline was already multi-tenant in its data model. From the start (way back in [Plan 1's](/building/regwatch/01-starting-regwatch-clean-room-core/) foundation) a `Workspace` owns `Client`s, a `Membership` ties a user to a workspace, and every `Watch`, `Match`, and `Digest` hangs off a client. But a batch job doesn't care about any of that. [`run_daily`](/building/regwatch/03-the-daily-run-made-real/) reads and writes every row it needs; there is no "current user" to scope against.
+
+An HTTP API is the opposite. Every request arrives as *someone*, and that someone must see their firm's matches and nothing else. So the sprint goal wrote itself: a firm logs into a secured API and, scoped to their workspace, manages clients and watches, triages the match feed, and reads digest history, while another firm's data is provably invisible.
+
+Three decisions fell out before I wrote a line of view code, and I made them up front on purpose because each one is expensive to unwind later:
+
+1. **DRF, not Ninja.** The spec locked Django + Django REST Framework, so `rest_framework` went into `INSTALLED_APPS` and I got ViewSets, routers, and serializers.
+2. **Session auth, not tokens.** Login sets a session cookie; writes carry a CSRF token. No token issuance, storage, or refresh to build, because the dashboard that consumes this (next update) will be served same-origin.
+3. **Invite-only, forever.** There is no self-serve signup in v1 and there never will be. Users exist only because I provisioned them.
+
+None of those is the hard part. The hard part is #3's quieter cousin: once people log in, one firm reading another firm's gazette hits isn't a bug, it's a breach. In GovTech that is the whole ballgame.
+
+## One chokepoint, not per-view vigilance
+
+The naive way to scope a multi-tenant API is to remember, in every single view, to filter by the caller's workspace. That works right up until the one view where someone forgets, and a forgotten filter is a silent data leak, not a loud error.
+
+So I didn't spread the rule around. I put it in exactly one place, a queryset mixin every ViewSet inherits:
+
+```python
+class WorkspaceScopedQuerysetMixin:
+    """Filter every queryset to the objects in the caller's workspace(s).
+
+    `workspace_lookup` is the ORM path from the model to its Workspace
+    (e.g. "workspace", "client__workspace", "watch__client__workspace").
+    Out-of-scope object ids therefore 404 via DRF's get_object().
+    """
+
+    workspace_lookup = "workspace"
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        ids = workspace_ids_for(self.request.user)
+        return qs.filter(**{f"{self.workspace_lookup}__in": ids})
+```
+
+This is row-level authorization done as a single chokepoint. Each ViewSet only declares *how far* its model sits from a workspace: `Client` is one hop (`workspace`), a `Match` is three (`watch__client__workspace`). The filter runs before anything else, so a request for a match in another firm's workspace never enters the queryset at all. DRF's `get_object()` then can't find that id and returns a 404, which is the behavior I want: not a 403 that confirms the row exists, but a flat "no such thing," the same answer you'd get for an id that was never real.
+
+The payoff showed up immediately when the feed needed filters. The match feed takes `client`, `state`, `section`, `category`, and a date range, plus a recency-or-relevance ordering toggle, and the triage actions mutate a match's state:
+
+```python
+@action(detail=True, methods=["post"])
+def relevant(self, request, pk=None):
+    return self._set_state("relevant")
+
+def _set_state(self, new_state):
+    match = self.get_object()  # 404 when out of the caller's workspace
+    match.state = new_state
+    match.save(update_fields=["state"])
+    return Response(self.get_serializer(match).data)
+```
+
+I never wrote a workspace check in the triage action. `self.get_object()` inherits the scoped queryset, so marking someone else's match as relevant 404s for free. The invariant lives in one class; every view rides on it.
+
+## Proving the wall
+
+A scoping mixin you can read and nod along to is not proof. The proof is a test that tries to climb the wall and fails, and it has to be written before the view exists, red first, or it's just a green checkmark rubber-stamping code I already trusted. That's test-driven development doing the one job it's best at here: turning "I'm pretty sure firms are isolated" into a thing that goes red the instant they aren't.
+
+Two tests carry the weight. One puts a user from firm A in front of firm B's watch:
+
+```python
+def test_cannot_read_other_workspace_watch(firm_a, firm_b):
+    ws_a, user_a = firm_a
+    ws_b, _ = firm_b
+    b_client = WatchClient.objects.create(workspace=ws_b, name="B-client")
+    b_watch = Watch.objects.create(client=b_client, terms=["x"])
+    api = APIClient()
+    api.force_authenticate(user=user_a)
+    assert api.get(f"/api/watches/{b_watch.id}").status_code == 404
+```
+
+The other checks the edge case that a "just filter by workspace" approach quietly gets wrong: a logged-in user who belongs to *no* workspace at all. An orphan account shouldn't be able to create a client that lands in nobody's tenant, so `perform_create` refuses when the caller has no membership:
+
+```python
+def test_create_client_without_membership_is_forbidden(db):
+    # ...orphan user, authenticated, no Membership...
+    resp = api.post("/api/clients", {"name": "X"}, format="json")
+    assert resp.status_code == 403
+    assert WatchClient.objects.count() == 0
+```
+
+A read that 404s and a write that 403s, one per resource. That pair is the difference between an isolation story and an isolation claim.
+
+## Invite-only, and keeping the password off the command line
+
+Invite-only sounds like a feature that needs an invitations table, tokens, and an email flow. It doesn't, not for a single-firm pilot. The strongest way to guarantee no self-serve signup is to ship no signup surface: there is simply no registration endpoint to reach. Provisioning is a management command instead:
+
+```python
+class Command(BaseCommand):
+    help = "Provision an invite-only user and attach them to a workspace."
+
+    def handle(self, *args, **options):
+        workspace, _ = Workspace.objects.get_or_create(name=options["workspace"])
+        user, created = User.objects.get_or_create(
+            username=options["email"], defaults={"email": options["email"]}
+        )
+        # ...set password, attach Membership...
+```
+
+It's idempotent (running it twice creates one user, one membership), which matters because provisioning in production means running it as a one-off Cloud Run Job, and Jobs get retried.
+
+That production detail is where a small security seam opened. My first version took the password as a `--password` argument. Fine on my laptop. But a Cloud Run Job execution stores its arguments in the Job config, where anyone with read access can inspect them, so a password passed as `--args` persists in plain sight. The fix was to let a Secret Manager-backed env var supply it instead:
+
+```python
+# Prefer an explicit --password; fall back to INVITE_USER_PASSWORD so a
+# password can be supplied via a Secret Manager-backed env var instead of
+# the command line, which persists in inspectable Cloud Run Job config.
+password = options.get("password") or os.environ.get("INVITE_USER_PASSWORD")
+```
+
+`--password` still wins for local use; production binds `INVITE_USER_PASSWORD` to a secret and never types the value anywhere. Same command, no plaintext in the deploy history.
+
+## One image, two ways to boot
+
+Here's the part that caught me, and it came from doing the secure thing.
+
+Back in Plan 6 the settings enforced a rule I was proud of: in production, refuse to boot without `ALLOWED_HOSTS` set. Fail fast, fail loud, no `["*"]` slipping into prod. Secure by default. The resolver raised on an empty value:
+
+```python
+raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS must be set when DEBUG is False")
+```
+
+That was correct when the image only ever ran management commands. It became wrong the moment the *same image* also had to serve HTTP. Because RegWatch runs one Docker image two ways now: as batch Jobs (`migrate`, `run_daily`, `check_heartbeat`) that serve no HTTP at all, and as an always-on gunicorn Service that does. The Jobs have no reason to set `ALLOWED_HOSTS`, they answer no requests. But they load the same `settings.py`, so my proud fail-fast crashed them on boot. The reflex that hardens the web service bricks the cron job.
+
+The fix was to move the enforcement from *settings* to the *HTTP entrypoint*. The shared resolver now returns Django's own default of `[]` for the non-serving processes, and a separate guard, called only from `wsgi.py`, keeps the loud failure exactly where it belongs:
+
+```python
+def resolve_allowed_hosts(*, debug, env=os.environ):
+    # ...return the configured hosts, or ["*"] in debug...
+    # Non-serving processes (batch Jobs) serve no HTTP, so an unset host is
+    # harmless: return Django's default of []. The HTTP entrypoint enforces a
+    # real value via require_allowed_hosts() so a misconfigured Service still
+    # fails fast.
+    return []
+```
+
+```python
+# config/wsgi.py, loaded only by gunicorn:
+require_allowed_hosts(debug=resolve_debug())
+```
+
+A Service deployed without `ALLOWED_HOSTS` still dies immediately, because gunicorn loads `wsgi.py` and `wsgi.py` calls the guard. The batch Jobs never touch that file, so they boot untouched. Secure-by-default turned out not to be one global switch. It's per-entrypoint: the same value that's mandatory for the process answering the internet is meaningless for the one running a nightly query.
+
+Standing the Service up surfaced two more small truths that the docs don't lead with. A Cloud Run service answers on **two** hostnames (the canonical `...a.run.app` and the `...run.app` project-number URL), so `ALLOWED_HOSTS` and the CSRF trusted origins are comma-separated lists, not single values. And smoke-testing a private Service is fiddlier than `gcloud auth print-identity-token` suggests: a user-credential token is rejected because its audience isn't the service URL. The method that actually works is an audience-scoped token from an impersonated service account, which I wrote into the runbook so future-me doesn't rediscover it at deploy time.
+
+## What I deferred, and why it's safe
+
+Two honest omissions.
+
+There is no dashboard yet. This update is the API, tested and deployed, but the only way to drive it today is `curl` and an authenticated session. The Svelte app that turns this into something a firm actually clicks through is the next update, and I kept it separate on purpose, the same way I split "make the run real" from "deploy the run" in #4: an API contract and a UI that binds to it are different risk surfaces, and freezing the contract first means the frontend has something stable to build against.
+
+And there are no roles. `Membership` is flat: everyone in a firm sees the same surface, because the pilot is a single firm where that's true. Role-based access control is real work, and building it now would be guessing at a permission model no user has asked for. It's a deliberate YAGNI, noted so it doesn't look like an oversight.
+
+## What I learned
+
+Multi-tenancy isn't a feature you add to endpoints. It's an invariant you enforce in one place and prove with a test that tries to break it. Spread the workspace filter across every view and you've written a rule you have to remember perfectly forever; put it in one mixin and the rule enforces itself, including in the triage action where I never wrote it down.
+
+And secure-by-default is not a setting, it's a decision you make per entrypoint. The rule that protects the front door will strangle the back office if you apply it globally, because the same image can be two different programs depending on how it boots.
+
+## What's next
+
+Update #6 gives RegWatch a face: the Svelte 5 dashboard that logs in over this session, loads the triage feed, and lets a firm mark hits relevant or dismissed in the browser, served same-origin so the cookies and CSRF all line up.
+
+One thing I'd genuinely like other people's take on: for tenant isolation, do you trust an ORM-level scoping chokepoint like this one, or do you push the boundary all the way down into Postgres row-level security so the database itself refuses a cross-tenant read? I went with the application-layer chokepoint for testability and simplicity, but I keep eyeing RLS as the belt-and-suspenders version. If you've run one in production, I want to hear where it bit you. The code is public: follow [the RegWatch series](/building/regwatch/) as it goes.
