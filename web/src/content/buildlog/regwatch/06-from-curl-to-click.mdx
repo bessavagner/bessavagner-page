@@ -1,0 +1,139 @@
+---
+title: "From curl to click: a same-origin Svelte dashboard for RegWatch"
+description: "Update 6 of the RegWatch build log: the secured API from #5 was curl-only, so I gave it a browser. A Svelte 5 dashboard that logs in over the same session, served same-origin from the same Django service via WhiteNoise so the cookie-and-CSRF security model just holds, no CORS. The decision behind that, the browser side of the CSRF handshake, and a frontend built test-first."
+project: "regwatch"
+update: 6
+pubDate: 2026-07-24T08:00:00-03:00
+tags: ["svelte", "spa", "session-auth", "csrf", "same-origin", "whitenoise", "docker", "tdd", "building-in-public", "govtech"]
+status: draft
+---
+
+import { Image } from 'astro:assets';
+import sameOrigin from '../../../assets/buildlog/regwatch/same-origin.svg';
+
+*Diário Oficial da União* (DOU) is Brazil's official federal gazette: the daily record where laws, fines, appointments, grants and public tenders get published. RegWatch is the product I'm building in public, a "Google Alerts for the DOU" that watches the gazette on behalf of a firm's clients and emails a short, categorized digest of every hit.
+
+[Update #5](/building/regwatch/05-a-wall-between-tenants/) gave RegWatch a secured API: session login, workspace-scoped data, one firm's matches provably invisible to another. I closed it honestly. The only way to drive that API was `curl` and an authenticated session. No firm is going to triage a gazette day from a terminal.
+
+So this update is the browser. A Svelte 5 dashboard where a firm logs in, reads its match feed, and marks hits relevant or dismissed with a click. The screens are the easy part. The decision that shaped everything was where the dashboard *lives*, because that choice is what lets the security model from #5 carry over unchanged instead of being rebuilt for a browser.
+
+## The fork: same-origin, or CORS
+
+A single-page app talking to a Django API can be deployed two ways, and they are not close to equivalent.
+
+The common one is **cross-origin**: the SPA is a static site on its own domain, the API on another, and the browser negotiates between them with CORS. That path fights the auth model I chose in #5. Session cookies across origins mean `SameSite=None; Secure`, a CORS policy that allows credentials, preflight requests on every write, and a CSRF story that now spans two domains. Every one of those is a place to get it subtly wrong, and getting cookie security subtly wrong is how you leak a session.
+
+The other is **same-origin**: the SPA and the API answer on the *same* host, so the browser sees one site. The session cookie is first-party. There is no CORS layer at all, because there is nothing cross-origin to permit. CSRF stays a single-domain problem, exactly the one Django already solves.
+
+For an invite-only tool with one deployment, same-origin is the obvious call: it deletes an entire category of configuration rather than tuning it. The cost is that the Django service now has to serve the built SPA too. That cost turned out to be small.
+
+## Serving a Svelte app from Django
+
+The build already runs in Docker, so I made the image multi-stage. A Node stage builds the SPA to static files; the Python stage copies those files in and serves them:
+
+```dockerfile
+# --- Stage 1: build the SPA ---
+FROM node:20-slim AS web
+WORKDIR /web
+COPY web/ ./
+RUN npm run build
+
+# --- Stage 2: the Python app (now also carries web-dist) ---
+FROM python:3.12-slim
+# ...
+COPY --from=web /web/dist ./web-dist
+```
+
+Serving the static bundle is [WhiteNoise](https://whitenoise.readthedocs.io/), one middleware line, no separate web server or CDN in front. The interesting part is routing. Django owns `/api/*`; the SPA owns *everything else* and does its own client-side routing, so a hard refresh on `/watches` must still return `index.html` and let the app route from there. One URL rule does it, with a negative lookahead so it never swallows the API:
+
+```python
+urlpatterns = [
+    # ...the /api/auth, /api/me and router URLs...
+    path("api/", include(router.urls)),
+    re_path(r"^(?!api/).*$", spa_index, name="spa"),
+]
+```
+
+`(?!api/)` is the whole trick: any path that does not start with `api/` falls through to the SPA's `index.html`; anything under `api/` was already matched above and never reaches this line. This is the standard SPA-fallback pattern, and doing it in Django's own URLconf (rather than a rewrite rule in some proxy) keeps the routing in one file I can read.
+
+<Image src={sameOrigin} alt="Diagram titled 'RegWatch: one origin, two kinds of response', subtitled 'the SPA and the API answer on the same host, so the session cookie is first-party and there is no CORS'. At the top, an amber box marked as the external client, 'Browser · Svelte 5 SPA, sends session cookie + X-CSRFToken', sends an arrow labelled 'every request (cookie + CSRF, same-origin)' down into a bordered box labelled 'One origin · one Cloud Run Service (gunicorn)'. Inside that box, a 'Django URLconf, matches top to bottom' node splits into two: an arrow labelled 'path starts with api/' goes to '/api/* → DRF, session auth · workspace-scoped views', and an arrow labelled 'everything else (SPA fallback)' goes to '(?!api/) → WhiteNoise, index.html + /assets/*'. From the DRF node, an arrow labelled 'scoped queries' points down to a Postgres (Supabase) database cylinder." class="rounded-xl border border-base-content/15 my-8 w-full h-auto" />
+
+One honest nicety: when the built assets aren't present (a bare `docker` layer, or running the API without building the frontend), `spa_index` returns a tiny placeholder page instead of a 500. Small thing, but it means a backend-only run doesn't look broken.
+
+## The CSRF handshake, now in the browser
+
+In #5 I made `GET /api/me` seed the CSRF cookie (`@ensure_csrf_cookie`). That was a decision with no visible payoff at the time. Here it pays off. The browser client's rule is simple: send the session cookie on every request, and on any write, echo the CSRF token back in a header. That is Django's double-submit-cookie CSRF check, done from `fetch`:
+
+```typescript
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const init: RequestInit = { method, credentials: 'include', headers };
+  // ...
+  if (method !== 'GET' && method !== 'HEAD') {
+    const token = getCookie('csrftoken');
+    if (token) headers['X-CSRFToken'] = token;
+  }
+  const resp = await fetch(path, init);
+  // ...
+}
+```
+
+`credentials: 'include'` carries the session cookie; `X-CSRFToken` carries the token Django set. The one ordering constraint is that the app has to *have* the token before its first write, so the auth store calls `/api/me` right after login, both to confirm the session and to seed that cookie:
+
+```typescript
+export async function loadMe(): Promise<void> {
+  // GET /api/me also seeds the csrftoken cookie (@ensure_csrf_cookie).
+  auth.me = await api.get<Me>('/api/me');
+  auth.status = 'authed';
+}
+```
+
+Login posts credentials, then calls `loadMe()`; from that point every dismiss or relevant click is a CSRF-protected POST that just works, because the token is already in the cookie jar. No token store, no refresh timer, no Authorization header. The whole browser-auth story is: hold a cookie, echo a token.
+
+## The client half of the routing
+
+The server falls every non-API path to `index.html`. The client then has to pick it up and decide which screen to render, and for a four-screen app I didn't reach for a routing library. Svelte 5's runes make a reactive router small enough to just write:
+
+```typescript
+export const route = $state({ path: window.location.pathname });
+
+export function navigate(to: string): void {
+  if (to !== window.location.pathname) {
+    window.history.pushState({}, '', to);
+  }
+  route.path = to;
+}
+
+window.addEventListener('popstate', () => {
+  route.path = window.location.pathname;
+});
+```
+
+That's the whole router. A reactive `route`, a `navigate()` that pushes history, and a `popstate` listener so the browser back button still works. Components read `route.path` and Svelte re-renders the matching screen; a small `<Link>` wrapper calls `navigate()` instead of triggering a full page load. A routing dependency here would have been more surface to configure than the thing it replaces. Four screens don't need nested layouts or route guards, and the day they do, I'll add exactly that much.
+
+## Built test-first, in a language the backend doesn't speak
+
+The pipeline and API are Python, tested with pytest. The dashboard is TypeScript and Svelte, and I held the same discipline: a component test before the component is wired, an end-to-end smoke before I trust the flow. That's [test-driven development](/building/regwatch/03-the-daily-run-made-real/) again, just in a different toolchain.
+
+It landed at 31 component tests across 12 files (Vitest + testing-library-svelte) covering the login form, the match card, the triage buttons, and the CRUD forms, plus three Playwright end-to-end specs for the paths that span the whole stack: `login`, `triage`, and a general `smoke`. The e2e specs are the ones that would have caught a same-origin mistake, because they drive a real browser against the served app, cookie and all. Component tests prove a button calls the right function; the e2e smoke proves the button, the cookie, the CSRF header, and the API agree.
+
+## A dashboard that won't pretend
+
+The gazette doesn't wait for a firm to finish onboarding, but the dashboard has to behave sanely before there's anything to show. A brand-new workspace has no clients, and a watch has to belong to a client, so "New watch" on an empty workspace is a dead end. Rather than let a user walk into it, the empty state disables watch creation and points them at the step they actually need first:
+
+```
+fix(web): disable watch creation and link to Clients when workspace has none
+```
+
+It's a two-line guard, not a feature. But it's the same instinct that runs through the whole project: don't render an action that can't succeed, and don't show data you don't have. A dashboard that fabricates a plausible-looking empty feed is worse than one that says, plainly, there's nothing here yet.
+
+That instinct is baked into a shared wrapper rather than left to each screen's good intentions. Every list renders through an `AsyncState` component with five explicit states, `idle`, `loading`, `loaded`, `empty`, and `error`, so a screen physically cannot render its data branch while it's still loading or after a failed fetch. Empty and error aren't afterthoughts a developer might forget; they're states the type system makes you pass a branch for.
+
+## What I learned
+
+Same-origin was the highest-leverage decision in this update, and it was a decision about *deployment topology*, not about any line of UI code. By putting the SPA and the API on one host, the entire cookie-and-CSRF security model from #5 carried over with zero new moving parts: no CORS policy, no cross-site cookie flags, no second domain to reason about. The work that a cross-origin split would have spent on configuration, I got to spend on the actual product instead. Architecture chosen well upstream is cheaper than cleverness downstream.
+
+## What's next
+
+The dashboard works, and in this update it is deliberately plain. I shipped it in a restrained, modern-minimal style on purpose, to get the flows right before touching the paint. Update #7 is that paint: a redesign into an atmospheric theme built for a demo, and the honest question of when "make it look good" is worth the time versus when it's procrastination with a color picker.
+
+I keep going back and forth on same-origin versus a separately deployed frontend as a product grows past one tenant. For a single-firm pilot the call felt obvious. If you've run a same-origin SPA-plus-API into a bigger, multi-domain product, where did it stop paying off? The code is public: follow [the RegWatch series](/building/regwatch/) as it goes.
