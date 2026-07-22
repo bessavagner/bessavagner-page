@@ -1,0 +1,175 @@
+---
+title: "One stack trace, two root causes: the week RegWatch kept failing at 8am"
+description: "Update 8 of the RegWatch build log: the same login error had two completely different causes a day apart, and the only reason I could tell them apart was a logging change that fixed nothing. Notes on observability as the actual fix, and on an alarm that was scheduled in the wrong gap."
+project: "regwatch"
+update: 8
+pubDate: 2026-12-31T08:00:00-03:00
+tags: ["observability", "debugging", "incident", "cloud-run", "gcp", "postgres", "building-in-public", "govtech"]
+status: draft
+---
+
+{/*
+==============================================================================
+  STATUS: IDEA, NOT A DRAFT. DO NOT PUBLISH. DO NOT REVIEW AS PROSE.
+
+  This file is captured raw material for a future update. No part of it has
+  been written yet: there is no hook, no narrative, no ending. What is below
+  is evidence, collected 2026-07-21 while the incident was still live, because
+  the Cloud Run logs it came from will age out of retention and these numbers
+  would be unrecoverable.
+
+  It sits here, in publish format with valid frontmatter, only so it is findable
+  next to the rest of the series. `status: draft` plus a far-future `pubDate`
+  keep it invisible in production twice over.
+
+  Before this becomes a real update: write it from scratch against
+  `web/src/content/writing-style.md`. Do not lightly edit these notes into a
+  post. Notes are not a voice.
+==============================================================================
+*/}
+
+## Why this might be worth a post
+
+The angle, in one line: the same stack trace had two completely different root
+causes a day apart, and the second one was invisible until I had shipped logging
+designed specifically to tell them apart.
+
+That inverts the usual build-log shape. The satisfying move is to fix the bug.
+The higher-leverage move here was to make the failure legible, which fixed
+nothing on the day I shipped it and paid off within 24 hours.
+
+## Act 1: the corrupted secret (2026-07-14 to 07-20)
+
+`regwatch-run-daily` failed at `InlabsClient.login()` on nearly every scheduled
+run for a week:
+
+```
+RuntimeError: INlabs login failed: session cookie not set
+```
+
+The root cause was not in the code. `gcloud secrets versions list INLABS_PASSWORD`
+showed v2 and v3 created one minute apart (21:16:30 and 21:17:38 on 07-15): a bad
+paste, then a re-paste. A trailing newline. `echo` adds one and Cloud Run injects
+the secret verbatim into the env var.
+
+The same bug class had already broken the Docker build earlier that month through
+`GCP_PROJECT_ID`. Fix for both:
+
+```bash
+printf '%s' 'value' | gcloud secrets versions add NAME --data-file=-
+```
+
+The idea to draw out: the failure lived in the handoff between systems, not in any
+one system. A password that is correct everywhere a human can inspect it, and
+wrong in the only place that matters. You cannot see a trailing `\n` in a browser
+login form or in a `.env` diff.
+
+## Act 2: shipping a diagnostic instead of a fix
+
+Because "wrong password" and "upstream is down" produced an identical symptom, the
+next release (v0.11.1) added the smallest thing that could separate them:
+
+```python
+logger.error(
+    "INlabs login failed: status=%s body_preview=%r",
+    response.status_code,
+    response.text[:300],
+)
+```
+
+Status code and a 300 character body preview, never the credentials. It fixed no
+bug. It bought the ability to tell two identical-looking failures apart.
+
+## Act 3: the payoff, less than 24 hours later (2026-07-21)
+
+The morning run failed with the same traceback. One log query, and it was no longer
+ambiguous:
+
+```
+INlabs login failed: status=502 body_preview='<!DOCTYPE html>\n<html lang="pt-BR">
+  <title>Sistema em Manutenção</title>...'
+POST https://inlabs.in.gov.br/logar.php "HTTP/1.1 502 Bad Gateway"  x3
+```
+
+Brazil's official gazette was in a maintenance window. Nothing to do with my
+secret, my code, or my deploy. Diagnosis took one query instead of a day.
+
+## What the logs then exposed: two real defects
+
+**1. The retry window was three seconds.** The timestamps gave it away precisely:
+
+```
+11:06:41.28  502
+11:06:42.43  502     (1s backoff)
+11:06:44.57  502     (2s backoff, then give up)
+```
+
+`_request_with_retry` did three attempts at `backoff * attempt`. That is tuned for
+a dropped connection and useless against a maintenance window measured in minutes.
+Changed to exponential with a cap: `2, 4, 8, 16, 32, 60`, about two minutes.
+
+**2. The alarm was scheduled in the wrong gap.** Three cron jobs, America/Sao_Paulo:
+
+| job | schedule | role |
+| --- | --- | --- |
+| `regwatch-morning` | `5 8 * * 1-5` | first run_daily attempt |
+| `regwatch-heartbeat` | `0 9 * * 1-5` | the alarm |
+| `regwatch-midday` | `0 13 * * 1-5` | the actual safety net |
+
+The alarm sat between the first attempt and the retry that fixes it. So it paged on
+every morning blip, including days that fully recovered on their own at 13:00 (for
+example 07-17). Moved to `0 14 * * 1-5`.
+
+The idea to draw out: an alert that fires before your recovery mechanism runs is not
+monitoring, it is a scheduled fire drill. Alarm placement is a design decision.
+
+## Act 4: production validated the fix by accident, the same afternoon
+
+The 13:00 run hit the same 502 and still succeeded, because Cloud Run's own
+`maxRetries=1` re-ran the task. Both attempts are in one execution:
+
+| attempt | time (UTC) | result |
+| --- | --- | --- |
+| 0 | 16:00:40 to 16:00:44 | three 502s in 3.3s, `exit(1)` |
+| 1 | 16:02:14 to 16:09:21 | login `302 Found`, `exit(0)` |
+
+Final line: `run_daily 2026-07-21: editions=3 acts=3338 matches=0 enriched=0 digests=0`
+
+The measurement that makes the story honest: INlabs recovered in about 91 seconds
+(last 502 at `16:00:43.8`, successful login at `16:02:14.7`). The old 3.3 second
+window missed it. The new 122 second window would have caught it on the seventh
+attempt, around `16:02:42`. That is not a claim that the fix helps. It is a before
+and after measured against a real outage that happened to occur while I was fixing
+it.
+
+## Threads worth pulling when writing
+
+- Defense in depth, observed working: in-process retry, then Cloud Run task retry,
+  then the 13:00 sweep. The morning failed because all three were exhausted. The
+  afternoon survived because layer two held.
+- Observability as the actual fix.
+- Depending on a government system with no status page, no SLA, and no warning.
+- The danger of a resolved postmortem. I had written "RESOLVED, corrupted secret",
+  and that note nearly made me misdiagnose the next day's identical error as the
+  same cause. A postmortem should record the signature, not just the conclusion.
+
+## Before this can be written
+
+- The retry fix shipped as `v0.11.2` on 2026-07-21 (deploy run 29858289604; all three
+  Cloud Run Jobs and `regwatch-api` verified on the `v0.11.2` image). [TODO: it has
+  not yet been proven against a real outage. Do not write it up as a success until a
+  later INlabs maintenance window is absorbed without a failed execution, and cite
+  that run. Shipped is not the same claim as working.]
+- The heartbeat reschedule IS proven. On 2026-07-21 the old 09:00 BRT slot failed at
+  12:00 UTC and the new 14:00 BRT slot succeeded at 17:00 UTC, same date and same
+  RunLog. That before/after on one day is the strongest evidence in these notes.
+- [TODO: decide whether this is update 8. Update 7 was still an unpublished draft
+  when these notes were taken, so the numbering may shift.]
+- [TODO: get the exact `v0.11.x` tag and commit SHAs for the retry change and for
+  the diagnostic logging change, so the post can link real commits.]
+- [TODO: link update 7 at `/building/regwatch/07-turning-on-the-lights/` once its
+  slug is final.]
+- Do not imply the outage caused `matches=0`. That is a separate open problem
+  (`config="simple"` does no stemming, so a watch for `contrato` misses
+  `contratos`) and it deserves its own update. Mentioning it here as a stray
+  detail would be misleading.
