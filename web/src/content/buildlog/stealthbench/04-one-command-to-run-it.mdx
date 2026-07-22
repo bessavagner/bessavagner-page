@@ -1,11 +1,13 @@
 ---
 title: "Reproducible in principle, not in practice: one command to run the bench"
-description: "Update 4 of the stealthbench build log. stealthbench scores browser-automation stealth setups against self-hosted bot detectors on your own localhost and commits every result. For three updates I'd pitched it as 'anyone can rerun this,' but the actual bring-up was a five-step shell ritual I'd memorized: npm ci and serve the panels on :8901, git clone CreepJS and serve its docs on :8902, then run. This update collapses that to one command, `python -m stealthbench.serve`, a stdlib-only module (http.server, subprocess, urllib, no new deps) that runs npm ci, fetches CreepJS once, serves both roots, and health-checks each URL until it returns 200 before it says ready. That surfaced a real design question: the whole project rests on 'detectors self-hosted on localhost only,' yet serve does a `git clone` from GitHub. I drew the line at setup versus run time: the fetch is a one-time, idempotent setup step (skipped if the dir exists), and the bench itself still contacts only localhost. The other landed story is `--config`/`--detector` flags to run a subset, built so a bare run is byte-for-byte the old matrix (the no-selection path returns the same list object, identity, so the numbers can't move), a de-selected cell is absent and never a fabricated 0, and an unknown name errors at parse time. The third story, PyPI packaging, I cut."
+description: "Update 4 of the stealthbench build log. stealthbench scores browser-automation stealth setups against self-hosted bot detectors on your own localhost and commits every result. For three updates I'd pitched it as 'anyone can rerun this,' but the actual bring-up was a five-step shell ritual I'd memorized: npm ci and serve the panels on :8901, git clone CreepJS and serve its docs on :8902, then run. This update collapses the four-line server half of that to one command, `python -m stealthbench.serve`, a stdlib-only module (http.server, subprocess, urllib, no new deps) that runs npm ci, fetches CreepJS once, serves both roots, and health-checks each URL until it returns 200 before it says ready. That surfaced a real design question: the whole project rests on 'detectors self-hosted on localhost only,' yet serve does a `git clone` from GitHub. I drew the line at setup versus run time: the fetch is a one-time, idempotent setup step (skipped if the dir exists), and the bench itself still contacts only localhost. The other landed story is `--config`/`--detector` flags to run a subset, built so a bare run is byte-for-byte the old matrix (the no-selection path returns the same list object, identity, so the numbers can't move), a de-selected cell is absent and never a fabricated 0, and an unknown name errors at parse time. The third story, PyPI packaging, I cut."
 project: "stealthbench"
 update: 4
-pubDate: 2026-07-22T09:00:00-03:00
+pubDate: 2026-07-22T15:30:00-03:00
 tags: ["python", "cli", "argparse", "http-server", "reproducibility", "developer-experience", "browser-automation", "stealth", "building-in-public"]
-status: draft
+status: approved
+reviewedAt: 2026-07-22T17:25:01.171Z
+reviewHash: sha256:2c2321b2c866798d26d9166d2c3bc08553866881b06f5fcfaf4c587ea54fbe5f
 ---
 
 How many commands does it take to reproduce a benchmark you've published? For three updates I'd been answering "anyone can rerun this," and I believed it, because every score traces to a committed `results/*.json`. Then I opened a clean shell and actually counted the steps from nothing to a running bench. Five. I knew them by heart, which is exactly why I'd stopped seeing them.
@@ -31,9 +33,12 @@ Two servers on two ports, one of them behind an `npm ci`, the other behind a `gi
 The replacement is a single stdlib-only module. No new dependency: `http.server`, `subprocess`, `urllib`, `threading`, that's the whole toolbox.
 
 ```bash
-uv run python -m stealthbench.serve &
-uv run python -m stealthbench --trials 3
+uv run camoufox fetch                     # 0. still one-time, still separate
+uv run python -m stealthbench.serve &     # 1. both servers, fetched and health-checked
+uv run python -m stealthbench --trials 3  # 2. the run
 ```
+
+The one-time Camoufox download stays its own step. What collapsed is the four-line server ritual in the middle of the old block.
 
 `serve` runs the `npm ci` (only if `node_modules` is missing), serves the vendored panels on `:8901`, fetches CreepJS if it isn't already local, serves its `docs/` on `:8902`, then does the thing the old ritual couldn't: it waits. Each server gets health-checked before the module reports ready.
 
@@ -51,23 +56,13 @@ def healthcheck(url, attempts=20, delay=0.25):
     raise RuntimeError(f"health check failed for {url}")
 ```
 
-That loop is the difference between "I started two processes" and "two servers are answering." The old `&`-backgrounded version had a race baked in: nothing stopped me from launching the bench into a port that hadn't finished binding. "Ready" now means a `200` came back, not that a process exists.
+That loop is the difference between "I started two processes" and "two servers are answering." The old `&`-backgrounded version had a race baked in: nothing stopped me from launching the bench at a port that hadn't finished binding.
 
 ## The line I didn't want to cross
 
 Wiring this up forced a question I'd been able to dodge while it lived in a README code block: this project's whole credibility rests on one invariant, *detectors are self-hosted on localhost only*. No third-party anti-bot service sees my traffic. And yet `serve` runs `git clone https://github.com/abrahamjuliot/creepjs.git`. That's network egress, to GitHub, from the tool that's supposed to talk to nothing but `localhost`.
 
-I drew the line at setup versus run time. The clone is a one-time setup convenience, the same open MIT bundle the README already told you to fetch by hand, and it's idempotent: if the directory is already there, `serve` skips it and reuses the copy.
-
-```python
-def ensure_creepjs(creep_dir, run=subprocess.run):
-    creep_dir = Path(creep_dir)
-    if not creep_dir.exists():
-        run(["git", "clone", "--depth", "1", CREEPJS_REPO, str(creep_dir)], check=True)
-    return creep_dir / "docs"
-```
-
-At *run* time, when the bench is actually measuring, it contacts only the two `localhost` servers. The fetch moved from my hands into the tool, but it didn't move across the line. Automating a convenience is fine; automating it must not quietly relax the invariant the convenience sits next to.
+I drew the line at setup versus run time. The clone is a one-time setup convenience, the same open MIT bundle the README already told you to fetch by hand, and it's idempotent: if the directory is already there, `serve` skips it and reuses the copy. At *run* time, when the bench is actually measuring, it contacts only the two `localhost` servers. The fetch moved from my hands into the tool, and I checked on the way that it hadn't also moved across that line.
 
 ## Running less than the whole matrix
 
@@ -87,7 +82,7 @@ A bare `python -m stealthbench` runs the exact code path it ran last week, so th
 
 ## What I cut, and what's next
 
-This was a three-story sprint and I shipped two. The third was packaging: console scripts, a wheel, a tag-triggered TestPyPI release. I dropped it, and not for lack of time so much as lack of a point yet. `pip install stealthbench` would hand you a CLI that still can't run: you'd need Chrome, Camoufox's patched Firefox, Node, and the detector servers before a single number came out. Install would not equal ready-to-run, and shipping a package that implies otherwise is its own small dishonesty. It waits until the thing it installs is actually usable on its own.
+This was a three-story sprint and I shipped two. The third was packaging: console scripts, a wheel, a tag-triggered TestPyPI release. I dropped it, and not for lack of time so much as lack of a point yet. `pip install stealthbench` would hand you a CLI that still can't run: you'd need Chrome, Camoufox's patched Firefox, Node, and the detector servers before a single number came out. Install would not equal ready-to-run, and shipping a package that implies otherwise is its own small dishonesty. Packaging waits until there's something worth installing.
 
 Still open is the thread I've carried since update 2: a headful CI run so the snapshot regenerates on a schedule instead of when I remember to. `serve` was the prerequisite I'd been missing. A CI job can now bring the whole stack up with one command it doesn't have to understand.
 
