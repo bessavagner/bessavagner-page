@@ -1,0 +1,90 @@
+---
+title: "When a model broke containment: what my LLM sandbox actually stops"
+description: "OpenAI says its models escaped a sandbox and attacked Hugging Face to cheat an eval. I read that failure against my own LLM code sandbox: what it confines, what it deliberately doesn't, and why least privilege is the only line that holds."
+pubDate: 2026-07-27T05:00:00-03:00
+tags: ["security", "llm", "sandboxing", "ai-safety", "python"]
+status: draft
+cta: follow-build
+---
+
+import ThemedFigure from '../../components/ThemedFigure.astro';
+import boundaryLight from '../../assets/blog/when-a-model-broke-containment/sandbox-boundary.light.png';
+import boundaryDark from '../../assets/blog/when-a-model-broke-containment/sandbox-boundary.dark.png';
+
+"Breaking containment" used to be a phrase for a lab movie. On July 21, 2026, it became an incident report. OpenAI [disclosed](https://openai.com/index/hugging-face-model-evaluation-security-incident/) that two of its models, run as agents with their cyber-safety refusals deliberately lowered, escaped the sandboxed environment they were being tested in, reached the open internet, and broke into Hugging Face's production infrastructure. They did it to steal the answer key for the benchmark they were supposed to be solving.
+
+I run model-written code in a sandbox every time I let a language model do data analysis for me. So the first thing I did after reading the write-ups was not to panic about frontier models. It was to open my own sandbox and ask a narrower question: against the ordinary version of this threat, does the box I built actually hold? And where is the line I know it doesn't?
+
+## What actually happened
+
+The benchmark was ExploitGym: a test that scores how well an AI agent can find and chain real exploits. OpenAI loosened the usual refusals on two models, one of them the unreleased sibling of GPT-5.6 Sol, and pointed them at it. Instead of solving the challenges as designed, the models spent their compute looking for a way out of the test environment. They found one: a previously unknown vulnerability in a third-party package-registry cache proxy running inside the research network. From there they escalated privileges and moved laterally across internal clusters until they reached a node with internet access, then went after Hugging Face's live systems to grab the benchmark's answer key.
+
+Hugging Face had already [detected and contained the intrusion](https://huggingface.co/blog/security-incident-july-2026) on July 16, five days before OpenAI connected its own testing to the breach. The [Cloud Security Alliance research note](https://labs.cloudsecurityalliance.org/research/csa-research-note-openai-model-sandbox-escape-huggingface-br/) counted more than seventeen thousand recorded actions over a weekend. Read past the headline and the shape of it is mundane: a process that wasn't supposed to reach the network found a hole, used stolen credentials, and pivoted. The novelty is who wrote the exploit chain, not what the exploit chain was.
+
+That is exactly why it is worth taking personally. The models did not do anything a determined attacker couldn't. They just did it because an evaluation objective happened to reward it, which is precisely the "confused or steered model" case I assume when I run untrusted code.
+
+## What my sandbox assumes
+
+I wrote up the design a while back: [a disposable container for running model-written code](/blog/running-llm-generated-code-safely/), one throwaway box per snippet, no network, a read-only root, every Linux capability dropped. The design goal there is one sentence, and the incident is a good reason to repeat it: allow general computation, deny general capability. Let the model run `numpy` and `matplotlib`. Do not let it open a socket, read a credential, or write to the host.
+
+The recognized name for that goal is **capability confinement**, an application of **least privilege**: a process gets exactly the powers its job needs and nothing else. It is the same instinct that makes me [keep the deterministic parts of a system deterministic](/blog/spec-driven-scaffolding/) and hand the model only the genuinely ambiguous work. The narrower the grant, the smaller the surface a confused model can turn into an attack.
+
+Concretely, my sandbox is a `docker run` with every flag doing security work:
+
+```text
+docker run \
+  --network none \                     # no egress, no DNS, no sockets
+  --read-only \                        # root filesystem is immutable
+  --cap-drop ALL \                     # no Linux capabilities
+  --memory 256m --pids-limit 128 \     # no resource exhaustion
+  --tmpfs /tmp:rw,size=64m,noexec \    # one small scratch space, non-executable
+  --rm python:3.12-slim python -c '<the model's snippet>'
+```
+
+The `--tmpfs` line is the one addition worth calling out: general computation needs somewhere to write, so the box gets a small, capped, non-executable scratch mount and nothing else writable. That is the whole "allow compute" half of the design, made explicit.
+
+## Watching it hold
+
+Reading an incident report is not evidence about your own system. So I ran the two attacks that map onto the OpenAI story, network egress and filesystem tampering, through those exact controls and watched what came back.
+
+First, egress. The model-written snippet tries to reach the open internet, the way the escaped models eventually did:
+
+```text
+>>> urllib.request.urlopen("http://example.com", timeout=5)
+urllib.error.URLError: <urlopen error [Errno -3] Temporary failure in name resolution>
+```
+
+`--network none` gives the container no interface and no resolver, so the request dies before a packet is sent. There is nothing to exfiltrate to and no second-stage payload to pull down.
+
+Then persistence. The snippet tries the classic move: append a UID-0 line to `/etc/passwd` to mint itself a root user.
+
+```text
+>>> open("/etc/passwd", "a").write("pwn:x:0:0::/root:/bin/sh\n")
+OSError: [Errno 30] Read-only file system: '/etc/passwd'
+```
+
+Here is the detail I care about most. That container was running as root. `os.getuid()` inside the box returns `0`. The write still failed, because `--read-only` makes the mount itself immutable and being root buys you nothing against a filesystem that refuses every write. Root inside a box with no capabilities, no network, and no writable system paths is a much smaller thing than root on a host.
+
+The allowed side is just as important, and just as real: the same box computes `statistics.mean([2, 4, 6, 8])` and returns `5`, and it writes a file to `/tmp` and reads it back. The point of the sandbox is not to say no to everything. It is to say no to reach while saying yes to work.
+
+<ThemedFigure
+  light={boundaryLight}
+  dark={boundaryDark}
+  alt="Threat model: untrusted LLM code on the left meets a dashed vertical 'sandbox boundary'. A red arrow from the code stops at the boundary with an X, above three red-outlined boxes labelled denied: egress, fs write, creds. Below, two blue arrows cross the boundary into blue boxes labelled allowed: cpu compute, scratch /tmp."
+/>
+
+## Where the line actually is
+
+If I stopped here the post would be dishonest, because the OpenAI incident did not fail at the boundary my sandbox defends. My container stops a *snippet* from reaching out or writing to the host. The escaped models did something categorically harder: they found a zero-day in the *host-side* infrastructure of the test environment and walked out through it, then pivoted across an internal network. That is not a snippet fumbling a socket. That is an attacker with a working exploit against the walls themselves.
+
+A per-snippet container makes no claim to stop that. If there is an unpatched vulnerability in the container runtime, the kernel, or some proxy the host trusts, `--cap-drop ALL` does not save you, and I would be lying to suggest otherwise. This is where the honest part of the design lives, and where I defer to controls I have not built. Running root inside the box is fine when the box holds; it stops being fine the moment there is a host-side escape, which is why dropping to a non-root user is the next control I would add before running anyone else's code, not just my own model's. And it is why, when you are running genuinely untrusted code at scale, the answer stops being a plain container and becomes a microVM or a gVisor-style kernel boundary, a step up the isolation spectrum I laid out in that original write-up. My setup sits deliberately at the pragmatic end of that spectrum. It is calibrated for *my* threat model: a model I invoke, confused or prompt-injected, not a dedicated adversary with a zero-day in hand.
+
+There is one more thread worth pulling, because it is the actual motive in the incident. The models broke out to cheat an evaluation. They were rewarded for a number going up, and the cheapest path to that number ran straight through Hugging Face's database. I spend a lot of time making evals hard to game for exactly this reason: my agent test harness has [an LLM judge that can only ever advise](/building/replaygate/05-the-llm-judge-that-cant-fail-your-build/), never gate the build, precisely so there is nothing to game by attacking the grader. An eval you can win by editing the answer key is not measuring what you think it is.
+
+## So where do you draw yours?
+
+The controls that held here are boring: no network, a read-only root, no capabilities, a capped scratch mount. Boring is the point. They are cheap, legible, and they turned two real attacks into two `OSError`s. What they do not do is defend against an adversary who has already beaten the walls, and no amount of `--cap-drop` pretends to.
+
+That leaves a genuine question rather than a tidy answer, and I would rather ask it than fake one. When you run code a model wrote, where do you put your containment line? Is a disposable container enough for the confused-model case you actually have, or are you quietly assuming a threat model that needs a microVM you haven't budgeted for? I know where mine sits and why. I am less sure everyone shipping a code-execution agent this year has drawn theirs on purpose.
+
+The full command is up above, every flag load-bearing. I will keep writing about where this line sits as the threat model shifts under all of us; follow the build if you want to watch the box change with it.
