@@ -1,30 +1,32 @@
 ---
 title: "Spec-Driven Scaffolding: Parse, Customize, Validate"
-description: "A reliable code generator isn't one giant prompt. Split it into three stages — an LLM parses a request into a validated spec, a deterministic script customizes a template, and a final gate checks the result. Determinism where you can, an LLM only where you must."
+description: "A reliable code generator isn't one giant prompt. Split it into three stages: an LLM parses a request into a validated spec, a deterministic script customizes a template, and a final gate checks the result. Determinism where you can, an LLM only where you must."
 pubDate: 2026-07-23T05:00:00-03:00
 tags: ["codegen", "scaffolding", "llm", "cli", "automation"]
-status: draft
+status: approved
+reviewedAt: 2026-07-23T13:46:32.942Z
+reviewHash: sha256:3770640763e1a3ca7f3abae1be12909f939a2be7739a4772ddc8c89dcfa3d168
 ---
 
-Code generators have a seductive failure mode. You wire up a capable model, hand it a template and a loose description of what you want, and ask it to produce the finished project in one shot. The first few demos look magical. Then you run it on the tenth input and something quietly breaks — a filename that didn't get renamed, a config value the model invented, a placeholder it forgot to replace. The output *looks* right, which is the worst kind of wrong.
+Code generators have a seductive failure mode. You wire up a capable model, hand it a template and a loose description of what you want, and ask it to produce the finished project in one shot. The first few demos look magical. Then you run it on the tenth input and something quietly breaks: a filename that didn't get renamed, a config value the model invented, a placeholder it forgot to replace. The output *looks* right, which is the worst kind of wrong.
 
-The fix isn't a better prompt. It's a better *shape*. A reliable generator decomposes the job into three stages — **parse**, **customize**, **validate** — and uses an LLM only in the stages where ambiguity actually lives. Everything else is plain, boring, deterministic code. This post is about that decomposition and why it holds up where the one-big-prompt approach doesn't.
+The fix isn't a better prompt. It's a better *shape*. A reliable generator decomposes the job into three stages (**parse**, **customize**, **validate**) and uses an LLM only in the stages where ambiguity actually lives. Everything else is plain, boring, deterministic code. This post is about that decomposition and why it holds up where the one-big-prompt approach doesn't.
 
 ## Why one big prompt fails
 
 Ask a model to "turn this request into a finished project" and you've collapsed three very different kinds of work into a single, unverifiable step:
 
-- **Interpretation** — figuring out what the user actually wants from a vague sentence. This is genuinely ambiguous, and it's where a language model earns its keep.
-- **Mechanical transformation** — copying files, renaming things, substituting values. This has exactly one correct answer, and a model that does it by "writing out the file" will occasionally fumble it.
-- **Verification** — checking that the result is internally consistent and actually builds. This needs to be adversarial toward the output, not the same pass that produced it.
+- **Interpretation:** figuring out what the user actually wants from a vague sentence. This is genuinely ambiguous, and it's where a language model earns its keep.
+- **Mechanical transformation:** copying files, renaming things, substituting values. This has exactly one correct answer, and a model that does it by "writing out the file" will occasionally fumble it.
+- **Verification:** checking that the result is internally consistent and actually builds. This needs to be adversarial toward the output, not the same pass that produced it.
 
-Cram all three into one prompt and you lose the ability to check any of them independently. When the output is wrong you can't tell *which* stage failed, because there were no stages. You also pay for the model's weakest skill — exact, repetitive string manipulation across many files — when you could have used a `for` loop.
+Cram all three into one prompt and you lose the ability to check any of them independently. When the output is wrong you can't tell *which* stage failed, because there were no stages. You also pay for the model's weakest skill (exact, repetitive string manipulation across many files) when you could have used a `for` loop.
 
 The schema-driven generators that survive in production make the same cut. [OpenAPI Generator](https://openapi-generator.tech/docs/customization/) turns a structured API description into client code through Mustache templates; the *spec* is the source of truth and the templating is mechanical. [Nx](https://nx.dev/docs/extending-nx/creating-files) generators read a typed `schema.json`, then call `generateFiles` to stamp out a tree with EJS substitution. [Yeoman](https://yeoman.io/authoring/file-system) does the same with `fs.copyTpl`. None of these tools ask a model to free-hand the whole project. They separate *what to build* (structured data) from *how to stamp it out* (deterministic templating). Spec-driven scaffolding just adds an LLM in front to produce that structured data from natural language.
 
 ## Parse into a validated spec
 
-The first stage is the only one where the input is genuinely fuzzy. A user types "I want an API client for a payments service, Python, with retries" and you need a structured object out the other end. This is exactly the job modern models are good at — and you can make it reliable by constraining the *output*, not just the prompt.
+The first stage is the only one where the input is genuinely fuzzy. A user types "I want an API client for a payments service, Python, with retries" and you need a structured object out the other end. This is exactly the job modern models are good at, and you can make it reliable by constraining the *output*, not just the prompt.
 
 Start with a schema. Keep it small, give every optional field a sensible default, and let the required fields be the few things you genuinely can't guess:
 
@@ -48,14 +50,15 @@ features:
   typed_models: boolean # default: true
 ```
 
-Defaults are doing real work here. They shrink the surface the model has to fill in, which shrinks the surface it can get wrong. The model's job isn't to produce every field — it's to extract the two or three the user actually specified and leave the rest to defaults that you, not the model, control.
+Defaults are doing real work here. They shrink the surface the model has to fill in, which shrinks the surface it can get wrong. The model's job is to extract the two or three fields the user actually specified and leave the rest to defaults that you, not the model, control.
 
-To get the model to emit *this* shape rather than prose, lean on schema-constrained generation instead of hoping a well-worded prompt sticks. With Claude, you express the spec as a tool's `input_schema` and force the call; Anthropic's [tool use](https://platform.claude.com/docs/en/docs/build-with-claude/tool-use) supports `strict: true` to guarantee the arguments match your schema exactly. Conceptually:
+To get the model to emit *this* shape rather than prose, lean on schema-constrained generation instead of hoping a well-worded prompt sticks. With Claude, you express the spec as a tool's `input_schema` and force the call; Anthropic's [tool use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview) supports `strict: true` to guarantee the arguments match your schema exactly. Conceptually:
 
 ```python
 SPEC_TOOL = {
     "name": "emit_spec",
     "description": "Return the parsed project spec.",
+    "strict": True,  # top-level on the tool, not on tool_choice
     "input_schema": {
         "type": "object",
         "properties": {
@@ -66,19 +69,20 @@ SPEC_TOOL = {
             "retries": {"type": "integer", "default": 3},
         },
         "required": ["name", "slug"],
+        "additionalProperties": False,
     },
 }
-# Call the model with tools=[SPEC_TOOL], tool_choice forcing emit_spec,
-# strict=True — the returned tool_use.input is your spec object.
+# Call the model with tools=[SPEC_TOOL] and tool_choice forcing emit_spec.
+# The returned tool_use.input is your spec object, already schema-valid.
 ```
 
-Even with constrained generation, validate the result against the schema before it goes anywhere. [JSON Schema](https://json-schema.org/overview/what-is-jsonschema) (which validates YAML just as well, since YAML is a JSON superset) gives you a declarative contract and an off-the-shelf validator. A spec that fails validation is a *parse* failure — caught cheaply, at the boundary, before a single file is touched. That's the whole point of making the spec an explicit artifact: it's a checkpoint you can inspect, log, diff, and reject.
+Even with constrained generation, validate the result against the schema before it goes anywhere. [JSON Schema](https://json-schema.org/overview/what-is-jsonschema) (which validates YAML just as well, since YAML is a JSON superset) gives you a declarative contract and an off-the-shelf validator. A spec that fails validation is a *parse* failure, caught cheaply, at the boundary, before a single file is touched. That's the whole point of making the spec an explicit artifact: it's a checkpoint you can inspect, log, diff, and reject.
 
 ## Customize a template deterministically
 
 Once you have a validated spec, the LLM steps aside. Copying a template and filling in its blanks is a solved problem, and solving it with code instead of a model buys you something precious: the same spec always produces the same output. No temperature, no drift, no "it worked yesterday."
 
-The mechanical step is unglamorous on purpose — copy the template tree, then substitute placeholders:
+The mechanical step is unglamorous on purpose: copy the template tree, then substitute placeholders:
 
 ```bash
 #!/usr/bin/env bash
@@ -110,13 +114,13 @@ if old in text:
     open(path, "w", encoding="utf-8").write(text.replace(old, new))
 ```
 
-Second, **validate the inputs that flow into structural positions.** The slug ends up in a package name and on the filesystem, so it gets a regex gate before anything is copied. A value destined for an arbitrary path or an `eval`-adjacent context is a place an attacker (or a confused model upstream) could smuggle something through. Treat the spec as untrusted input at this boundary even though a model produced it — *especially* because a model produced it.
+Second, **validate the inputs that flow into structural positions.** The slug ends up in a package name and on the filesystem, so it gets a regex gate before anything is copied. A value destined for an arbitrary path or an `eval`-adjacent context is a place an attacker (or a confused model upstream) could smuggle something through. Treat the spec as untrusted input at this boundary even though a model produced it, *especially* because a model produced it.
 
-What the script deliberately does *not* do is generate content. Distinctive prose, descriptions, anything that needs judgment — that's a separate, bounded LLM step that fills in *content* slots in already-correct files. The structure is mechanical; only the words are generated. That line is what keeps the output reproducible.
+What the script deliberately does *not* do is generate content. Distinctive prose, descriptions, anything that needs judgment: that's a separate, bounded LLM step that fills in *content* slots in already-correct files. The structure is mechanical; only the words are generated. That line is what keeps the output reproducible.
 
 ## Validate the output
 
-The third stage exists because the first two will eventually be wrong, and you want to find out before the user does. Validation is a gate, and it should be adversarial toward the output — never the same pass that produced it.
+The third stage exists because the first two will eventually be wrong, and you want to find out before the user does. Validation is a gate, and it should be adversarial toward the output, never the same pass that produced it.
 
 The pipeline reads top to bottom, with each stage handing a checked artifact to the next:
 
@@ -144,29 +148,29 @@ The pipeline reads top to bottom, with each stage handing a checked artifact to 
 
 Split the checks into two tiers. The **mechanical** tier is cheap, deterministic, and catches the most common failures:
 
-- **No leftover placeholders.** Grep the output tree for the `__SLOT__` markers. Any survivor is a substitution the customize step missed — a silent, high-frequency bug.
+- **No leftover placeholders.** Grep the output tree for the `__SLOT__` markers. Any survivor is a substitution the customize step missed: a silent, high-frequency bug.
 - **It builds / installs / lints.** Run the real toolchain. A generated project that doesn't compile is a hard fail, full stop.
 - **Required files exist.** The spec said `typed_models: true`; assert the models module is present.
 
-The **LLM** tier handles what mechanical checks can't: "is the generated content coherent and on-topic?" Use a model here as a *judge* over the finished artifact, in a fresh context, with a narrow rubric — not the model that generated it riffing on its own work. Keeping authoring and reviewing in separate passes is the same discipline that makes human code review work: the author is the worst person to catch their own omissions.
+The **LLM** tier handles what mechanical checks can't: "is the generated content coherent and on-topic?" Use a model here as a *judge* over the finished artifact, in a fresh context, with a narrow rubric, not the model that generated it riffing on its own work. Keeping authoring and reviewing in separate passes is the same discipline that makes human code review work: the author is the worst person to catch their own omissions.
 
-When a check fails, prefer **fix-and-re-run over fail-and-report** where the fix is unambiguous (a missed placeholder, a formatting nit), and log every correction. Patterns in those logs — the same placeholder missed across many runs — are your signal to improve the *generator*, not to keep hand-patching outputs. That feedback loop is where a scaffolder gets reliable over time.
+When a check fails, prefer **fix-and-re-run over fail-and-report** where the fix is unambiguous (a missed placeholder, a formatting nit), and log every correction. Patterns in those logs (the same placeholder missed across many runs) are your signal to improve the *generator*, not to keep hand-patching outputs. That feedback loop is where a scaffolder gets reliable over time.
 
 ## When to reach for the LLM (and when not)
 
 The whole design reduces to one question asked at every step: *is this step genuinely ambiguous?*
 
 - **Reach for the LLM** when the input is fuzzy and interpretation is the hard part: turning a vague request into a structured spec, generating distinctive prose, or judging whether a finished artifact reads coherently.
-- **Reach for code** when there's exactly one correct answer: copying files, substituting values, renaming paths, checking that the project builds. A model doing this work is slower, costlier, and *less* reliable than a `for` loop — it adds nondeterminism to a problem that has none.
+- **Reach for code** when there's exactly one correct answer: copying files, substituting values, renaming paths, checking that the project builds. A model doing this work is slower, costlier, and *less* reliable than a `for` loop: it adds nondeterminism to a problem that has none.
 
 The trap is using the model for the second category because it's already in the pipeline and "it can do that too." It can, until it can't, and you won't know which run it chose to improvise on. Spend the model's nondeterminism only where ambiguity actually lives, and wrap that spending in a validated spec going in and an adversarial gate coming out.
 
-I built a generator on exactly this pattern, and the lesson generalized cleanly: the magic-one-prompt version was impressive in a demo and unreliable in production, while parse → customize → validate was unremarkable in a demo and dependable in production. For scaffolding, dependable wins every time — the value is in not having to check the output by hand, and you only get that from determinism where you can have it and verification where you can't.
+I built one of these, a code generator for my own project scaffolding, and the lesson generalized cleanly: the magic-one-prompt version was impressive in a demo and unreliable in production, while parse → customize → validate was unremarkable in a demo and dependable in production. For scaffolding, dependable wins every time: the value is in not having to check the output by hand, and you only get that from determinism where you can have it and verification where you can't.
 
 ## References
 
-- [OpenAPI Generator — Customization](https://openapi-generator.tech/docs/customization/) — spec-driven code generation via Mustache templates; the spec is the source of truth.
-- [Nx — Creating Files with a Generator](https://nx.dev/docs/extending-nx/creating-files) — typed `schema.json` plus `generateFiles` with EJS substitution and `__var__` filename templating.
-- [Yeoman — The File System](https://yeoman.io/authoring/file-system) — `fs.copyTpl` for copying templates with variable substitution.
-- [JSON Schema — What is JSON Schema?](https://json-schema.org/overview/what-is-jsonschema) — declarative validation for JSON/YAML structures.
-- [Anthropic — Tool use](https://platform.claude.com/docs/en/docs/build-with-claude/tool-use) — schema-constrained structured output, with `strict: true` for guaranteed conformance.
+- [OpenAPI Generator — Customization](https://openapi-generator.tech/docs/customization/): spec-driven code generation via Mustache templates; the spec is the source of truth.
+- [Nx — Creating Files with a Generator](https://nx.dev/docs/extending-nx/creating-files): typed `schema.json` plus `generateFiles` with EJS substitution and `__var__` filename templating.
+- [Yeoman — The File System](https://yeoman.io/authoring/file-system): `fs.copyTpl` for copying templates with variable substitution.
+- [JSON Schema — What is JSON Schema?](https://json-schema.org/overview/what-is-jsonschema): declarative validation for JSON/YAML structures.
+- [Anthropic — Tool use](https://platform.claude.com/docs/en/agents-and-tools/tool-use/overview): schema-constrained structured output, with `strict: true` for guaranteed conformance.
