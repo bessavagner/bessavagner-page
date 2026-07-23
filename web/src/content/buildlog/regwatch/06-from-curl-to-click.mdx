@@ -5,7 +5,9 @@ project: "regwatch"
 update: 6
 pubDate: 2026-07-24T08:00:00-03:00
 tags: ["svelte", "spa", "session-auth", "csrf", "same-origin", "whitenoise", "docker", "tdd", "building-in-public", "govtech"]
-status: draft
+status: approved
+reviewedAt: 2026-07-23T14:09:13.869Z
+reviewHash: sha256:bf79a0ed998b0ec599b1335cd44b9c460f38f70fb3fbb23d0b8c4dd705e6cb53
 ---
 
 import { Image } from 'astro:assets';
@@ -13,7 +15,7 @@ import sameOrigin from '../../../assets/buildlog/regwatch/same-origin.svg';
 
 *Diário Oficial da União* (DOU) is Brazil's official federal gazette: the daily record where laws, fines, appointments, grants and public tenders get published. RegWatch is the product I'm building in public, a "Google Alerts for the DOU" that watches the gazette on behalf of a firm's clients and emails a short, categorized digest of every hit.
 
-[Update #5](/building/regwatch/05-a-wall-between-tenants/) gave RegWatch a secured API: session login, workspace-scoped data, one firm's matches provably invisible to another. I closed it honestly. The only way to drive that API was `curl` and an authenticated session. No firm is going to triage a gazette day from a terminal.
+[Update #5](/building/regwatch/05-a-wall-between-tenants/) gave RegWatch a secured API: session login, workspace-scoped data, one firm's matches provably invisible to another. I closed it on a plain limit: the only way to drive that API was `curl` and an authenticated session. No firm is going to triage a gazette day from a terminal.
 
 So this update is the browser. A Svelte 5 dashboard where a firm logs in, reads its match feed, and marks hits relevant or dismissed with a click. The screens are the easy part. The decision that shaped everything was where the dashboard *lives*, because that choice is what lets the security model from #5 carry over unchanged instead of being rebuilt for a browser.
 
@@ -58,7 +60,7 @@ urlpatterns = [
 
 <Image src={sameOrigin} alt="Diagram titled 'RegWatch: one origin, two kinds of response', subtitled 'the SPA and the API answer on the same host, so the session cookie is first-party and there is no CORS'. At the top, an amber box marked as the external client, 'Browser · Svelte 5 SPA, sends session cookie + X-CSRFToken', sends an arrow labelled 'every request (cookie + CSRF, same-origin)' down into a bordered box labelled 'One origin · one Cloud Run Service (gunicorn)'. Inside that box, a 'Django URLconf, matches top to bottom' node splits into two: an arrow labelled 'path starts with api/' goes to '/api/* → DRF, session auth · workspace-scoped views', and an arrow labelled 'everything else (SPA fallback)' goes to '(?!api/) → WhiteNoise, index.html + /assets/*'. From the DRF node, an arrow labelled 'scoped queries' points down to a Postgres (Supabase) database cylinder." class="rounded-xl border border-base-content/15 my-8 w-full h-auto" />
 
-One honest nicety: when the built assets aren't present (a bare `docker` layer, or running the API without building the frontend), `spa_index` returns a tiny placeholder page instead of a 500. Small thing, but it means a backend-only run doesn't look broken.
+A nicety: when the built assets aren't present (a bare `docker` layer, or running the API without building the frontend), `spa_index` returns a tiny placeholder page instead of a 500. Small thing, but it means a backend-only run doesn't look broken.
 
 ## The CSRF handshake, now in the browser
 
@@ -124,13 +126,13 @@ The gazette doesn't wait for a firm to finish onboarding, but the dashboard has 
 fix(web): disable watch creation and link to Clients when workspace has none
 ```
 
-It's a two-line guard, not a feature. But it's the same instinct that runs through the whole project: don't render an action that can't succeed, and don't show data you don't have. A dashboard that fabricates a plausible-looking empty feed is worse than one that says, plainly, there's nothing here yet.
+It's a two-line guard. But it's the same instinct that runs through the whole project: don't render an action that can't succeed, and don't show data you don't have. A dashboard that fabricates a plausible-looking empty feed is worse than one that says, plainly, there's nothing here yet.
 
-That instinct is baked into a shared wrapper rather than left to each screen's good intentions. Every list renders through an `AsyncState` component with five explicit states, `idle`, `loading`, `loaded`, `empty`, and `error`, so a screen physically cannot render its data branch while it's still loading or after a failed fetch. Empty and error aren't afterthoughts a developer might forget; they're states the type system makes you pass a branch for.
+That instinct is baked into a shared wrapper rather than left to each screen's good intentions. Every list renders through an `AsyncState` component with five explicit states, `idle`, `loading`, `loaded`, `empty`, and `error`, so a screen physically cannot render its data branch while it's still loading or after a failed fetch. Empty and error are states the type system makes you pass a branch for.
 
 ## What I learned
 
-Same-origin was the highest-leverage decision in this update, and it was a decision about *deployment topology*, not about any line of UI code. By putting the SPA and the API on one host, the entire cookie-and-CSRF security model from #5 carried over with zero new moving parts: no CORS policy, no cross-site cookie flags, no second domain to reason about. The work that a cross-origin split would have spent on configuration, I got to spend on the actual product instead. Architecture chosen well upstream is cheaper than cleverness downstream.
+Same-origin was the highest-leverage decision in this update, and it was a decision about *deployment topology*, not about any line of UI code. By putting the SPA and the API on one host, the entire cookie-and-CSRF security model from #5 carried over with zero new moving parts: no CORS policy, no cross-site cookie flags, no second domain to reason about. The work that a cross-origin split would have spent on configuration, I got to spend on the actual product instead.
 
 ## What's next
 
