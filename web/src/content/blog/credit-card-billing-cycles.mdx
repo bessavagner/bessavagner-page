@@ -4,32 +4,34 @@ description: "The day you swipe a card is not the month you're accounting for. H
 pubDate: 2026-07-25T05:00:00-03:00
 heroImage: ../../assets/blog/credit-card-billing-cycles/timeline.svg
 tags: ["python", "django", "domain-driven-design", "migrations", "fintech"]
-status: draft
+status: approved
+reviewedAt: 2026-07-23T14:35:50.405Z
+reviewHash: sha256:b2f5d80b198f43321bebef8ecb437a84119781e75f3fe6ee414e9ea33109d756
 ---
 
 import { Image } from 'astro:assets';
 import timeline from '../../assets/blog/credit-card-billing-cycles/timeline.svg';
 
-There's a small, deceptive question at the heart of any expense tracker: *which month does this expense belong to?* For cash it's obvious — the month you spent it. For a credit card it is not, and getting it wrong quietly corrupts every monthly total you show the user. This post is about modelling that question properly: as a pure function, applied in exactly one place, with the past protected from any future change to the rule.
+There's a small, deceptive question at the heart of any expense tracker: *which month does this expense belong to?* For cash it's obvious: the month you spent it. For a credit card it is not, and getting it wrong quietly corrupts every monthly total you show the user. This post is about modelling that question properly: as a pure function, applied in exactly one place, with the past protected from any future change to the rule.
 
 The project is a personal-finance tracker I built for my own use. The numbers and screenshots here are synthetic; the code is real.
 
 ## Purchase date isn't the bill
 
-When you pay cash, the money leaves your pocket the moment you spend it, so the purchase date *is* the accounting date. A credit card breaks that link. Every card has a **closing date** — the last day of its billing cycle, after which new charges roll onto the next statement — and a **payment due date** a few weeks later. Chase puts it plainly: "The closing date is the last day of your billing cycle... your credit card bill is usually due a few weeks after the closing date" ([Chase](https://www.chase.com/personal/credit-cards/education/basics/credit-card-billing-cycles-explained)).
+When you pay cash, the money leaves your pocket the moment you spend it, so the purchase date *is* the accounting date. A credit card breaks that link. Every card has a **closing date** (the last day of its billing cycle, after which new charges roll onto the next statement) and a **payment due date** a few weeks later. Chase puts it plainly: "The closing date is the last day of your billing cycle... your credit card bill is usually due a few weeks after the closing date" ([Chase](https://www.chase.com/personal/credit-cards/education/basics/credit-card-billing-cycles-explained)).
 
 So a single purchase has two relevant dates that can fall in three different months: the day you swiped it, the month its invoice closes, and the month you actually pay. If your card closes on the 20th:
 
 - A purchase on the **5th** lands on the invoice closing the 20th of *this* month, paid *next* month.
 - A purchase on the **27th** missed this cycle's close. It rolls to next month's invoice, paid the month *after that*.
 
-If you book expenses by purchase date, that late-month purchase shows up a full two months early in your budget. The fix is to compute the month an expense actually *counts toward* — what I call its billing month — and store that alongside the raw purchase date.
+If you book expenses by purchase date, that late-month purchase shows up a full two months early in your budget. The fix is to compute the month an expense actually *counts toward* (what I call its billing month) and store that alongside the raw purchase date.
 
 ## A pure billing-month function
 
-The temptation is to put this logic on the `Entry` model, next to the data. I deliberately didn't. Deciding which month an expense counts toward is an operation that depends on a card's rules and a date, but it isn't really *owned* by any one entity — it's a calculation. That's exactly the case Eric Evans describes in *Domain-Driven Design*: "operations that do not conceptually belong to any object," which he models as a stateless **Service** — "an operation offered as an interface that stands alone in the model" ([Evans classification, Fowler](https://martinfowler.com/bliki/EvansClassification.html)). It also keeps the rule under a single responsibility, the SRP's "one, and only one, reason to change" ([single-responsibility principle](https://en.wikipedia.org/wiki/Single-responsibility_principle)) — when the billing rule changes, exactly one function changes.
+The temptation is to put this logic on the `Entry` model, next to the data. I deliberately didn't. Deciding which month an expense counts toward is an operation that depends on a card's rules and a date, but it isn't really *owned* by any one entity: it's a calculation. That's exactly the case Eric Evans describes in *Domain-Driven Design*: "operations that do not conceptually belong to any object," which he models as a stateless **Service**, "an operation offered as an interface that stands alone in the model" ([Evans classification, Fowler](https://martinfowler.com/bliki/EvansClassification.html)). It also keeps the rule under a single responsibility, the SRP's "one, and only one, reason to change" ([single-responsibility principle](https://en.wikipedia.org/wiki/Single-responsibility_principle)). When the billing rule changes, exactly one function changes.
 
-So it lives in `finances/services/billing.py` as a free function with no database access at all — just dates in, a date out:
+So it lives in `finances/services/billing.py` as a free function with no database access at all, just dates in and a date out:
 
 ```python
 def compute_billing_month(
@@ -52,11 +54,11 @@ def compute_billing_month(
     return _next_month(invoice_close_month)
 ```
 
-Cash, Pix, and any card without a configured closing day count in the purchase month — no surprises. A credit-card purchase on or before the closing day counts one month out (the invoice closes this month, paid next); a purchase after the closing day rolls one further. Because the function takes plain arguments and touches nothing else, it's trivial to test: feed it a date and a closing day, assert the month. No database, no fixtures, no mocking.
+Cash, Pix, and any card without a configured closing day count in the purchase month, no surprises. A credit-card purchase on or before the closing day counts one month out (the invoice closes this month, paid next); a purchase after the closing day rolls one further. Because the function takes plain arguments and touches nothing else, it's trivial to test: feed it a date and a closing day, assert the month. No database, no fixtures, no mocking.
 
 ## Per-card closing days
 
-Closing days aren't always constant. A card issuer can shift the date for a single month, and a tracker that ignores that will misfile that month's purchases. So the closing day passed into the pure function is itself *resolved* first — a per-month override if one exists, otherwise the card's default:
+Closing days aren't always constant. A card issuer can shift the date for a single month, and a tracker that ignores that will misfile that month's purchases. So the closing day passed into the pure function is itself *resolved* first (a per-month override if one exists, otherwise the card's default):
 
 ```python
 def resolve_closing_day(payment_method, entry_date: date) -> int | None:
@@ -72,7 +74,7 @@ This is the one piece that *does* hit the database, and that's the point of keep
 
 ## Applying it once, in save
 
-A computed field is only trustworthy if it's computed in exactly one place. If three different views each recompute `billing_month`, they *will* eventually disagree. So the model's `save` is the single choke point — every write goes through it:
+A computed field is only trustworthy if it's computed in exactly one place. If three different views each recompute `billing_month`, they *will* eventually disagree. So the model's `save` is the single choke point. Every write goes through it:
 
 ```python
 def save(self, *args, **kwargs):
@@ -85,13 +87,13 @@ def save(self, *args, **kwargs):
     super().save(*args, **kwargs)
 ```
 
-Two things matter here. First, `save` *orchestrates* — it resolves the closing day, then calls the pure function — but holds no billing logic of its own. Second, the `billing_month_override` flag. When it's set, `save` leaves `billing_month` untouched. That flag is how a user can manually pin an expense to a specific month — and, as we'll see next, how history defends itself against a changing rule.
+Two things matter here. First, `save` *orchestrates* (it resolves the closing day, then calls the pure function) but holds no billing logic of its own. Second, the `billing_month_override` flag. When it's set, `save` leaves `billing_month` untouched. That flag is how a user can manually pin an expense to a specific month, and, as we'll see next, how history defends itself against a changing rule.
 
 ## Freezing history safely
 
-Here's the failure mode that the override flag exists to prevent. The billing rule above is the *current* rule. Earlier, the app booked credit-card expenses differently — installment charges, in particular, were entered with the month they were charged, not the purchase month. The day I shipped the new `compute_billing_month`, every one of those historical entries became a time bomb: the next time any of them was re-saved — an edited description, a re-categorisation — `save` would recompute `billing_month` under the *new* rule and silently move a months-old expense to a different month. Past totals would shift under the user with no audit trail.
+Here's the failure mode that the override flag exists to prevent. The billing rule above is the *current* rule. Earlier, the app booked credit-card expenses differently: installment charges, in particular, were entered with the month they were charged, not the purchase month. The day I shipped the new `compute_billing_month`, every one of those historical entries became a time bomb: the next time any of them was re-saved (an edited description, a re-categorisation), `save` would recompute `billing_month` under the *new* rule and silently move a months-old expense to a different month. Past totals would shift under the user with no audit trail.
 
-The clean fix is not to migrate the data — it's already correct — but to migrate the *flag*. A one-shot data migration pins every existing credit-card entry with `billing_month_override=True`, so `save` will never recompute them:
+The clean fix is not to migrate the data (it's already correct) but to migrate the *flag*. A one-shot data migration pins every existing credit-card entry with `billing_month_override=True`, so `save` will never recompute them:
 
 ```python
 def freeze_credit_entries(apps, schema_editor):
@@ -108,7 +110,7 @@ def noop_reverse(apps, schema_editor):
     pass
 ```
 
-Two design notes worth lingering on. First, `apps.get_model("finances", "Entry")` — not a direct import. A data migration must use the **historical** model as it existed at that point in the migration graph, so the code keeps working even after the real model changes later. Second, the reverse function is a deliberate no-op rather than absent. Django's docs note that if `reverse_code` is `None`, "the `RunPython` operation is irreversible" and unapplying it raises `IrreversibleError`; passing `RunPython.noop` instead makes the migration formally reversible "when you want the operation not to do anything in the given direction" ([Django migration operations](https://docs.djangoproject.com/en/6.0/ref/migration-operations/)). I chose the explicit no-op because there's genuinely nothing to undo — the data was never touched — and a docstring that says *why* beats a silent `IrreversibleError` for the next person reading `migrate --plan`. The migration is a piece of documentation as much as a piece of code.
+Two design notes worth lingering on. First, `apps.get_model("finances", "Entry")`, not a direct import. A data migration must use the **historical** model as it existed at that point in the migration graph, so the code keeps working even after the real model changes later. Second, the reverse function is a deliberate no-op rather than absent. Django's docs note that if `reverse_code` is `None`, "the `RunPython` operation is irreversible" and unapplying it raises `IrreversibleError`; passing `RunPython.noop` instead makes the migration formally reversible "when you want the operation not to do anything in the given direction" ([Django migration operations](https://docs.djangoproject.com/en/6.0/ref/migration-operations/)). I chose the explicit no-op because there's genuinely nothing to undo (the data was never touched) and a docstring that says *why* beats a silent `IrreversibleError` for the next person reading `migrate --plan`. The migration is a piece of documentation as much as a piece of code.
 
 ## Seeing it on a timeline
 
@@ -116,15 +118,15 @@ The rule is easiest to believe when you watch it act on real dates. Here are six
 
 <Image src={timeline} alt="A timeline mapping purchase dates to billing months: purchases before the 20th shift one month forward, purchases after the 20th shift two, and a single installment plan fans out across four consecutive invoice months." />
 
-The blue arrows shift one month to the right — purchases that beat the closing day. The orange arrows shift two — purchases that missed it and rolled to the next invoice. The green plan is the interesting one: a single purchase fanning out across four consecutive billing months, each installment landing on the next invoice. Booking any of these by purchase date would scatter them into the wrong months; the billing-month function is what lines them up where the user's wallet actually feels them.
+The blue arrows shift one month to the right: purchases that beat the closing day. The orange arrows shift two: purchases that missed it and rolled to the next invoice. The green plan is the interesting one: a single purchase fanning out across four consecutive billing months, each installment landing on the next invoice. Booking any of these by purchase date would scatter them into the wrong months; the billing-month function is what lines them up where the user's wallet actually feels them.
 
 ## Where I used this
 
-This runs in the credit-card accounting of my expense tracker. The shape is the part worth keeping: a pure, deterministic function for the rule; a thin resolver for the one stateful lookup it needs; a single `save` hook so the field is computed in exactly one place; and a freeze migration so that changing the rule tomorrow can't rewrite what the user already saw. The domain logic stays testable, the history stays honest, and "which month does this belong to?" has exactly one answer.
+This runs in the credit-card accounting of my expense tracker. The shape is the part worth keeping: a pure, deterministic function for the rule; a thin resolver for the one stateful lookup it needs; a single `save` hook so the field is computed in exactly one place; and a freeze migration so that changing the rule tomorrow can't rewrite what the user already saw. It's the same front-load-the-structure instinct behind [spec-driven scaffolding](/blog/spec-driven-scaffolding/): decide the shape once, in one place, so nothing downstream has to re-derive it. The domain logic stays testable, the history stays honest, and "which month does this belong to?" has exactly one answer.
 
 ## References and further reading
 
-- [Credit Card Billing Cycles, Explained — Chase](https://www.chase.com/personal/credit-cards/education/basics/credit-card-billing-cycles-explained) — closing date vs. payment due date, the basis of the rule. *(Link verified.)*
-- E. Evans, *Domain-Driven Design* (2003); see [Evans Classification — Martin Fowler](https://martinfowler.com/bliki/EvansClassification.html) — Entities, Value Objects, and stateless Services for operations no entity owns. *(Link verified.)*
-- [Single-responsibility principle](https://en.wikipedia.org/wiki/Single-responsibility_principle) — Robert C. Martin's "one, and only one, reason to change." *(Link verified.)*
-- [Django migration operations — RunPython](https://docs.djangoproject.com/en/6.0/ref/migration-operations/) — `reverse_code`, `RunPython.noop`, historical models via `apps.get_model`, and `IrreversibleError`. *(Link verified.)*
+- [Credit Card Billing Cycles, Explained (Chase)](https://www.chase.com/personal/credit-cards/education/basics/credit-card-billing-cycles-explained): closing date vs. payment due date, the basis of the rule.
+- E. Evans, *Domain-Driven Design* (2003); see [Evans Classification (Martin Fowler)](https://martinfowler.com/bliki/EvansClassification.html): Entities, Value Objects, and stateless Services for operations no entity owns.
+- [Single-responsibility principle](https://en.wikipedia.org/wiki/Single-responsibility_principle): Robert C. Martin's "one, and only one, reason to change."
+- [Django migration operations (RunPython)](https://docs.djangoproject.com/en/6.0/ref/migration-operations/): `reverse_code`, `RunPython.noop`, historical models via `apps.get_model`, and `IrreversibleError`.
