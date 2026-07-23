@@ -3,7 +3,7 @@ title: "Matrícula by reference: one enrollment number, one home, and the rule a
 description: "Update 6 of the Turmarium build log. Turmarium is a multi-tenant B2B school-management SaaS, English-first with pt-BR first-class. Update 6 builds the curso: a Course, its matriz curricular (disciplines attached to periods, level-guarded), and student registration that assigns a matrícula (the enrollment number a Brazilian student carries). The número lives on exactly one row (CourseEnrollment), the old Membership.enrollment_number is dropped, and every turma enrollment reads the matrícula through a foreign key instead of copying it. The sequence looks like a calendar and isn't: it's continuous per org, allocated under a locked Organization row so concurrent registrations can't collide. The cross-level guard (a discipline may only sit in a course of its own level) can't be a single-row CHECK constraint because it compares two tables, so it lives in the service with a red-first reject test and a UI that never offers the wrong choice. Discipline.level migrates from free-text to a shared enum through a pure-function backfill map that carries its own unit test. academic fires its second domain event, CourseEnrollmentCreated, still with no subscriber. 162 backend tests green at 95.22% coverage, 163 web tests green at 89.09%, import-linter two contracts kept and zero broken."
 project: "turmarium"
 update: 6
-pubDate: 2026-07-23T05:00:00-03:00
+pubDate: 2026-07-29T05:00:00-03:00
 tags: ["django", "postgres", "multi-tenant", "rls", "data-migration", "concurrency", "check-constraint", "domain-events", "i18n", "tdd", "building-in-public"]
 status: approved
 reviewedAt: 2026-07-23T13:33:33.144Z
