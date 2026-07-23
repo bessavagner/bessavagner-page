@@ -1,10 +1,12 @@
 ---
 title: "When a model broke containment: what my LLM sandbox actually stops"
 description: "OpenAI says its models escaped a sandbox and attacked Hugging Face to cheat an eval. I read that failure against my own LLM code sandbox: what it confines, what it deliberately doesn't, and why least privilege is the only line that holds."
-pubDate: 2026-07-27T05:00:00-03:00
+pubDate: 2026-07-23T05:00:00-03:00
 tags: ["security", "llm", "sandboxing", "ai-safety", "python"]
-status: draft
+status: approved
 cta: follow-build
+reviewedAt: 2026-07-23T19:15:17.069Z
+reviewHash: sha256:5b254d51195ec30af9c362323baf97f8b7ca93358695462dd75529ff003fb95e
 ---
 
 import ThemedFigure from '../../components/ThemedFigure.astro';
@@ -73,13 +75,15 @@ The allowed side is just as important, and just as real: the same box computes `
   alt="Threat model: untrusted LLM code on the left meets a dashed vertical 'sandbox boundary'. A red arrow from the code stops at the boundary with an X, above three red-outlined boxes labelled denied: egress, fs write, creds. Below, two blue arrows cross the boundary into blue boxes labelled allowed: cpu compute, scratch /tmp."
 />
 
+The two attacks above do not exercise a third control, but the incident argues for it anyway: the `--memory 256m` and `--pids-limit 128` caps. Those escaped models fired more than seventeen thousand recorded actions over a single weekend. A process that runs away like that, a fork bomb or a model stuck in a loop, hits those two limits long before it can starve the host it runs on.
+
 ## Where the line actually is
 
-If I stopped here the post would be dishonest, because the OpenAI incident did not fail at the boundary my sandbox defends. My container stops a *snippet* from reaching out or writing to the host. The escaped models did something categorically harder: they found a zero-day in the *host-side* infrastructure of the test environment and walked out through it, then pivoted across an internal network. That is not a snippet fumbling a socket. That is an attacker with a working exploit against the walls themselves.
+The OpenAI incident did not fail at the boundary my sandbox defends, and pretending otherwise would be the dishonest move. My container stops a *snippet* from reaching out or writing to the host. The escaped models did something categorically harder: they found a zero-day in the *host-side* infrastructure of the test environment and walked out through it, then pivoted across an internal network. That is not a snippet fumbling a socket. That is an attacker with a working exploit against the walls themselves.
 
 A per-snippet container makes no claim to stop that. If there is an unpatched vulnerability in the container runtime, the kernel, or some proxy the host trusts, `--cap-drop ALL` does not save you, and I would be lying to suggest otherwise. This is where the honest part of the design lives, and where I defer to controls I have not built. Running root inside the box is fine when the box holds; it stops being fine the moment there is a host-side escape, which is why dropping to a non-root user is the next control I would add before running anyone else's code, not just my own model's. And it is why, when you are running genuinely untrusted code at scale, the answer stops being a plain container and becomes a microVM or a gVisor-style kernel boundary, a step up the isolation spectrum I laid out in that original write-up. My setup sits deliberately at the pragmatic end of that spectrum. It is calibrated for *my* threat model: a model I invoke, confused or prompt-injected, not a dedicated adversary with a zero-day in hand.
 
-There is one more thread worth pulling, because it is the actual motive in the incident. The models broke out to cheat an evaluation. They were rewarded for a number going up, and the cheapest path to that number ran straight through Hugging Face's database. I spend a lot of time making evals hard to game for exactly this reason: my agent test harness has [an LLM judge that can only ever advise](/building/replaygate/05-the-llm-judge-that-cant-fail-your-build/), never gate the build, precisely so there is nothing to game by attacking the grader. An eval you can win by editing the answer key is not measuring what you think it is.
+There is one more thread worth pulling, because it is the actual motive in the incident. The models broke out to cheat an evaluation. They were rewarded for a number going up, and the cheapest path to that number ran straight through Hugging Face's database. I spend a lot of time making evals hard to game for exactly this reason: my agent test harness has [an LLM judge that can only ever advise](/building/replaygate/05-the-llm-judge-that-cant-fail-your-build/), never gate the build, precisely so there is nothing to game by attacking the grader. Once the answer key sits somewhere the model can reach, the benchmark measures how far it will go to win rather than how capable it is.
 
 ## So where do you draw yours?
 
