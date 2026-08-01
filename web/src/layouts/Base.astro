@@ -39,6 +39,9 @@ const ogImageUrl = new URL(ogImage, Astro.site ?? siteUrl).href;
 //              override PUBLIC_ANALYTICS_SRC when self-hosting).
 //   Umami:     set PUBLIC_ANALYTICS_WEBSITE_ID=<uuid> and PUBLIC_ANALYTICS_SRC to
 //              your Umami script URL (e.g. https://cloud.umami.is/script.js).
+//              data-performance="true" turns on Core Web Vitals (LCP/INP/CLS/FCP/
+//              TTFB) collection; without it those columns export as \N, which is
+//              "never collected", not "zero". Umami docs: /docs/tracker-configuration.
 const analyticsDomain = import.meta.env.PUBLIC_ANALYTICS_DOMAIN;
 const analyticsWebsiteId = import.meta.env.PUBLIC_ANALYTICS_WEBSITE_ID;
 const analyticsSrc = import.meta.env.PUBLIC_ANALYTICS_SRC ?? 'https://plausible.io/js/script.js';
@@ -114,7 +117,7 @@ const fontHref =
     })} />
 
     {analyticsWebsiteId ? (
-      <script is:inline defer src={analyticsSrc} data-website-id={analyticsWebsiteId}></script>
+      <script is:inline defer src={analyticsSrc} data-website-id={analyticsWebsiteId} data-performance="true"></script>
     ) : analyticsDomain && (
       <script is:inline defer data-domain={analyticsDomain} src={analyticsSrc}></script>
     )}
