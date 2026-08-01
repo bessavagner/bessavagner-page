@@ -1,0 +1,140 @@
+---
+title: "Kip Kissel or Ghip Ghisizzle: what OpenAI's new transcription models actually buy you"
+description: "OpenAI shipped gpt-transcribe and gpt-live-transcribe and priced the async model below the Whisper endpoint it replaces. I re-ran my own LibriSpeech benchmark against my local pipeline on the same laptop. The API won, by less than the error rate suggests, and the number worth paying for is not the one on the benchmark."
+pubDate: 2026-08-01T08:00:00-03:00
+heroImage: ../../assets/blog/openai-transcribe-vs-local-whisper/speed-accuracy.svg
+tags: ["whisper", "speech-to-text", "openai", "audio", "benchmarks"]
+status: draft
+---
+
+import { Image } from 'astro:assets';
+import speedAccuracy from '../../assets/blog/openai-transcribe-vs-local-whisper/speed-accuracy.svg';
+import keywordsFig from '../../assets/blog/openai-transcribe-vs-local-whisper/keywords.svg';
+import AnswerBlock from '../../components/blog/AnswerBlock.astro';
+
+<AnswerBlock>
+OpenAI's new `gpt-transcribe` costs $0.0045 per minute, undercutting the `whisper-1` endpoint it replaces. Re-running my own 200-utterance LibriSpeech benchmark, it scored 2.79% word error rate against 3.75% for a local faster-whisper `medium`, and ran seven times faster in wall-clock. The margin is thinner than it looks: a fifth of all its remaining errors are spelling conventions rather than mishearings. The feature actually worth paying for is `keywords`, which lets you hand the model your proper nouns up front and took three of my worst utterances straight to zero.
+</AnswerBlock>
+
+Three weeks ago I published [a benchmark of local Whisper model sizes](/blog/local-whisper-transcription-pipeline/) arguing that you don't need to pay anyone to turn audio into text. Then OpenAI shipped two new transcription models, `gpt-transcribe` for completed files and `gpt-live-transcribe` for live streams, and priced the async one *below* the hosted Whisper endpoint it replaces.
+
+That is the kind of news that should make you re-test a conclusion instead of repeating it. So I pointed the same corpus, on the same laptop, at the new API.
+
+The API won this time. It also taught me something about the metric I was using to judge it.
+
+## What actually shipped
+
+Two models for two jobs. `gpt-transcribe` handles completed audio files and batch work. `gpt-live-transcribe` handles a live stream where you want text while the person is still talking. [The docs](https://developers.openai.com/api/docs/guides/transcription) are firm that streaming *output* and live *input* are separate decisions.
+
+The prices, from [OpenAI's pricing page](https://developers.openai.com/api/docs/pricing):
+
+| model | price | per hour of audio |
+| --- | --- | --- |
+| `gpt-transcribe` | $0.0045 / min | $0.27 |
+| `gpt-live-transcribe` | $0.017 / min | $1.02 |
+| `whisper-1` (the old endpoint) | $0.006 / min | $0.36 |
+
+The async model undercuts the Whisper endpoint by 25%. That is the genuinely new economic fact, and it is why the earlier post deserved a re-test rather than a footnote.
+
+OpenAI's own claim is that `gpt-transcribe` cuts word error rate from 15.21% to 8.98% on something they call the Real World Audio Benchmark. Read that carefully: their benchmark, their audio, their scoring. Vendor numbers tell you a direction of travel and nothing about your files.
+
+## The rematch
+
+Same machine as the original post, a 13th-gen Intel Core i7 with 16 threads, CPU only. Same corpus, 200 utterances drawn deterministically from [LibriSpeech](https://www.openslr.org/12) `test-clean`, 27 minutes of audio. Same scoring, [jiwer](https://github.com/jitsi/jiwer) with case- and punctuation-insensitive normalization. Local models run through [faster-whisper](https://github.com/SYSTRAN/faster-whisper) at `int8` and `beam_size=1`, hosted models get the FLAC uploaded straight to `/v1/audio/transcriptions` with no context parameters. Every model saw the identical 200 files.
+
+<Image src={speedAccuracy} alt="Word error rate against wall-clock time on a log scale. Local base, small and medium sit at 6.11%, 4.59% and 3.75%, getting slower as they improve. The hosted models cluster at the fast end, with gpt-transcribe lowest at 2.79%." />
+
+| model | WER | wall-clock | vs realtime |
+| --- | --- | --- | --- |
+| `base` (local) | 6.11% | 189 s | 8.6× |
+| `small` (local) | 4.59% | 438 s | 3.7× |
+| `medium` (local) | 3.75% | 1217 s | 1.3× |
+| `whisper-1` (hosted) | 3.63% | 299 s | 5.5× |
+| `gpt-4o-transcribe` (hosted) | 3.20% | 200 s | 8.2× |
+| `gpt-transcribe` (hosted) | **2.79%** | 176 s | 9.2× |
+
+`gpt-transcribe` is the most accurate model in the run and also the fastest, which is not a combination the local tiers ever offer. It beats the best local model I tested by about a quarter, relative, and returns the whole 27 minutes in under three, while `medium` grinds for twenty. It beats the old `whisper-1` endpoint by a similar margin, which is at least consistent with the direction OpenAI advertised.
+
+One process note, because it nearly cost me the post. I ran a 40-utterance pilot first, and it said the *opposite*: `gpt-transcribe` tied local `medium` exactly and lost to the older `gpt-4o-transcribe`. That pilot covered 856 reference words, so the entire gap between those two models was seven errors. At 200 utterances and 4,405 words the ordering flipped and stayed put. Forty utterances is enough to convince yourself of something wrong.
+
+## What the word error rate is actually scoring
+
+A 2.79% error rate reads as "about one word in thirty-six is misheard." So I dumped all 108 error spans and read every one. Most are not mishearings.
+
+```
+substitute  ref='sombre'      hyp='somber'
+substitute  ref='neighbour'   hyp='neighbor'
+substitute  ref='inclosed'    hyp='enclosed'
+substitute  ref='mister'      hyp='mr'
+substitute  ref='two'         hyp='2'
+substitute  ref='ante'        hyp='anteroom'     (+ deleted 'room')
+substitute  ref='door'        hyp='doorstep'     (+ deleted 'step')
+```
+
+British against American spelling. Archaic against modern. An abbreviation the reference spells out. A digit instead of a word. Compound words the model joined and the transcriptionist split. Of the 108 error spans, 7 are British/American or archaic spelling swaps and 13 are compounds the model closed up, so a fifth of the total is pure orthography before you start counting abbreviations, numerals and names.
+
+My favourite one goes the other way entirely. The reference says `timaeus`; `gpt-transcribe` wrote `timæus`, with the ligature, the way the name is actually set in classical texts. It got marked wrong for knowing more than the ground truth.
+
+None of this means the benchmark is worthless. It means that at this range the metric is substantially measuring house style. When [Artificial Analysis puts `gpt-transcribe` at 3.31%](https://the-decoder.com/gpt-transcribe-improves-on-its-predecessor-but-cant-catch-elevenlabs-google-or-mistral-on-error-rates/) against ElevenLabs Scribe v2 at 2.3% and Gemini 3 Pro at 2.9%, some real capability separates them and some of it is whose spelling conventions the scorer happened to prefer.
+
+Strip the orthography out and the errors that remain have one thing in common. They are names.
+
+## The parameter that earns the money
+
+`Ghip Ghisizzle`, a character from a Baum novel. The `Boolooroo`, his title. `Rodolfo` and `Leocadia` from a Cervantes novella. `Fitzooth`, `Stuteley`, `La Valliere`, `Tonnay-Charente`. No amount of model scale fixes these, because nothing in the audio tells the model how the name is spelled.
+
+This is what the new context parameters are for, and it is the thing my local pipeline cannot do at all. Alongside the audio you can pass `prompt` for free-form context, `keywords` for literal terms that may appear, and `languages`. So I took the three utterances whose only errors were names and handed the model the names:
+
+```python
+resp = client.audio.transcriptions.create(
+    model="gpt-transcribe",
+    file=fh,
+    keywords=["Ghip Ghisizzle", "Boolooroo"],
+)
+```
+
+Bare, the model returned *"I, Kip Kissel, have been the lawful bularoo of the Blue Country."* With those two keywords: *"I, Ghip Ghisizzle, have been the lawful Boolooroo of the Blue Country."* That utterance went from 10.8% to zero.
+
+<Image src={keywordsFig} alt="Grouped bars for three utterances. With no context they score 10.8%, 7.7% and 4.9% word error rate. With keywords naming the proper nouns, all three fall to 0.0%." />
+
+All three went to zero. That is the product. Not a fractional improvement on a leaderboard, but a supported way to tell the model that your speakers are going to say Boolooroo, or your drug names, or your customers' surnames, or the dozen acronyms your team uses that appear nowhere in any training set.
+
+It cuts both ways, and in a way that rhymes with the spelling finding. On the third utterance I also passed a `prompt` explaining the passage was a Spanish novella. The model obligingly wrote `señora`, and the error rate went back *up* from zero to 2.4%, because the reference spells it `senora`. Context does not make the model more correct in the abstract. It moves the output toward the conventions you described, which helps only when those are the conventions you are scored against.
+
+## The live model, and its sharp edge
+
+`gpt-live-transcribe` runs over the Realtime WebSocket instead of a plain HTTP POST, and my first attempt died immediately:
+
+```
+Turn detection is not supported for this transcription model.
+```
+
+The model segments audio itself, so `turn_detection` has to be left unset rather than configured. Small thing, ten minutes of my life, and exactly the kind of edge a migration guide exists to smooth.
+
+Once connected I streamed a 13.9-second clip paced at wall-clock speed, the way a microphone would deliver it. First text came back **1.52 seconds** in, then 48 incremental deltas as the audio played out. For live captioning that feels right.
+
+Then I ran the same clip again and got different words. Bare, the model transcribed the name as `Gip and Sizzle` on one run and `Skip Giszel` on the next. With `keywords` set, both runs came back byte-identical. If you need output that survives a retry, pinning your vocabulary is worth it for the stability alone, never mind the accuracy.
+
+## So should you pay now?
+
+At $0.27 an hour, a two-hour meeting costs 54 cents and comes back before a local `medium` has finished warming up. For one-off recordings, and for anything full of names, the API is now the sensible default. I did not expect to write that sentence three weeks ago.
+
+Volume changes the arithmetic fast. Ten thousand hours of archive is $2,700 through `gpt-transcribe`, or nothing at all on a machine you already own that can run overnight for a week. Live transcription is steeper still: `gpt-live-transcribe` costs nearly four times the async model, so continuous captioning turns into a real line item.
+
+And some audio simply cannot be uploaded. Medical recordings, legal interviews, anything under an NDA. There, local Whisper is not losing a benchmark by one percentage point, it is the only thing on the table. That constraint is why I keep [the provider boundary abstracted](/blog/provider-agnostic-llm-abstraction/) on the LLM side too, so who processes the data stays a decision rather than an assumption.
+
+Where does that leave [the original post](/blog/local-whisper-transcription-pipeline/)? Its core claim survives with an amendment I am happy to make. Free, local, offline transcription is still genuinely good, and a mid-tier local model is within about one error per hundred words of a paid API on clean speech. What changed is that "it costs money" is now a weak objection at small volumes, and that the hosted model can be told what the words are.
+
+If you transcribe anything with guest names, jargon or product names in it, go and read the `keywords` documentation before you read another benchmark table. The improvement you can actually feel is in there, and it never shows up in the headline number.
+
+## References and further reading
+
+- [OpenAI transcription guide](https://developers.openai.com/api/docs/guides/transcription): the model list and the `prompt` / `keywords` / `languages` context parameters. *(Link verified.)*
+- [OpenAI API pricing](https://developers.openai.com/api/docs/pricing): the per-minute transcription rates quoted above. *(Link verified.)*
+- [Realtime transcription guide](https://developers.openai.com/api/docs/guides/realtime-transcription): the WebSocket session shape used for `gpt-live-transcribe`. *(Link verified.)*
+- [The Decoder on the AA-WER results](https://the-decoder.com/gpt-transcribe-improves-on-its-predecessor-but-cant-catch-elevenlabs-google-or-mistral-on-error-rates/): third-party error rates against ElevenLabs, Google and Mistral. *(Link verified.)*
+- [LibriSpeech ASR corpus](https://www.openslr.org/12): the `test-clean` split used for the rematch. *(Link verified.)*
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper): the local CTranslate2 implementation the pipeline runs on. *(Link verified.)*
+- [jiwer](https://github.com/jitsi/jiwer): used to compute word error rate with case- and punctuation-insensitive normalization. *(Link verified.)*
+
+The benchmark harness and the raw results are in the repo alongside the plot scripts, under `web/scripts/plots/openai-transcribe-vs-local-whisper/measure/`.

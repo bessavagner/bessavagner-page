@@ -1,0 +1,50 @@
+[
+  {
+    "id": "8555-284449-0004",
+    "ref": "SINCE LAST THURSDAY I GHIP GHISIZZLE HAVE BEEN THE LAWFUL BOOLOOROO OF THE BLUE COUNTRY BUT NOW THAT YOU ARE CONQUERED BY QUEEN TROT I SUPPOSE I AM CONQUERED TOO AND YOU HAVE NO BOOLOOROO AT ALL",
+    "keywords": {
+      "text": "Since last Thursday I, Ghip Ghisizzle, have been the lawful Boolooroo of the Blue Country, but now that you are conquered by Queen Trot, I suppose I am conquered too, and you have no Boolooroo at all.",
+      "wer": 0.0
+    },
+    "bare": {
+      "text": "Since last Thursday, I, Kip Kissel, have been the lawful bularoo of the Blue Country, but now that you are conquered by Queen Trot, I suppose I am conquered too, and you have no bularoo at all.",
+      "wer": 0.10810810810810811
+    },
+    "keywords+prompt": {
+      "text": "Since last Thursday, I, Ghip Ghisizzle, have been the lawful Boolooroo of the Blue Country, but now that you are conquered by Queen Trot, I suppose I am conquered too, and you have no Boolooroo at all.",
+      "wer": 0.0
+    }
+  },
+  {
+    "id": "5639-40744-0007",
+    "ref": "MEANWHILE RODOLFO HAD LEOCADIA SAFE IN HIS CUSTODY AND IN HIS OWN APARTMENT",
+    "keywords": {
+      "text": "Meanwhile, Rodolfo had Leocadia safe in his custody, and in his own apartment.",
+      "wer": 0.0
+    },
+    "bare": {
+      "text": "Meanwhile, Rudolpho had Leocadia safe in his custody, and in his own apartment.",
+      "wer": 0.07692307692307693
+    },
+    "keywords+prompt": {
+      "text": "Meanwhile, Rodolfo had Leocadia safe in his custody, and in his own apartment.",
+      "wer": 0.0
+    }
+  },
+  {
+    "id": "5639-40744-0039",
+    "ref": "WHEN SHE CAME TO HER SENSES AND BLUSHING TO FIND HERSELF IN RODOLFO'S ARMS WOULD HAVE DISENGAGED HERSELF NO SENORA HE SAID THAT MUST NOT BE STRIVE NOT TO WITHDRAW FROM THE ARMS OF HIM WHO HOLDS YOU IN HIS SOUL",
+    "keywords": {
+      "text": "When she came to her senses, and blushing to find herself in Rodolfo's arms, would have disengaged herself. No, senora, he said, that must not be. Strive not to withdraw from the arms of him who holds you in his soul.",
+      "wer": 0.0
+    },
+    "bare": {
+      "text": "When she came to her senses, and blushing to find herself in Rodolpho's arms, would have disengaged herself. No, se\u00f1ora, he said, that must not be. Strive not to withdraw from the arms of him who holds you in his soul.",
+      "wer": 0.04878048780487805
+    },
+    "keywords+prompt": {
+      "text": "When she came to her senses, and blushing to find herself in Rodolfo's arms, would have disengaged herself. No, se\u00f1ora, he said, that must not be; strive not to withdraw from the arms of him who holds you in his soul.",
+      "wer": 0.024390243902439025
+    }
+  }
+]
