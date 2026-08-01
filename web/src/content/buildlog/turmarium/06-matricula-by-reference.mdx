@@ -6,8 +6,8 @@ update: 6
 pubDate: 2026-07-29T05:00:00-03:00
 tags: ["django", "postgres", "multi-tenant", "rls", "data-migration", "concurrency", "check-constraint", "domain-events", "i18n", "tdd", "building-in-public"]
 status: approved
-reviewedAt: 2026-07-23T13:33:33.144Z
-reviewHash: sha256:0766c290892cd36b7e7f171ce143c8515f24574e83a48eb0994fe4ff66ef6ad6
+reviewedAt: 2026-07-28T15:11:18.976Z
+reviewHash: sha256:2bc35abd3fffc8ade2eaef2bcf939c6303e172e2053ee3c8f591d3e221faeeaa
 ---
 
 I'm building **Turmarium** in public: a multi-tenant B2B SaaS for schools. A school signs up as a tenant, registers its people (admins, staff, teachers, students) and its academic structure, and runs a real term on it. It's English-first because I build in the open, with Brazilian Portuguese as a first-class locale because that's who I want to sell it to.
@@ -116,7 +116,7 @@ The `RunPython` step imports that function and calls it; it does no thinking of 
 
 ## The second event, still shouting into an empty room
 
-Registering a student emits `CourseEnrollmentCreated` on the same in-process bus [update 4](/building/turmarium/04-shouting-into-an-empty-room/) built for the first event: a typed, frozen dataclass, asserted through a test subscriber, with no real subscriber in the app yet. Same discipline as update 4. Publish the event when the fact is true, so the day something needs to react (a welcome email, a seat count, an audit trail) the subscriber is the only new code. Cheap to lay now, expensive to retrofit later.
+Registering a student emits `CourseEnrollmentCreated` on the same in-process bus [update 4](/building/turmarium/04-shouting-into-an-empty-room/) built for the first event: a typed, frozen dataclass, asserted through a test subscriber, with no real subscriber in the app yet. It inherited update 4's bug along with the bus. This slice calls `events.emit` on the line right after the `except`, inside the request transaction that `ATOMIC_REQUESTS` holds open, so the second event fires before its matrícula is durable exactly as the first one did. That got fixed a few days after this epic closed: both emits now sit inside `transaction.on_commit`, with a comment above them saying why, so a subscriber never reacts to a matrícula a later rollback erases. Publishing the event when the fact is true was always the rule. It took two events and a probe before the code did it.
 
 ## What I learned
 
@@ -125,6 +125,14 @@ This whole update was one question asked at every turn: where does each rule liv
 A `CHECK` constraint is a promise the database keeps for you. A service-layer check is a promise you keep for the database. When a rule spans two tables, the second is the honest one, and pretending otherwise by denormalizing a column just moves the lie somewhere quieter.
 
 Where it landed: 162 backend tests green (up from 130 last update) at 95.22% coverage and 163 web tests green (up from 144) at 89.09% statement, 81.02% branch, both above their 80% gates; import-linter still reports two contracts kept and zero broken (the three new tables and the second event stayed inside `academic`, importing only `core`'s public seam); every new `TenantScoped` table is forced-RLS with a cross-tenant test proving org A can't read org B; and the create-course → build-matriz → register-student → see-matrícula path walks green end-to-end in the browser, asserting on a real `YYYY-H-NNNNN` number.
+
+## Postscript: the rule stopped existing
+
+I approved this update on 23 July. On the 24th, a follow-up epic deleted most of the argument above.
+
+`CourseDiscipline` is gone. A discipline now belongs to exactly one course through a foreign key, and the two columns the link table carried, `period` and `required`, sit on the discipline itself. Which means a discipline's level *is* its course's level and the two can no longer disagree. The cross-level guard went with it: `cross_level_link` is retired, and the error-code test that used to list it now carries a comment saying nothing raises it any more.
+
+So for that one rule, the honest answer to this post's question is "nowhere." The other three still live where I put them, but the cross-level guard was an artifact of the shape I'd given the data, and the fix was to change the shape rather than to pick a better layer for the check. I'm leaving the argument above standing, because it's what I actually thought on the 6th. The version of the question I'd ask now is a different one: before deciding which layer enforces an invariant, check whether the schema is what makes the invariant necessary at all.
 
 ## What's next
 

@@ -5,7 +5,9 @@ project: "regwatch"
 update: 7
 pubDate: 2026-07-28T08:00:00-03:00
 tags: ["design-systems", "ui-design", "svelte", "tailwind", "dashboard", "redesign", "css", "building-in-public", "govtech"]
-status: draft
+status: approved
+reviewedAt: 2026-07-28T14:36:35.036Z
+reviewHash: sha256:4534b76c94f094cb2430e851dd04c56202d667f87006f2ddc2cf59db7193d989
 ---
 
 import { Image } from 'astro:assets';
@@ -48,7 +50,7 @@ The dial and the stat row next to it are the part I care most about, and not for
 
 My never-fabricate rule for the writing turns out to be the same rule the design system enforces on the pixels. That was a nice thing to notice: the honesty constraint I hold for these posts is not a separate value from how the product presents itself. A dashboard that fakes a chart to look impressive is doing the thing I refuse to do in prose.
 
-There is one functional flourish that carried straight over from the plain version, retokened but unchanged: a Cmd/Ctrl+K command palette to jump between screens.
+One thing in this update isn't a restyle at all: a Cmd/Ctrl+K command palette to jump between screens, new here, riding in with the floating-pill nav it hangs off. It only routes to screens that already existed, so nothing underneath moved, but it's the one change that alters what you can *do* rather than how things look.
 
 <Image src={lumenPalette} alt="Screenshot of the RegWatch command palette open over the dark triage screen: a centered dialog with a '⌘K' label, a 'Jump to…' search field, and a list of navigable destinations (Triage, Watches, Clients, Digests) each with a return-key hint." class="rounded-xl border border-base-content/15 my-8 w-full h-auto" />
 
