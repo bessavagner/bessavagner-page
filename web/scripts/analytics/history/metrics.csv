@@ -1,0 +1,123 @@
+month,section,name,value_raw,value_num,source,note,void,partial,days_measured
+2026-07,Channel & engagement (GA4),AI Assistant — engaged sessions,1,1,GA4,,false,true,
+2026-07,Channel & engagement (GA4),AI Assistant — pages/session,0.67,0.67,GA4,goal > 2.0,false,true,
+2026-07,Channel & engagement (GA4),AI Assistant — sessions,3,3,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Direct — engaged sessions,23,23,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Direct — pages/session,1.49,1.49,GA4,goal > 2.0,false,true,
+2026-07,Channel & engagement (GA4),Direct — sessions,94,94,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Organic Search — engaged sessions,2,2,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Organic Search — pages/session,1.00,1.00,GA4,goal > 2.0,false,true,
+2026-07,Channel & engagement (GA4),Organic Search — sessions,6,6,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Organic Social — engaged sessions,30,30,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Organic Social — pages/session,1.67,1.67,GA4,goal > 2.0,false,true,
+2026-07,Channel & engagement (GA4),Organic Social — sessions,72,72,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Pages/session (site-wide),1.50,1.50,GA4,goal > 2.0; baseline 1.69 (kpi-baselines-and-targets.md),false,true,
+2026-07,Channel & engagement (GA4),Paid Search — engaged sessions,0,0,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Paid Search — pages/session,1.00,1.00,GA4,goal > 2.0,false,true,
+2026-07,Channel & engagement (GA4),Paid Search — sessions,1,1,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Paid Social — engaged sessions,1,1,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Paid Social — pages/session,1.12,1.12,GA4,goal > 2.0,false,true,
+2026-07,Channel & engagement (GA4),Paid Social — sessions,8,8,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Referral — engaged sessions,2,2,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Referral — pages/session,1.00,1.00,GA4,goal > 2.0,false,true,
+2026-07,Channel & engagement (GA4),Referral — sessions,2,2,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Unassigned — engaged sessions,0,0,GA4,,false,true,
+2026-07,Channel & engagement (GA4),Unassigned — pages/session,0.50,0.50,GA4,goal > 2.0,false,true,
+2026-07,Channel & engagement (GA4),Unassigned — sessions,2,2,GA4,,false,true,
+2026-07,Conversions,cv_download,1,1,GA4,,false,true,
+2026-07,Flagged / pending (no counterpart or traffic-gated),generate_lead,no GA4 events in window,,GA4,"GA4 received no generate_lead in this window (Umami raw 0, see Reach) — not a measured 0. GA4 simply has no row for this event here.",false,true,
+2026-07,Flagged / pending (no counterpart or traffic-gated),newsletter_signup,no GA4 events in window,,GA4,"GA4 received no newsletter_signup in this window (Umami raw 0, see Reach) — not a measured 0. GA4 simply has no row for this event here.",false,true,
+2026-07,Flagged / pending (no counterpart or traffic-gated),whatsapp_click,no GA4 events in window,,GA4,"GA4 received no whatsapp_click in this window (Umami raw 1, see Reach) — not a measured 0. GA4 simply has no row for this event here.",false,true,
+2026-07,Indexation (GSC),/blog/branded-social-preview-images-at-build-time/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/credit-card-billing-cycles/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/giving-an-llm-agent-memory/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/idempotent-scheduled-jobs-with-celery-beat/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/local-whisper-transcription-pipeline/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/machine-readable-plan-format/,URL is unknown to Google,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/polymorphic-vaults-in-drf/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/provider-agnostic-llm-abstraction/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/pruning-chat-context-by-summarization/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/pulling-structured-data-from-unstructured-documents/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/real-time-websockets-with-django-channels/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/spec-driven-scaffolding/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/sub-second-llm-triage/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/blog/when-a-model-broke-containment/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/regwatch/03-the-daily-run-made-real/,Discovered - currently not indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/regwatch/04-deploying-regwatch-to-cloud-run/,Discovered - currently not indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/regwatch/05-a-wall-between-tenants/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/regwatch/06-from-curl-to-click/,Discovered - currently not indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/regwatch/07-turning-on-the-lights/,URL is unknown to Google,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/replaygate/03-the-regress-gate-catching-cross-turn-bugs/,Discovered - currently not indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/replaygate/04-cross-version-regress-pass-fail-or-diverged/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/replaygate/05-the-llm-judge-that-cant-fail-your-build/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/stealthbench/01-a-second-browser-zero-detector-changes/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/stealthbench/02-scores-that-dont-repeat/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/stealthbench/03-every-falsy-value-went-missing/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/stealthbench/04-one-command-to-run-it/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/stealthbench/05-a-release-with-no-secrets/,URL is unknown to Google,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/supskill/01-re-running-the-finding/,Discovered - currently not indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/supskill/02-shipping-the-gate/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/turmarium/01-proving-tenant-isolation-at-the-database/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/turmarium/02-green-tests-red-browser/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/turmarium/03-good-fences-import-boundary/,Submitted and indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/turmarium/04-shouting-into-an-empty-room/,Discovered - currently not indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/turmarium/05-white-on-white-design-system/,Discovered - currently not indexed,,GSC,,false,true,29
+2026-07,Indexation (GSC),/building/turmarium/06-matricula-by-reference/,Discovered - currently not indexed,,GSC,,false,true,29
+2026-07,Indexation verdict (GSC),Posts indexed,24,24,GSC,"counts the posts PUBLISHED this month; the denominator is a different set each month, so a delta here is publishing hygiene, not a per-page trend",false,true,29
+2026-07,Indexation verdict (GSC),Posts not indexed,11,11,GSC,"counts the posts PUBLISHED this month; the denominator is a different set each month, so a delta here is publishing hygiene, not a per-page trend",false,true,29
+2026-07,Indexation verdict (GSC),Posts pending inspection,0,0,GSC,"counts the posts PUBLISHED this month; the denominator is a different set each month, so a delta here is publishing hygiene, not a per-page trend",false,true,29
+2026-07,Pinned pages (GSC),/ — CTR,0.00%,0.00,GSC,"a delta on this row is in percentage POINTS, not percent",false,true,29
+2026-07,Pinned pages (GSC),/ — clicks,0,0,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/ — impressions,14,14,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/ — position,5.3,5.3,GSC,"average position — LOWER IS BETTER, so a positive delta here is a WORSE rank",false,true,29
+2026-07,Pinned pages (GSC),/blog/beating-browser-fingerprinting/ — CTR,1.61%,1.61,GSC,"a delta on this row is in percentage POINTS, not percent",false,true,29
+2026-07,Pinned pages (GSC),/blog/beating-browser-fingerprinting/ — clicks,3,3,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/blog/beating-browser-fingerprinting/ — impressions,186,186,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/blog/beating-browser-fingerprinting/ — position,15.7,15.7,GSC,"average position — LOWER IS BETTER, so a positive delta here is a WORSE rank",false,true,29
+2026-07,Pinned pages (GSC),/blog/fast-molecular-dynamics-in-numpy/ — CTR,0.00%,0.00,GSC,"a delta on this row is in percentage POINTS, not percent",false,true,29
+2026-07,Pinned pages (GSC),/blog/fast-molecular-dynamics-in-numpy/ — clicks,0,0,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/blog/fast-molecular-dynamics-in-numpy/ — impressions,38,38,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/blog/fast-molecular-dynamics-in-numpy/ — position,5.8,5.8,GSC,"average position — LOWER IS BETTER, so a positive delta here is a WORSE rank",false,true,29
+2026-07,Pinned pages (GSC),/blog/pulling-structured-data-from-unstructured-documents/ — CTR,0.00%,0.00,GSC,"a delta on this row is in percentage POINTS, not percent",false,true,29
+2026-07,Pinned pages (GSC),/blog/pulling-structured-data-from-unstructured-documents/ — clicks,0,0,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/blog/pulling-structured-data-from-unstructured-documents/ — impressions,242,242,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/blog/pulling-structured-data-from-unstructured-documents/ — position,50.5,50.5,GSC,"average position — LOWER IS BETTER, so a positive delta here is a WORSE rank",false,true,29
+2026-07,Pinned pages (GSC),/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/ — CTR,0.00%,0.00,GSC,"a delta on this row is in percentage POINTS, not percent",false,true,29
+2026-07,Pinned pages (GSC),/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/ — clicks,0,0,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/ — impressions,63,63,GSC,,false,true,29
+2026-07,Pinned pages (GSC),/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/ — position,3.8,3.8,GSC,"average position — LOWER IS BETTER, so a positive delta here is a WORSE rank",false,true,29
+2026-07,Reach (Umami),cv_download (raw event count),5,5,Umami,,false,true,
+2026-07,Reach (Umami),generate_lead (raw event count),0,0,Umami,,false,true,
+2026-07,Reach (Umami),newsletter_signup (raw event count),0,0,Umami,,false,true,
+2026-07,Reach (Umami),whatsapp_click (raw event count),1,1,Umami,,false,true,
+2026-07,Search demand — totals (GSC),Average position,24.4,24.4,GSC,impression-weighted; unstable at low volume — a few points is not a trend,false,true,29
+2026-07,Search demand — totals (GSC),CTR,0.49%,0.49,GSC,,false,true,29
+2026-07,Search demand — totals (GSC),Clicks,6,6,GSC,,false,true,29
+2026-07,Search demand — totals (GSC),Impressions,1217,1217,GSC,,false,true,29
+2026-07,Sitemap health (GSC),https://bessavagner.com/sitemap-index.xml — URLs submitted,117,117,GSC,,false,true,29
+2026-07,Sitemap health (GSC),https://bessavagner.com/sitemap-index.xml — days since last download,0,0,GSC,,false,true,29
+2026-07,Top countries (GSC),BRA,71 impr · 0 clicks · 0.00% CTR · pos 14.8,,GSC,,false,true,29
+2026-07,Top countries (GSC),DEU,28 impr · 0 clicks · 0.00% CTR · pos 39.4,,GSC,,false,true,29
+2026-07,Top countries (GSC),IDN,38 impr · 0 clicks · 0.00% CTR · pos 30.9,,GSC,,false,true,29
+2026-07,Top countries (GSC),USA,538 impr · 1 clicks · 0.19% CTR · pos 21.4,,GSC,,false,true,29
+2026-07,Top countries (GSC),VNM,135 impr · 1 clicks · 0.74% CTR · pos 30.9,,GSC,,false,true,29
+2026-07,Top pages (GSC),/blog/beating-browser-fingerprinting/,186 impr · 3 clicks · 1.61% CTR · pos 15.7,,GSC,,false,true,29
+2026-07,Top pages (GSC),/blog/fast-molecular-dynamics-in-numpy/,38 impr · 0 clicks · 0.00% CTR · pos 5.8,,GSC,,false,true,29
+2026-07,Top pages (GSC),/blog/idempotent-scheduled-jobs-with-celery-beat/,63 impr · 1 clicks · 1.59% CTR · pos 14.0,,GSC,,false,true,29
+2026-07,Top pages (GSC),/blog/local-whisper-transcription-pipeline/,106 impr · 0 clicks · 0.00% CTR · pos 30.3,,GSC,,false,true,29
+2026-07,Top pages (GSC),/blog/polymorphic-vaults-in-drf/,41 impr · 0 clicks · 0.00% CTR · pos 26.2,,GSC,,false,true,29
+2026-07,Top pages (GSC),/blog/pulling-structured-data-from-unstructured-documents/,242 impr · 0 clicks · 0.00% CTR · pos 50.5,,GSC,,false,true,29
+2026-07,Top pages (GSC),/blog/real-time-websockets-with-django-channels/,299 impr · 0 clicks · 0.00% CTR · pos 21.9,,GSC,,false,true,29
+2026-07,Top pages (GSC),/blog/running-llm-generated-code-safely/,64 impr · 1 clicks · 1.56% CTR · pos 20.0,,GSC,,false,true,29
+2026-07,Top pages (GSC),/building/regwatch/02-fetching-the-gazette-inlabs-ingestor/,63 impr · 0 clicks · 0.00% CTR · pos 3.8,,GSC,,false,true,29
+2026-07,Top pages (GSC),/building/turmarium/03-good-fences-import-boundary/,22 impr · 0 clicks · 0.00% CTR · pos 6.0,,GSC,,false,true,29
+2026-07,Top queries (GSC),django channels asyncwebsocketconsumer database_sync_to_async orm docs,8 impr · 0 clicks · 0.00% CTR · pos 7.4,,GSC,,false,true,29
+2026-07,Top queries (GSC),django channels database_sync_to_async orm async consumer docs,13 impr · 0 clicks · 0.00% CTR · pos 7.5,,GSC,,false,true,29
+2026-07,Top queries (GSC),django real time,5 impr · 0 clicks · 0.00% CTR · pos 23.0,,GSC,,false,true,29
+2026-07,Top queries (GSC),how to safely execute code generated by an llm,10 impr · 0 clicks · 0.00% CTR · pos 29.2,,GSC,,false,true,29
+2026-07,Top queries (GSC),structured data extraction,7 impr · 0 clicks · 0.00% CTR · pos 87.3,,GSC,,false,true,29
+2026-07,Top queries (GSC),structured data from documents,6 impr · 0 clicks · 0.00% CTR · pos 68.5,,GSC,,false,true,29
+2026-07,Top queries (GSC),tapping into unstructured data,15 impr · 0 clicks · 0.00% CTR · pos 72.4,,GSC,,false,true,29
+2026-07,Top queries (GSC),unstructured data extraction,41 impr · 0 clicks · 0.00% CTR · pos 63.1,,GSC,,false,true,29
+2026-07,Top queries (GSC),unstructured data extraction tools,7 impr · 0 clicks · 0.00% CTR · pos 67.1,,GSC,,false,true,29
+2026-07,Top queries (GSC),unstructured to structured data,7 impr · 0 clicks · 0.00% CTR · pos 56.6,,GSC,,false,true,29
