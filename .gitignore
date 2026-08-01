@@ -17,6 +17,7 @@ __pycache__/
 desktop/
 *copy.*
 *worktrees/
+.sandboxes/
 
 # Build
 dist/
