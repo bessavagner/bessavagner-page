@@ -1,12 +1,12 @@
 ---
-title: "Real-time without the polling: WebSockets with Django Channels"
-description: "HTTP request/response can't push. Django Channels makes Django event-driven: an async WebSocket consumer with channel-layer groups broadcasts to every connected client, while a small wrapper keeps the synchronous ORM safe inside the async world."
+title: "Django Channels: database_sync_to_async and the ORM in async consumers"
+description: "The Django ORM is synchronous; an AsyncWebsocketConsumer is not. database_sync_to_async is the wrapper that bridges them. How Channels' async consumers and channel-layer groups broadcast to every connected client, and where the ORM boundary actually sits."
 pubDate: 2026-07-13T05:00:00-03:00
 heroImage: ../../assets/blog/real-time-websockets-with-django-channels/latency.svg
 tags: ["django", "websockets", "async", "real-time", "python"]
 status: approved
-reviewedAt: 2026-07-13T14:02:56.741Z
-reviewHash: sha256:dcffea54b2008df30918bf3b3f0db5e6c5c1f04bf70fff8404f2c9e7abee46ce
+reviewedAt: 2026-07-31T16:20:42.173Z
+reviewHash: sha256:8f72d46bb9ad055fceca2e280dfed46a8f3b903bb6e0db1ec8720cd8ea8b3427
 ---
 
 import { Image } from 'astro:assets';

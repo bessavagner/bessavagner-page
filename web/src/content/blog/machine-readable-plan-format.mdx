@@ -4,19 +4,21 @@ description: "If you want a language model to carry out a plan, write the plan f
 pubDate: 2026-07-27T05:00:00-03:00
 heroImage: ../../assets/blog/machine-readable-plan-format/tokens.svg
 tags: ["llm-agents", "prompt-engineering", "automation", "methodology"]
-status: draft
+status: approved
+reviewedAt: 2026-07-28T13:17:23.892Z
+reviewHash: sha256:c71be29a90abb89a2e421e674be990b9847a007af0f0afc12c467432d6a399a1
 ---
 
 import { Image } from 'astro:assets';
 import tokens from '../../assets/blog/machine-readable-plan-format/tokens.svg';
 
-There's a particular flavor of disappointment that comes from handing a language model a beautifully written plan and watching it do something else. The plan was clear — to you. It read like a good design doc: motivation up front, prose describing the change, a few illustrative snippets. The model nodded along and then edited the wrong function, skipped a step, or "improved" something you never mentioned.
+There's a particular flavor of disappointment that comes from handing a language model a beautifully written plan and watching it do something else. The plan was clear to you. It read like a good design doc: motivation up front, prose describing the change, a few illustrative snippets. The model nodded along and then edited the wrong function, skipped a step, or "improved" something you never mentioned.
 
 The problem usually isn't the model. It's that the plan was written for a human reader, and you handed it to a machine executor. Those are different audiences with different needs. If you want a model to *execute* a plan rather than admire it, you write the plan the way you'd write a config file: structured, explicit, and unambiguous. This post is about what that looks like in practice.
 
 ## Plans written for humans don't execute
 
-A human reading a plan fills in gaps automatically. "Update the order handler to dedupe by key" is enough — a human knows which file, infers the shape of the change, and notices if a step was already done. A model reading the same line has to guess at every one of those, and each guess is a chance to drift.
+A human reading a plan fills in gaps automatically. "Update the order handler to dedupe by key" is enough: a human knows which file, infers the shape of the change, and notices if a step was already done. A model reading the same line has to guess at every one of those, and each guess is a chance to drift.
 
 The official guidance backs this up. Anthropic's prompt-engineering docs describe the model as "a brilliant but new employee who lacks context on your norms and workflows," and the single most repeated instruction is to **be clear and direct**: "Be specific about the desired output format and constraints" and "provide instructions as sequential steps" when order matters ([Anthropic prompt engineering](https://platform.claude.com/docs/en/docs/build-with-claude/prompt-engineering/use-xml-tags)). Vagueness that a colleague would paper over becomes a fork in the road for a model.
 
@@ -48,7 +50,7 @@ The checklist that proves the goal was reached.
 </verification>
 ```
 
-A model can locate "the goal" or "task 2" by tag in one hop. Buried in three paragraphs of prose, the same facts are something it has to *reconstruct* — and reconstruction is where it drifts. It's the same reason I gave an agent a tagged, structured Markdown block instead of loose prose to hold what it remembers about a user, in [giving an LLM agent memory](/blog/giving-an-llm-agent-memory/).
+A model can locate "the goal" or "task 2" by tag in one hop. Buried in three paragraphs of prose, the same facts are something it has to *reconstruct*, and reconstruction is where it drifts. It's the same reason I gave an agent a tagged, structured Markdown block instead of loose prose to hold what it remembers about a user, in [giving an LLM agent memory](/blog/giving-an-llm-agent-memory/).
 
 ## Atomic edits
 
@@ -69,13 +71,13 @@ return db.insert(Order(**payload))
 </task>
 ```
 
-Two things make this reliable. The `find` block is *unique* — a substring that matches exactly one place in the file, so there's no ambiguity about where the edit lands. (Vague find targets are the classic failure: search for `export const` and you'll hit it in ten files.) And the `replace` block is literal code, not a description of code. The instant you write "add appropriate error handling here," you've handed the decision back to the model. This is the same constraint that production edit tools enforce — a find/replace only applies when its target appears exactly once — and writing your plan in that shape means each step either applies cleanly or fails loudly, with no silent guessing in between.
+Two things make this reliable. The `find` block is *unique*: a substring that matches exactly one place in the file, so there's no ambiguity about where the edit lands. (Vague find targets are the classic failure: search for `export const` and you'll hit it in ten files.) And the `replace` block is literal code, not a description of code. The instant you write "add appropriate error handling here," you've handed the decision back to the model. This is the same constraint that production edit tools enforce, since a find/replace only applies when its target appears exactly once. Writing your plan in that shape means each step either applies cleanly or fails loudly, with no silent guessing in between.
 
-The bonus is that atomic edits are dependency-ordered by construction. If task 2's `find` block is text that task 1 creates, then task 2 *cannot* run first — the order is encoded in the edits themselves, not left to a note that says "do this after that."
+The bonus is that atomic edits are dependency-ordered by construction. If task 2's `find` block is text that task 1 creates, then task 2 *cannot* run first. The order is encoded in the edits themselves, not left to a note that says "do this after that."
 
 ## Define once, reference many
 
-The third move is about repetition. Real plans apply the same shape of change in several places — the same guard clause, the same wrapper, the same migration pattern across a handful of files. Spelling it out in full each time is how a plan balloons, and a bloated plan is a worse plan: Anthropic's own best-practices guide warns that an overlong `CLAUDE.md` causes the model to "ignore half of it because important rules get lost in the noise" ([Claude Code best practices](https://code.claude.com/docs/en/best-practices)). Length isn't free; it competes for the model's attention.
+The third move is about repetition. Real plans apply the same shape of change in several places: the same guard clause, the same wrapper, the same migration pattern across a handful of files. Spelling it out in full each time is how a plan balloons, and a bloated plan is a worse plan: Anthropic's own best-practices guide warns that an overlong `CLAUDE.md` causes the model to "ignore half of it because important rules get lost in the noise" ([Claude Code best practices](https://code.claude.com/docs/en/best-practices)). Length isn't free; it competes for the model's attention.
 
 So define the recurring shape once and reference it:
 
@@ -96,19 +98,19 @@ return store.create(...)
 </task>
 ```
 
-This isn't only tidier; it's measurably cheaper — the same reason a reliable code generator [parses a request into a validated spec once](/blog/spec-driven-scaffolding/) instead of re-explaining the shape of the project in every stage. I wrote one small two-step plan two ways — as a natural-language memo that explains the same find/replace/verify shape twice, and as the structured-and-referenced version above — and counted the tokens with tiktoken's `cl100k_base` encoding:
+It's also measurably cheaper, for the same reason a reliable code generator [parses a request into a validated spec once](/blog/spec-driven-scaffolding/) instead of re-explaining the shape of the project in every stage. I wrote one small two-step plan two ways (as a natural-language memo that explains the same find/replace/verify shape twice, and as the structured-and-referenced version above) and counted the tokens with tiktoken's `cl100k_base` encoding:
 
 <Image src={tokens} alt="Bar chart comparing token counts for the same two-step plan: the prose memo costs 285 tokens, the structured plan 202 tokens, a 29 percent reduction." />
 
-The structured plan came in at 202 tokens against the prose memo's 285 — a 29% reduction for *identical* instructions. It's one small example, not a benchmark, but it points the same way the structure-over-prose advice does: the tokens you save on ceremony are tokens left for the actual work, and the model has less text to get lost in.
+The structured plan came in at 202 tokens against the prose memo's 285, a 29% reduction for *identical* instructions. It's one small example, not a benchmark, but it points the same way the structure-over-prose advice does: the tokens you save on ceremony are tokens left for the actual work, and the model has less text to get lost in.
 
 ## Verification as part of the plan
 
-The fourth move is the one most plans skip: the executor needs a way to know whether each step actually worked. Without it, "looks done" is the only signal, and the model stops the moment the diff *looks* plausible — which is precisely when it's wrong.
+The fourth move is the one most plans skip: the executor needs a way to know whether each step actually worked. Without it, "looks done" is the only signal, and the model stops the moment the diff *looks* plausible, which is precisely when it's wrong.
 
 The Claude Code best-practices guide makes this the headline advice: "Give Claude a way to verify its work." The reasoning is sharp: "Claude stops when the work looks done. Without a check it can run, 'looks done' is the only signal available, and you become the verification loop: every mistake waits for you to notice it. Give Claude something that produces a pass or fail, and the loop closes on its own" ([Claude Code best practices](https://code.claude.com/docs/en/best-practices)). A check is anything that returns a signal the model can read: a test suite, a build exit code, a linter, a script that diffs output against a fixture.
 
-In a plan, that means every task ends with a checklist of concrete, runnable checks — not "make sure it works":
+In a plan, that means every task ends with a checklist of concrete, runnable checks, rather than "make sure it works":
 
 ```text
 <verification>
@@ -119,20 +121,20 @@ In a plan, that means every task ends with a checklist of concrete, runnable che
 </verification>
 ```
 
-Each line is a command and an expected result. "Run this, expect that string" beats "verify the feature works" the same way a unique `find` block beats a vague one — it removes the judgment call. And folding the commit message into the checklist turns the plan into a record of intent: when the step passes, the model knows exactly what to write down and why.
+Each line is a command and an expected result. "Run this, expect that string" beats "verify the feature works" the same way a unique `find` block beats a vague one: it removes the judgment call. And folding the commit message into the checklist turns the plan into a record of intent: when the step passes, the model knows exactly what to write down and why.
 
-This even has a structured-state angle. The same docs recommend tracking progress in machine-readable form — a `tests.json` of pass/fail states, git as a checkpoint log — so an agent working across a long task can see what's done without re-deriving it. A verification checklist is the per-step version of that idea. The richer cousin of this is a constrained output schema, like OpenAI's Structured Outputs, which guarantees a response "adhere[s] to a JSON schema you define" so there's "no need to validate or retry incorrectly formatted responses" ([OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)) — the same schema-plus-grounding discipline I leaned on [pulling structured data out of unstructured documents](/blog/pulling-structured-data-from-unstructured-documents/). Same instinct, different layer: pin down the shape of "correct" so the machine can check itself. And when the check itself is "run this snippet and read the result," the snippet needs somewhere safe to run — which is its own problem, one I wrote about in [running LLM-generated code safely](/blog/running-llm-generated-code-safely/).
+The same guide pushes past the check to the evidence: "Have Claude show evidence rather than asserting success: the test output, the command it ran and what it returned." A checklist of commands and expected strings is what that evidence looks like when you write it down in advance, before the work starts rather than after it looks finished. The richer cousin of this is a constrained output schema, like OpenAI's Structured Outputs, which ensures a response will "adhere to your supplied JSON Schema" so there's "no need to validate or retry incorrectly formatted responses" ([OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)). That's the same schema-plus-grounding discipline I leaned on [pulling structured data out of unstructured documents](/blog/pulling-structured-data-from-unstructured-documents/). Same instinct, different layer: pin down the shape of "correct" so the machine can check itself. And when the check itself is "run this snippet and read the result," the snippet needs somewhere safe to run, which is its own problem, one I wrote about in [running LLM-generated code safely](/blog/running-llm-generated-code-safely/).
 
 ## The plan becomes the artifact
 
 Put the four moves together and the plan stops being a memo you hope the model honors and becomes something closer to a script it runs. XML-tagged sections so it can find any part in one hop. Atomic find/replace edits so there's nothing to invent and the dependency order is baked in. Patterns defined once and referenced, so the plan stays lean and the model stays focused. A verification checklist per step, so the model grades itself instead of waiting for you to.
 
-None of this makes the writing harder — it makes it *different*. You spend the effort up front, being explicit about what you'd normally leave implicit, and you get it back in fewer wrong turns. The test of a human plan is whether a colleague understands it. The test of a machine plan is whether an agent can execute it end to end without stopping to ask what you meant. Write for that reader, and the plan starts doing what you wrote it to do.
+None of this makes the writing harder. It makes it *different*. You spend the effort up front, being explicit about what you'd normally leave implicit, and you get it back in fewer wrong turns. The test of a human plan is whether a colleague understands it. The test of a machine plan is whether an agent can execute it end to end without stopping to ask what you meant. Write for that reader, and the plan starts doing what you wrote it to do.
 
 ## References and further reading
 
-- [AGENTS.md](https://agents.md/) — standard-Markdown convention for agent instructions, used by 60,000+ projects
-- [Anthropic — prompt engineering with XML tags](https://platform.claude.com/docs/en/docs/build-with-claude/prompt-engineering/use-xml-tags) — clarity, structure, and verification guidance
-- [Claude Code best practices](https://code.claude.com/docs/en/best-practices) — `CLAUDE.md`, "give Claude a way to verify its work," and managing context length
-- [Cursor rules](https://cursor.com/docs/context/rules) — `.mdc` rules as persistent, prompt-level context for agents
-- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) — constraining model responses to a schema for machine-checkable output
+- [AGENTS.md](https://agents.md/): standard-Markdown convention for agent instructions, used by 60,000+ projects.
+- [Anthropic prompting best practices](https://platform.claude.com/docs/en/docs/build-with-claude/prompt-engineering/use-xml-tags): being clear and direct, and structuring prompts with XML tags.
+- [Claude Code best practices](https://code.claude.com/docs/en/best-practices): `CLAUDE.md`, "give Claude a way to verify its work," and managing context length.
+- [Cursor rules](https://cursor.com/docs/context/rules): `.mdc` rules as persistent, prompt-level context for agents.
+- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs): constraining model responses to a schema for machine-checkable output.
