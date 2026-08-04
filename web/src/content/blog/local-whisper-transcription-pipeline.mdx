@@ -6,8 +6,8 @@ heroImage: ../../assets/blog/local-whisper-transcription-pipeline/latency.svg
 heroImageDark: ../../assets/blog/local-whisper-transcription-pipeline/latency.dark.svg
 tags: ["whisper", "speech-to-text", "audio", "ml-ops", "python"]
 status: approved
-reviewedAt: 2026-07-07T08:00:00.000Z
-reviewHash: sha256:526e72e42f32b01b6012a928af9ebfe9d6c6644189ce6a8ccd72569e4f6517c9
+reviewedAt: 2026-08-04T17:18:11.264Z
+reviewHash: sha256:d0858a01ab1744fd7b0dfc7ffdb59e7dcb1e9069dae8281549dadf9d7ef4bbb4
 ---
 
 import { Image } from 'astro:assets';
@@ -136,6 +136,8 @@ The old rule of thumb comes out stronger: start one tier *smaller* than you thin
 I built this pipeline as [yt-transcribe](https://github.com/bessavagner), a small download-extract-transcribe tool for pulling text out of copyright-cleared talks and lectures. It runs entirely offline, no API key, with `base` as the default and a one-line edit to move up a tier when a particular recording needed it. The shell-and-Python shape kept it easy to drive by hand or from a script.
 
 The lesson that travels beyond this one tool: capable speech recognition is now free and local, and the engineering isn't in calling an API. It's in the preprocessing (mono, 16 kHz), in matching the model tier to your latency and accuracy budget, and, as the benchmark reminded me, in the decode settings underneath. Get those right and you rarely need to pay anyone for transcription again.
+
+**Update, August 2026.** OpenAI has since shipped `gpt-transcribe` and priced it below the hosted Whisper endpoint it replaces, so I re-ran this benchmark against the API on the same laptop and the same 200 utterances. The API won, at 2.79% WER against 3.75% for local `medium`, and roughly seven times faster in wall-clock. The full rematch is in [what OpenAI's new transcription models actually buy you](/blog/openai-transcribe-vs-local-whisper/). The paragraph above still holds at volume and for any audio you cannot upload; for one-off files, the cost objection is now a weak one.
 
 ## References and further reading
 
