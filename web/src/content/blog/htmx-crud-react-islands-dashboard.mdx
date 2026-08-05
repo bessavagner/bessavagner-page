@@ -1,0 +1,153 @@
+---
+title: "HTMX for the CRUD, React islands for the dashboard: one Django app, two rendering strategies"
+description: "Not every page earns a client-side framework. In my expense tracker, HTMX drives the CRUD-heavy pages and React islands power only the analytics dashboard and chat widget. Here's the rule I use to decide which gets which."
+pubDate: 2026-08-09T05:00:00-03:00
+tags: ["django", "htmx", "react", "frontend-architecture", "full-stack"]
+status: draft
+cta: cv
+---
+
+import ThemedFigure from '../../components/ThemedFigure.astro';
+import renderingSeam from '../../assets/blog/htmx-crud-react-islands-dashboard/rendering-seam.png';
+import renderingSeamDark from '../../assets/blog/htmx-crud-react-islands-dashboard/rendering-seam-dark.png';
+
+My expense tracker is one Django app that renders itself two entirely different ways.
+
+Most of it is server-rendered HTML with [htmx](https://htmx.org/) attributes: you edit a row, the server sends back that row, htmx swaps it into place. Then there is the dashboard, which is nine React cards mounted into empty divs, each fetching JSON from a Django REST Framework endpoint and drawing charts with Recharts. Same app, same session, same deploy. Two frontends.
+
+That sounds like indecision. It was a decision, and I can state the rule it came from in one sentence. I can also tell you the bill it quietly ran up while I was not looking, because I only found that while writing this post.
+
+## The rule
+
+**If the state lives on the server and the response is a piece of the page, use htmx. If the component holds state the server has no opinion about, give it a client island.**
+
+That is it. Everything below is what the rule looks like once you have applied it to the sixty-one `path()` entries in one `urls.py`.
+
+The CRUD side of this app is entries, the monthly cockpit, category and budget settings, the consolidated view, projections, the CSV importer. Every interaction there is the same shape: change a row, get that row back. The server already knows the answer, already has the template, and already owns the truth. Sending it as JSON so that JavaScript can rebuild the exact markup Django just had in memory is work for the sake of work.
+
+The dashboard is not that shape. A chart has hover state, a tooltip position, a legend toggle, an animation in progress. None of that is the server's business, and none of it survives a fragment swap. The chat widget is the same: an in-flight message thread, a pending request, a text box mid-composition. Client state with no server representation earns a client island.
+
+<ThemedFigure light={renderingSeam} dark={renderingSeamDark} alt="Flowchart of one Django app splitting two ways. HtmxLoginRequiredMixin views for entries, cockpit, settings and consolidated return HTML fragments that htmx swaps into the DOM using 27 hx-get, 28 hx-post and 54 hx-target attributes. DashboardView instead returns an empty grid of divs carrying data-react-component, which mount.tsx turns into React roots; those nine dashboard cards plus one chat widget fetch JSON from nine read-only DRF endpoints under /api/dashboard/. Both paths end at the browser." />
+
+## The htmx side is one small mixin
+
+The entire server-side machinery for the hypermedia half is this:
+
+```python
+class HtmxMixin:
+    """Return fragment template for HTMX requests, full page otherwise."""
+
+    template_name = ""
+    htmx_template_name = ""
+
+    def get_template_names(self):
+        if self.request.htmx:
+            return [self.htmx_template_name]
+        return [self.template_name]
+
+
+class HtmxLoginRequiredMixin(LoginRequiredMixin, HtmxMixin):
+    pass
+```
+
+`request.htmx` comes from [django-htmx](https://django-htmx.readthedocs.io/), which just inspects the `HX-Request` header. A view declares two templates and gets both a full page and a fragment out of one queryset:
+
+```python
+class EntryListView(HtmxLoginRequiredMixin, ListView):
+    template_name = "entries/entries_page.html"
+    htmx_template_name = "entries/_entries_table.html"
+```
+
+Fifty-five view classes inherit it. Across the templates there are 27 `hx-get`, 28 `hx-post`, 54 `hx-target` and 6 `hx-delete` attributes, which is the whole client-side "framework" for the CRUD half of the app.
+
+The idioms go further than swapping a div. Deleting an entry returns no page content at all, just two out-of-band instructions telling htmx to remove the row from the table and the card from the mobile list, plus a response header that fires a client event:
+
+```python
+html = (
+    f'<tr id="entry-{entry_id}" hx-swap-oob="delete"></tr>'
+    f'<div id="entry-card-{entry_id}" hx-swap-oob="delete"></div>'
+)
+response = HttpResponse(html)
+response["HX-Trigger"] = (
+    '{"showToast": {"message": "Entrada excluída!", "type": "success"},'
+    f" {ENTRIES_CHANGED}}}"
+)
+```
+
+That `entries-changed` trigger causes the totals panel at the top of the page to refetch itself from a view that renders nothing but that partial. The pattern has a name worth knowing: **hypermedia as the engine of application state**, the idea that the response carries both the new data and what the client should do about it. No client-side store, no cache invalidation, no optimistic update to reconcile. The server said the row is gone and the totals moved, so the row is gone and the totals moved.
+
+This is roughly what the current wave of "htmx in 2026" writing is arguing for, and [the more careful version of that argument](https://dev.to/pockit_tools/htmx-in-2026-when-you-dont-need-react-and-when-you-absolutely-do-2mf4) is explicitly hybrid: hypermedia for navigation, forms, tables and filters, a component framework only where a richer widget genuinely earns its cost. I did not arrive at that from a blog post, but I did arrive at the same place.
+
+## The island side is one small mount function
+
+The dashboard view renders no data. It computes the month, the year, and a query string, and hands back a grid of empty divs:
+
+```html
+<div class="bento-enter md:col-span-6 lg:col-span-12"
+     data-react-component="EvolutionCard"
+     data-api-url="/api/dashboard/evolution/?{{ api_params }}"></div>
+```
+
+A single bundled entrypoint finds them and mounts one React root per div:
+
+```tsx
+function mountAll() {
+  document.querySelectorAll("[data-react-component]").forEach((el) => {
+    const name = el.getAttribute("data-react-component");
+    const apiUrl = el.getAttribute("data-api-url") || "";
+    if (name && COMPONENTS[name]) {
+      const Component = COMPONENTS[name];
+      createRoot(el).render(<Component apiUrl={apiUrl} />);
+    }
+  });
+}
+```
+
+This is **islands architecture**: independently hydrated interactive regions inside an otherwise server-rendered page, each one ignorant of the others. There is no app shell, no router, no shared store. Nine islands on the dashboard, one floating chat widget that base.html puts on every page.
+
+Behind them sit nine read-only DRF `APIView` endpoints under `/api/dashboard/`, and a twenty-line hook, `useApiData`, that every card calls. The cards are dumb: fetch, show a skeleton while `data` is null, show an empty state if the numbers are all zero, otherwise draw. The interesting code is on the server, in aggregate queries, which is where I want it.
+
+## The seam, and what it cost
+
+Two rendering strategies mean two event buses, and the place they meet is the least elegant part of this app.
+
+The htmx side speaks in `HX-Trigger` headers: the server names an event, htmx fires it on the DOM. The React side speaks in `window` custom events: the chat widget registers an expense through the assistant and dispatches `data-changed`, which `useApiData` listens for and refetches on.
+
+Bridging them is four lines at the bottom of the mount entrypoint:
+
+```ts
+window.addEventListener("data-changed", () => {
+  const hasCards = document.querySelector('[data-react-component$="Card"]');
+  if (!hasCards) window.location.reload();
+});
+```
+
+On the dashboard, the cards refresh themselves. On any htmx page, there is nothing listening, so it reloads the whole page. A full reload as a reactivity primitive is not elegant. It is also four lines, it is correct, and I have not needed better.
+
+The bigger cost I did not see until I measured it for this post. The chat widget lives in `base.html`, so `mount.js` is a script tag on every page in the app. And there is exactly one bundle:
+
+```
+$ wc -c src/backend/static/frontend/mount.js
+772656 src/backend/static/frontend/mount.js
+
+$ gzip -c src/backend/static/frontend/mount.js | wc -c
+220273
+```
+
+React, ReactDOM, Recharts, react-markdown and all ten components, 754 KB raw and 215 KB gzipped, downloaded on the entries page, the settings page, the importer, every page whose entire premise is that it does not need React. Vite is configured with a single entrypoint and no manual chunking, so nothing splits. The islands architecture bought me a clean mental separation and then shipped the framework everywhere anyway.
+
+That is a real cost and a fixable one: the chat widget should be its own entrypoint, or a dynamic import behind the button that opens it, so the Recharts-heavy dashboard chunk stays on the dashboard. I have not done it, and now that the number is written down somewhere public I probably will.
+
+## Would I do it again
+
+Yes, with the caveat above.
+
+What I would defend hardest is that the split is legible. Any page in this app is one of two things and you can tell which in about three seconds: does the template have `hx-` attributes, or does it have `data-react-component`? There is no third pattern, no page that started as one and half-migrated to the other. The seam is a mixin on one side and a mount function on the other, and both fit on a screen.
+
+What you pay for that is two mental models and two build paths. `python manage.py` for one half, `vite build` for the other, and a bundle that has to be rebuilt and committed. When I work on entries I stay in Django templates for hours. When I work on a card I am in TypeScript. Switching costs a few minutes each time.
+
+The test of whether a hybrid is working is whether you ever have to think about the boundary while building a feature. In practice I do not, because the rule decides for me before I open an editor: the state tells you where the code goes. Charts and a chat thread hold state the server never sees. [The receipt pipeline that turns a photo into ledger entries](/blog/dont-let-the-llm-do-the-math/) does not; neither does [deciding which invoice month a card purchase lands on](/blog/credit-card-billing-cycles/). Those are server truths, and they render as HTML.
+
+If you want push instead of polling, that rule changes, and [Django Channels and the async ORM boundary](/blog/real-time-websockets-with-django-channels/) is the version of this problem where the server needs to speak first. And if your JSON side grows past nine read-only endpoints into a real API surface, the design questions get more interesting fast, which is roughly where [the polymorphic vault API](/blog/polymorphic-vaults-in-drf/) picks up.
+
+One question I have not settled: at what point does a growing set of islands stop being islands and become an SPA that has not admitted it yet? Nine cards feels fine. I do not know where my own line is, and I would like to hear where other people put theirs.

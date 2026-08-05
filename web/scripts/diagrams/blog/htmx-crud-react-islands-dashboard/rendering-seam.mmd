@@ -1,0 +1,31 @@
+flowchart TB
+    accTitle: Two rendering strategies in one Django app
+    accDescr: Django views split two ways. CRUD pages (entries, cockpit, settings, consolidated) use HtmxLoginRequiredMixin to return either a full page or an HTML fragment, swapped straight into the DOM by htmx. The dashboard route returns a shell of empty divs carrying data-react-component and data-api-url, which mount.tsx hydrates into React cards that fetch JSON from the DRF endpoints under /api/dashboard/.
+
+    browser([🌐 Browser])
+
+    subgraph server ["🐍 One Django app"]
+        direction TB
+        crud[⚙️ HtmxLoginRequiredMixin views<br/>entries · cockpit · settings · consolidated]
+        shell[⚙️ DashboardView<br/>renders an empty grid]
+        api[[🔌 DRF APIView · /api/dashboard/<br/>9 read-only JSON endpoints]]
+    end
+
+    crud -->|"HTML fragment (hx-target swap)"| htmx[🔁 htmx<br/>27 hx-get · 28 hx-post · 54 hx-target]
+    shell -->|"divs with data-react-component"| mount[⚛️ mount.tsx<br/>querySelectorAll → createRoot]
+    mount -->|"one root per card"| cards[📊 9 dashboard cards + 1 chat widget<br/>useApiData + Recharts]
+    cards -->|"fetch JSON"| api
+    api -->|"Response(...)"| cards
+
+    htmx --> browser
+    cards --> browser
+
+    classDef server_node fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a5f
+    classDef hypermedia fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
+    classDef island fill:#ede9fe,stroke:#7c3aed,stroke-width:2px,color:#3b0764
+    classDef edge_node fill:#ffedd5,stroke:#ea580c,stroke-width:2px,color:#7c2d12
+
+    class crud,shell,api server_node
+    class htmx hypermedia
+    class mount,cards island
+    class browser edge_node
