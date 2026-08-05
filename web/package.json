@@ -13,6 +13,7 @@
     "test": "vitest run",
     "astro": "astro",
     "search:verify": "astro build && node scripts/assert-pagefind-index.mjs",
+    "og:verify": "astro build && node scripts/assert-og-card-allowlist.mjs",
     "utm": "node --experimental-strip-types scripts/utm/build-url.ts",
     "utm:audit": "node scripts/utm/assert-no-internal-utm.mjs",
     "diagram:build": "node scripts/diagrams/render.mjs",
