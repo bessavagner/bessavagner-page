@@ -1,0 +1,169 @@
+---
+title: "Don't let the LLM do the math: deterministic discount proration for receipt OCR"
+description: "A vision model reads the receipt fine, then quietly loses a cent splitting the discount. Here's why I moved the arithmetic out of the model into a small Python function whose shares always sum to the amount paid."
+pubDate: 2026-08-07T05:00:00-03:00
+tags: ["python", "llm", "ocr", "fintech", "domain-driven-design"]
+status: draft
+cta: lets-talk
+heroImage: ../../assets/blog/dont-let-the-llm-do-the-math/reconciliation.svg
+---
+
+import { Image } from 'astro:assets';
+import reconciliation from '../../assets/blog/dont-let-the-llm-do-the-math/reconciliation.svg';
+
+I photograph a supermarket receipt and a few seconds later my expense tracker has it split by category, dated, attached to the right payment method. That part has worked for months.
+
+The part that kept going wrong was arithmetic.
+
+On 4 July I sent a Drogasil coupon. I paid R$ 118,86 for five items. The app registered R$ 91,26. Eleven days later a Mercado Livre order came out at R$ 1.066,18 against the R$ 999,70 actually charged. Both times the vision model had read the receipt correctly: every product name, every printed number. Both times something did a sum no human would have done.
+
+This post is about where the line between "the model reads" and "Python computes" ended up, and about the two production incidents that told me exactly where to put it. (Brazilian receipts use a comma for the decimal separator, so R$ 118,86 is a hundred and eighteen reais and eighty-six centavos.)
+
+## The one job the model has
+
+A receipt is a small, boring data structure hiding in a photograph. Store, date, a list of line items, a payment method, a discount, an amount paid. Reading that layout is genuinely hard and genuinely fuzzy, which is exactly the shape of problem a vision model is good at. Adding up what it read is neither.
+
+So the extraction stage does one thing: it returns a validated object. The whole contract is a Pydantic model, and a [pydantic-ai](https://ai.pydantic.dev/) agent is configured to produce it or fail:
+
+```python
+class ReceiptItem(BaseModel):
+    description: str
+    quantity: Decimal = Decimal("1")
+    unit_price: Decimal | None = None
+    line_total: Decimal
+    category: str | None = None
+
+
+class ReceiptExtraction(BaseModel):
+    store: str | None = None
+    date: str | None = None          # ISO; None when illegible
+    items: list[ReceiptItem] = []
+    total: Decimal | None = None
+    discount: Decimal | None = None
+    amount_paid: Decimal | None = None
+    payment_hint: str | None = None  # "VISA CRÉDITO", "PIX", "DINHEIRO"
+    confidence: float = 0.0
+
+
+extraction_agent = Agent(
+    settings.LLM_VISION_MODEL,
+    output_type=ReceiptExtraction,
+    system_prompt=EXTRACTION_PROMPT,
+)
+```
+
+Every money field is a `Decimal`, never a float, and the fields the model is most tempted to invent (`total`, `discount`, `amount_paid`) default to `None`. The prompt says so in capitals: leave them null when they are not visible, never make them up. This is the same three-stage shape I described in [splitting a code generator into parse, customize, validate](/blog/spec-driven-scaffolding/): the model turns something unstructured into a validated spec, and deterministic code takes it from there. It is also the narrow version of the wider toolbox I wrote up in [pulling structured data out of unstructured documents](/blog/pulling-structured-data-from-unstructured-documents/), applied to one document type I actually own.
+
+The docstring on that module is blunt about why the split exists: rather than ask the model to read *and* do the accounting in the same free-text turn, phase one returns the items and totals as data, so category splitting and discount proration stop depending on the model's mental arithmetic.
+
+I believed that when I wrote it. It took two incidents to find out how much arithmetic was still leaking across the boundary.
+
+## Incident one: the discount counted twice
+
+The Drogasil coupon prints a per-item column labelled *Valor Líquido*, "net value". The five line totals were 6,99 + 57,99 + 6,99 + 39,90 + 6,99, which is 118,86, which is exactly what I paid. The discount was already baked into each line.
+
+The coupon also prints a summary field: `desconto: 27,60`. The extraction dutifully read it, because it was on the paper. And the proration code subtracted it from lines that were already net, producing 118,86 − 27,60 = 91,26.
+
+Worse than the wrong number was the argument. A separate consistency check, `receipt_is_consistent`, made the same assumption, decided the receipt did not add up, and the assistant kept insisting on 91,26 while flagging a false inconsistency at me. I was being gaslit by my own invariant.
+
+The bug was not in the model. Neither the discount field nor any line total was misread. The bug was that my code had a hardcoded belief about a receipt's shape (lines are gross, subtract the discount) and Brazilian receipts come in at least two shapes.
+
+## One rule that fits both shapes
+
+The fix, commit `3863c36`, was to stop trusting the printed discount and start deriving it from the only number that is unambiguous: what actually left my account.
+
+```python
+def _effective_discount(lines_total: Decimal, payload) -> Decimal:
+    paid = payload.get("amount_paid")
+    if paid not in (None, ""):
+        ...
+        derived = lines_total - paid_val
+        return derived if derived > 0 else Decimal("0")
+    # No amount paid on the receipt: fall back to the printed discount.
+    return Decimal(str(payload.get("discount") or "0"))
+```
+
+Four lines of logic, and the whole class of bug disappears. When the lines are already net, `sum(lines) - paid` is zero and nothing gets subtracted. When the lines are gross, the same expression recovers the real discount. On a Pague Menos coupon from the same day, gross lines of 217,32 against 155,90 paid, it derives 61,42, which is precisely the printed value.
+
+The invariant is now stated in one sentence: **the entries I register must sum to the amount paid**. Not to the printed total, not to the printed total minus the printed discount. To the amount paid.
+
+<Image src={reconciliation} alt="Two horizontal bar charts, one per receipt. For the Drogasil coupon, whose lines are already net, the printed-discount rule registers R$ 91.26, twenty-seven reais and sixty centavos short of the R$ 118.86 dashed line marking the amount paid, while the derived rule lands exactly on it. For the Pague Menos coupon, whose lines are gross, both rules land on R$ 155.90." />
+
+The consistency check got the same treatment. It used to try to reconcile the printed discount; now it only asks whether the lines cover the amount paid. If they sum to less than what I paid, an item was missed and the receipt needs review. Anything above is a discount, and discounts are not an error.
+
+## Incident two: the model doing multiplication anyway
+
+Eleven days later, a Mercado Livre order screen. One line showed `R$ 97,14  R$ 66,48 | 2 unidades`: the crossed-out price, the discounted price, the quantity. The order total was R$ 999,70. The app registered R$ 1.066,18.
+
+The discounted price shown next to the product on that screen is already the total for the line, all units included. The model saw a quantity of 2 next to it and multiplied. Nothing in the code did that; the arithmetic happened inside the extraction, before any of my Python ran, and arrived as a plausible `line_total`.
+
+There is no clever code fix for this. It is a prompt fix, and the honest way to describe it is that I had to tell the model, in the instruction that governs `line_total`, to stop calculating:
+
+> `line_total` is ALWAYS the final displayed amount for that line, for all units. READ it directly from the document, NEVER compute it by multiplying a unit price by the quantity. If you need `unit_price`, derive it as `line_total` divided by quantity, never the reverse.
+
+That is a real limit of the boundary I drew. A structured output type stops the model from returning prose where a number belongs. It does not stop the model from doing a multiplication on the way to filling in that number. The only defence is to make every field a *reading* rather than a *derivation*, and to say so explicitly for the fields where the temptation is strongest. Both incidents are now regression fixtures, the second one carrying the actual order screenshot.
+
+## Splitting one discount without losing a cent
+
+Once the discount is known, it still has to land somewhere. Entries in this app are per category, so a receipt with items in Farmácia and Alimentação becomes two entries, and one order-level discount has to be split between them in proportion to their subtotals. This is where floats would quietly betray you, and where rounding does even with `Decimal`.
+
+The function is small enough to read in full, and it is the one piece of code in this post carrying real weight:
+
+```python
+def _prorate_discount(
+    category_sums: dict[str, Decimal], discount: Decimal
+) -> dict[str, Decimal]:
+    total = sum(category_sums.values(), Decimal("0"))
+    if discount <= 0 or total <= 0:
+        return {cat: Decimal("0.00") for cat in category_sums}
+
+    # The biggest subtotal absorbs the rounding remainder.
+    order = sorted(category_sums, key=lambda c: category_sums[c], reverse=True)
+    largest, rest = order[0], order[1:]
+    allocated: dict[str, Decimal] = {}
+    acc = Decimal("0.00")
+    for cat in rest:
+        share = (discount * category_sums[cat] / total).quantize(
+            _CENTS, rounding=ROUND_HALF_UP
+        )
+        allocated[cat] = share
+        acc += share
+    allocated[largest] = (discount - acc).quantize(_CENTS, rounding=ROUND_HALF_UP)
+    return allocated
+```
+
+Every category except one gets its rounded proportional share. The last one gets whatever is left over, by subtraction. That makes `sum(shares) == discount` true by construction rather than by luck, and the family it belongs to has a name: the **largest remainder method**, the apportionment trick used to hand out parliamentary seats when the proportional numbers come out fractional. The textbook version rounds every share down and then distributes the leftover units to whoever has the biggest fractional claim. Mine is cruder, rounding half-up and parking the entire residue on the biggest subtotal, and it is exact for the same reason: one participant is defined as the remainder instead of being rounded.
+
+I wanted to know whether that rule was earning its complexity or was just superstition, so I measured it. Taking the real category subtotals off both receipts, I swept every discount from R$ 0,01 to R$ 60,00 and counted how often rounding each share independently fails to reproduce the total:
+
+```
+2 categories, Pague Menos   (160.00 / 57.32):     0/6000 miss  (0.0%)
+2 categories, Drogasil       (97.89 / 20.97):     2/6000 miss  (0.0%)
+3 categories, Drogasil items split three ways
+             (57.99 / 39.90 / 20.97):          1505/6000 miss (25.1%)
+
+largest remainder: 0 misses in all three; worst naive gap R$ 0,01
+```
+
+(That third row is a what-if: the same items, regrouped into three categories rather than two, which happens the moment a coupon mixes pharmacy, food and cleaning products.)
+
+Two categories, and independent rounding is right almost always, which is how a bug like this survives testing. Three categories, and it is wrong a quarter of the time, never by more than a cent. Small enough that nobody notices, permanent enough that a monthly total never quite reconciles.
+
+The whole reconciliation suite runs in under a second:
+
+```
+$ pytest src/backend/assistant/tests/test_receipt_discount_reconcile.py
+7 passed in 0.87s
+```
+
+One caveat I noticed while writing this. `_prorate_discount` has no test that calls it directly; it is exercised only through `propose_receipt`, end to end. That is coverage of the behaviour I care about, but it means the rounding rule itself has no unit test pinning it. The sweep above is the closest thing it has to one, and it should probably become a test rather than staying in a scratch file.
+
+## Deterministic core, probabilistic edge
+
+The pattern here has a name worth using: keep a **deterministic core** and push the probabilistic part to the edge. The model lives at the boundary where the input is genuinely ambiguous, a photograph of curling thermal paper, and its output is validated before it is believed. Everything with a right answer, arithmetic, rounding, reconciliation to the amount paid, lives in ordinary Python that I can unit test and read a stack trace out of.
+
+The same app draws the line in two other places, which is how I know it generalizes. [Which month a credit-card purchase actually belongs to](/blog/credit-card-billing-cycles/) is a pure function, not a question for a model. Item categorization is fuzzy, so the model proposes and [the user's learned rules override it](/blog/giving-an-llm-agent-memory/), matched by substring rather than by asking the model to remember. And a discount split is arithmetic, so it is arithmetic.
+
+The rule I would give someone building the same thing: for every number your model produces, ask whether it *read* it or *derived* it. Anything derived belongs on your side of the boundary. That is where the Drogasil coupon and the Mercado Livre order both went wrong, in the small gap between reading a document and doing sums about it.
+
+Where do you draw that line in your own pipelines? I am curious whether anyone has found a cleaner way to stop a model from computing a field it was only asked to read.
