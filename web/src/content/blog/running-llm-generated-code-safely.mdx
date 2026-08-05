@@ -2,10 +2,12 @@
 title: "Running LLM-Generated Code Without Getting Burned"
 description: "A practical look at sandboxing the code a language model writes — the threat model, the isolation options, and a minimal Docker setup you can build on."
 pubDate: 2026-06-23
+heroImage: ../../assets/blog/running-llm-generated-code-safely/container-lifecycle.light.png
+heroImageDark: ../../assets/blog/running-llm-generated-code-safely/container-lifecycle.dark.png
 tags: ["llm-agents", "sandboxing", "code-execution", "docker", "security"]
 status: approved
-reviewedAt: 2026-07-11T12:00:18.397Z
-reviewHash: sha256:613a0d15fe6987282b63835658dcf371059dbc2d8df3a5f59115d8bdeb150f7d
+reviewedAt: 2026-08-05T15:46:59.230Z
+reviewHash: sha256:83612a85eea50d8761d90da811c5758aeb42621132e33757efd94e38136d7262
 ---
 
 Language models are good at writing code. Ask one to compute a correlation, reshape a dataset, or plot two columns against each other, and it will happily produce a few lines of Python that do exactly that. What it can't do on its own is *run* that code, look at the result, and use it to answer your question. Closing that loop — letting a model write code, execute it, and read the output back — is what turns a chatbot into something that can actually do data analysis, and it's the same kind of self-checkable signal I baked into [plans written for a model to execute](/blog/machine-readable-plan-format/): a command it can run and a result it can read.
