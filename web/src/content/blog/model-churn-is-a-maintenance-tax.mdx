@@ -1,0 +1,165 @@
+---
+title: "Model churn is a maintenance tax: what broke when GPT-5.6 and Gemini renamed everything"
+description: "A provider-agnostic layer is the easy part. The recurring cost is keeping the model IDs and capabilities current as GPT-5.6 and Gemini reshuffle underneath you. Here's the churn my adapter absorbed this month, and the three call sites the refresh silently repointed."
+pubDate: 2026-08-04T05:00:00-03:00
+tags: ["llm", "python", "api", "maintenance", "ai-engineering"]
+status: draft
+cta: lets-talk
+---
+
+OpenAI shipped GPT-5.6 on July 9, 2026. Eleven days later I sat down to update the model list in my agent library, expecting a five-minute string swap.
+
+It was a five-minute string swap. Finding the damage took longer, and I only found all of it while writing this post.
+
+The finding up front: renaming model IDs is the cheap part. The expensive part is every reference in your codebase that names a model *positionally* instead of by name, because a provider refresh reorders the list and each of those references quietly starts pointing somewhere else. Nothing throws. No test goes red. The code just begins calling a model nobody chose.
+
+## The refresh that looked trivial
+
+I keep the provider matrix as data, in one `constants.py`. I wrote about [the mixin-based adapter that sits on top of it](/blog/provider-agnostic-llm-abstraction/) a couple of weeks ago: the whole point of that design is that application code calls `.answer(prompt)` and never branches on provider. That part held up perfectly. Not one line of application code changed in this refresh.
+
+What changed was the data. Here's the real diff, from commit `e094d3c`:
+
+```diff
+ MODELS = (
+     'gpt-3.5-turbo-0125',
+     'gpt-3.5-turbo-1106',
+     'gpt-4-turbo-preview',
+     'gpt-4o-mini',  # 3
+-    'gpt-4o',
+-    'gpt-4-1106-preview',
++    'gpt-5.6',
++    'gpt-4o-mini-search-preview',
+     'gpt-4-vision-preview',
+-    'gemini-1.5-pro',  # Google # 7
++    'gemini-2.5-flash',  # Google # 7
++    'gemini-2.5-flash-lite',  # Google # 8
++    'gemini-1.5-pro',  # Google # 9
+     'gemini-1.5-flash',
+     'gemini-1.5-flash-8b',
+-    'deepseek-chat',
+-    'deepseek-reasoner'
++    'deepseek-v4-flash',
++    'deepseek-v4-pro'
+ )
+```
+
+Read it as a list of strings and it is exactly what it looks like: some names got newer, and the tuple grew from twelve entries to fourteen. Two of those additions, `gemini-2.5-flash` and `gemini-2.5-flash-lite`, went in at positions 7 and 8. Everything below them shifted down by two.
+
+That is the whole bug, and it is invisible in this diff.
+
+## Two tuples joined by an index
+
+Right underneath `MODELS` sits the context-window budget, and it pairs each model with its limit by *subscripting the tuple above*:
+
+```python
+MAX_TOKENS = (
+    (MODELS[0], 16385),
+    (MODELS[1], 16385),
+    ...
+    (MODELS[7], 1048576),
+    (MODELS[8], 1048576),
+    (MODELS[9], 2097152),
+    ...
+)
+```
+
+`dict(MAX_TOKENS)[self.model]` then turns that into a lookup at configure time. As a way to keep the budgets next to the names it is tidy, and as a coupling it is a trap: the pairing is positional, so inserting a model anywhere except the end re-pairs every row below the insertion point. The numbers in the diff had to be hand-walked back into alignment, which is why that half of the commit touches ten lines to change what is conceptually three facts.
+
+Keyed by name, `{'gemini-2.5-flash': 1_048_576, ...}`, an insertion is one new line and nothing else moves. That is the fix, and it is the boring kind: a dict where I used a tuple of pairs.
+
+## Three call sites nobody updated
+
+The budgets I caught, because re-pairing them was the visible work. What I missed is that `MODELS[n]` is used as a *default argument* elsewhere in the library. The commit updated exactly one of those:
+
+```diff
+ class DeepSeekChatter(OpenAIChatter):
+-    def __init__(self, ..., model=MODELS[10], **kwargs):
++    def __init__(self, ..., model=MODELS[12], **kwargs):
+```
+
+That one I noticed because index 10 stopped being a DeepSeek model at all and started being `gemini-1.5-flash`, which fails loudly the moment you try to reach it with a DeepSeek key. Loud failures get fixed.
+
+Three others were quiet, and they are still in `core.py` at the time of writing:
+
+```python
+class GoogleChatter(GoogleChatterMixin, BaseChatter):
+    def __init__(self, ..., model=MODELS[8],  # Gemini flash
+                 **kwargs):
+
+class GoogleVision(GoogleChatterMixin, BaseChatter):
+    def __init__(self, ...):
+        super().__init__(..., model=MODELS[7], **kwargs)
+
+class AsyncGoogleVision(GoogleChatterMixin, BaseChatter):
+    def __init__(self, ...):
+        super().__init__(..., model=MODELS[7], **kwargs)
+```
+
+Before the refresh, index 7 was `gemini-1.5-pro` and index 8 was `gemini-1.5-flash`. After it, index 7 is `gemini-2.5-flash` and index 8 is `gemini-2.5-flash-lite`. So:
+
+1. Both vision classes were built on a *pro* model and now default to a *flash* one.
+2. The general-purpose `GoogleChatter` moved from flash to flash-lite, and its trailing comment still reads `# Gemini flash`.
+
+None of this raised an error, because index 7 and index 8 are both still valid Google models. The validation in the mixin checks that the model falls inside the Google range, and it does. The constraint that actually mattered, "this class should use the model I picked for it", was never expressed anywhere a machine could check.
+
+I want to be careful about the claim here. `gemini-2.5-flash` is a newer model than `gemini-1.5-pro` and I am not going to pretend the vision path got worse. The defect is that it changed at all: a tier swap on two classes that nobody decided, nobody reviewed, and nobody could see in the diff. An undecided change is a bug even when the new value is fine.
+
+## The bug the renumbering exposed
+
+Rewriting the Google range did surface a genuine pre-existing error. Here is the before and after in the mixin:
+
+```diff
+     if self.model is None:
+-        self.model = MODELS[8]  # gemini flash 1.5
+-    if self.model not in MODELS[7:]:
+-        raise AgentError(f"Google models are: {', '.join(MODELS[6:])}")
++        self.model = MODELS[7]  # gemini 2.5 flash
++    if self.model not in MODELS[7:12]:
++        raise AgentError(f"Google models are: {', '.join(MODELS[7:12])}")
+```
+
+The old guard was an open-ended slice. `MODELS[7:]` ran to the end of the tuple, so it accepted the two DeepSeek models as valid Google models. The error message was worse: it advertised `MODELS[6:]`, which starts at `gpt-4-vision-preview`, so a user who got the model name wrong was told that an OpenAI model was one of their Google options. Two off-by-one errors sitting in a validation path, one in the check and a different one in the message.
+
+An open-ended slice is a promise that nothing will ever be appended after this group. Adding DeepSeek broke that promise months earlier, silently, and it took an unrelated refresh to notice. Bounding it to `MODELS[7:12]` fixes today and re-arms the same trap for whoever inserts a sixth Gemini model.
+
+## `gpt-5.6` is not a model
+
+One more thing worth knowing before you paste a shiny new ID into a config. GPT-5.6 is not a single model. It ships as three: `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna`, in descending order of capability and price. The bare string `gpt-5.6`, the one sitting in my `MODELS` tuple, is an *alias*, and it routes to Sol, the most expensive tier at $5 per million input tokens and $30 per million output ([OpenAI's model page](https://openai.com/index/gpt-5-6/); [tier comparison](https://www.vellum.ai/blog/gpt-5-6-sol-terra-luna-explained)). Luna, after a price cut on July 30, runs $0.20 and $1.20 for the same call shape. That is twenty-five times cheaper on both sides of the request.
+
+So the "just update the ID" change also quietly picked the premium tier as my OpenAI default. That is defensible if you decide it. I didn't decide it.
+
+Aliases have a second property that matters more for a maintenance argument: the provider can repoint them. `gpt-5.6` meaning Sol is a fact about today, not a guarantee, and when it changes there will be no diff in my repository to review. Three weeks after launch OpenAI cut Luna's price by 80% and Terra's by 20% and left Sol alone ([CNBC](https://www.cnbc.com/2026/07/30/open-ai-price-cut-gpt.html)), which is the kind of move that changes what the right default is without changing a single character in my code. I wrote the paragraph above using Luna's launch price and had to correct it before publishing, which is the argument of this post happening to the post itself.
+
+## The number in the map is not the number you get
+
+The context windows in `MAX_TOKENS` are accurate against the published specs. I checked all four: `gpt-5.6` at 1,050,000, `gemini-2.5-flash` and `gemini-2.5-flash-lite` at 1,048,576, `gemini-1.5-pro` at 2,097,152, and both DeepSeek V4 models at 1,000,000.
+
+Accurate and still misleading. OpenAI bills 2x input and 1.5x output for the whole session once a prompt crosses 272K input tokens, and harnesses impose their own far lower ceilings on top: the Codex CLI caps GPT-5.6 at 272K rather than the advertised 1.05M. A budget number that is right about the model and wrong about the deployment will happily let [a summarization-based pruning loop](/blog/pruning-chat-context-by-summarization/) fill a window that your actual runtime will refuse or double-charge for.
+
+I have not fixed this one. The honest position is that `MAX_TOKENS` describes the model's spec sheet, and anything that needs the *effective* budget has to learn it from the deployment rather than from my constants file.
+
+## Paying the tax on purpose
+
+The adapter did its job. Application code never branched on provider, so a wave that renamed models across three vendors cost zero changes above the seam. That is the anti-corruption layer working as designed: a translation boundary that keeps a foreign model out of your domain, so churn on their side stops at your edge instead of propagating through your call sites.
+
+The part I got wrong is that I treated the layer as the deliverable and the data behind it as a detail. The data is where the recurring cost lives, and three properties of how I stored it turned a routine refresh into silent behavior change:
+
+1. **Positional references.** `MODELS[7]` is a bet that nobody inserts above index 7. Names cost nothing and don't move.
+2. **Open-ended slices as group boundaries.** `MODELS[7:]` encodes "and everything after", which stops being true the first time a group is appended.
+3. **Aliases treated as identifiers.** `gpt-5.6` is a pointer the vendor controls, so pinning it is a decision to accept their future re-routing.
+
+None of that is exotic. It is the ordinary advice about magic indices, applied to a table that happens to hold model names. What makes it easy to miss is that the churn arrives looking like content, a list of strings to freshen, rather than like code.
+
+The tax itself is not avoidable. Providers will keep renaming and re-tiering, and the more providers you support the more often your turn comes up. What's avoidable is paying it twice: once to update the names, and again in a month when you work out why the vision path has been calling a flash model since July. Keying by name instead of position, and pinning full IDs instead of aliases, makes the next refresh a diff you can actually read.
+
+I still think the abstraction was worth building. It just isn't finished the day it works, which is roughly what I concluded after wiring up [model tiering and circuit breakers for fast triage](/blog/sub-second-llm-triage/) and after building the [sandbox for running model-generated code](/blog/running-llm-generated-code-safely/): the interesting design is the part you write once, and the part you live with is everything it points at.
+
+## References
+
+- [GPT-5.6 (OpenAI)](https://openai.com/index/gpt-5-6/): the July 9, 2026 release, and the Sol / Terra / Luna family.
+- [GPT-5.6 Sol vs Terra vs Luna](https://www.vellum.ai/blog/gpt-5-6-sol-terra-luna-explained): tier pricing, and the bare `gpt-5.6` alias routing to Sol.
+- [OpenAI launches its new family of models with GPT-5.6 (TechCrunch)](https://techcrunch.com/2026/07/09/openai-launches-its-new-family-of-models-with-gpt-5-6/): release-date reporting.
+- [OpenAI cuts prices for two of its GPT-5.6 models (CNBC)](https://www.cnbc.com/2026/07/30/open-ai-price-cut-gpt.html): the July 30 repricing, three weeks after launch.
+- [Gemini 2.5 Flash](https://openrouter.ai/google/gemini-2.5-flash) and [Gemini 2.5 Flash Lite](https://openrouter.ai/google/gemini-2.5-flash-lite): the 1,048,576-token context window shared by both.
+- [DeepSeek V4 preview release](https://api-docs.deepseek.com/news/news260424/): the `deepseek-v4-pro` / `deepseek-v4-flash` IDs and their 1M-token window, shipped April 24, 2026.
+- [The context window gap in Codex CLI](https://codex.danielvaughan.com/2026/07/20/context-window-gap-codex-cli-gpt56-advertised-vs-effective-budget-compaction-strategy/): advertised 1.05M versus the 272K a real harness exposes.
