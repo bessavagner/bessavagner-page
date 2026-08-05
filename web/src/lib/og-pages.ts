@@ -17,7 +17,7 @@ export interface RegistryBuildProjectLike {
   slug: string;
 }
 
-/** Copy + counts for one `building/<slug>` card. */
+/** Copy + counts for one `building-<slug>` card. */
 export interface BuildProjectCardData {
   slug: string;
   title: string;
@@ -26,7 +26,7 @@ export interface BuildProjectCardData {
   updateCount: number;
 }
 
-/** Copy + counts for one `projects/<id>` card. */
+/** Copy + counts for one `projects-<id>` card. */
 export interface PortfolioProjectCardData {
   id: string;
   name: string;
@@ -45,8 +45,8 @@ export interface PageCardData {
   projects: PortfolioProjectCardData[];
 }
 
-const BUILDING_PREFIX = 'building/';
-const PROJECTS_PREFIX = 'projects/';
+const BUILDING_PREFIX = 'building-';
+const PROJECTS_PREFIX = 'projects-';
 
 /** `N post`/`N posts`, `N update`/`N updates`, etc. */
 function pluralize(count: number, noun: string): string {
@@ -54,8 +54,8 @@ function pluralize(count: number, noun: string): string {
 }
 
 /** The card key for every hub/index page that needs one: the two fixed
- *  keys (`blog`, `building`), one `building/<slug>` per registered build
- *  project, and one `projects/<id>` per portfolio project that has no
+ *  keys (`blog`, `building`), one `building-<slug>` per registered build
+ *  project, and one `projects-<id>` per portfolio project that has no
  *  `ogImage` of its own. Order is stable given stable input order, and the
  *  count is always derived from the registries — never hardcoded — so a
  *  6th build project yields a 10th key without touching this function. */
@@ -74,7 +74,7 @@ export function pageCardKeys(
 /** Turn one card key into its `OgProps`. Copy is lifted verbatim from the
  *  real `<Base title>`/`<Base description>` of the page it represents (see
  *  the plan's task-2 brief for the source lines). Throws on an unknown key,
- *  or on a `building/<slug>` / `projects/<id>` key whose registry entry is
+ *  or on a `building-<slug>` / `projects-<id>` key whose registry entry is
  *  missing from `data` — never falls back to a blank card. */
 export function buildPageCard(key: string, data: PageCardData): OgProps {
   if (key === 'blog') {

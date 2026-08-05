@@ -20,10 +20,10 @@ test('pageCardKeys derives one key per build project, plus the two fixed keys, p
   assert.deepEqual(keys, [
     'blog',
     'building',
-    'building/regwatch',
-    'building/replaygate',
-    'projects/replaygate',
-    'projects/regwatch',
+    'building-regwatch',
+    'building-replaygate',
+    'projects-replaygate',
+    'projects-regwatch',
   ]);
 });
 
@@ -31,12 +31,12 @@ test('pageCardKeys grows when the registry grows, without any hardcoded count', 
   const grownBuildProjects = [...buildProjects, { slug: 'supskill', title: 'supskill', blurb: 'A sprint conductor.', stack: ['Python'], updateCount: 2 }];
   const keys = pageCardKeys(projects, grownBuildProjects);
   assert.equal(keys.length, 2 + grownBuildProjects.length + projects.filter((p) => !p.ogImage).length);
-  assert.ok(keys.includes('building/supskill'));
+  assert.ok(keys.includes('building-supskill'));
 });
 
 test('pageCardKeys excludes registry projects that already have an ogImage', () => {
   const keys = pageCardKeys(projects, buildProjects);
-  assert.ok(!keys.includes('projects/weberist'));
+  assert.ok(!keys.includes('projects-weberist'));
 });
 
 test('buildPageCard blog: title is the blog index title, footerNote pluralises the post count', () => {
@@ -71,8 +71,8 @@ test('buildPageCard building: title, description, kind, and pluralised update co
   assert.equal(many.footerNote, '19 updates');
 });
 
-test('buildPageCard building/<slug>: lifts the project title, blurb, and per-project update count', () => {
-  const card = buildPageCard('building/regwatch', { postCount: 0, updateCount: 0, buildProjects, projects });
+test('buildPageCard building-<slug>: lifts the project title, blurb, and per-project update count', () => {
+  const card = buildPageCard('building-regwatch', { postCount: 0, updateCount: 0, buildProjects, projects });
   assert.equal(card.title, 'RegWatch — Building Publicly');
   assert.equal(card.description, 'Watches the DOU.');
   assert.equal(card.footerNote, '7 updates');
@@ -80,21 +80,21 @@ test('buildPageCard building/<slug>: lifts the project title, blurb, and per-pro
   assert.equal(card.minutes, undefined);
 });
 
-test('buildPageCard building/<slug>: singular update count pluralises correctly', () => {
-  const card = buildPageCard('building/replaygate', { postCount: 0, updateCount: 0, buildProjects, projects });
+test('buildPageCard building-<slug>: singular update count pluralises correctly', () => {
+  const card = buildPageCard('building-replaygate', { postCount: 0, updateCount: 0, buildProjects, projects });
   assert.equal(card.footerNote, '1 update');
 });
 
-test('buildPageCard projects/<id>: lifts the project name and summary, no building eyebrow', () => {
-  const card = buildPageCard('projects/replaygate', { postCount: 0, updateCount: 0, buildProjects, projects });
+test('buildPageCard projects-<id>: lifts the project name and summary, no building eyebrow', () => {
+  const card = buildPageCard('projects-replaygate', { postCount: 0, updateCount: 0, buildProjects, projects });
   assert.equal(card.title, 'ReplayGate');
   assert.equal(card.description, 'A regression harness.');
   assert.equal(card.footerNote, '2026');
   assert.equal(card.kind, undefined);
 });
 
-test('buildPageCard projects/<id>: falls back to tagline when summary is empty, matching the real page', () => {
-  const card = buildPageCard('projects/regwatch', { postCount: 0, updateCount: 0, buildProjects, projects });
+test('buildPageCard projects-<id>: falls back to tagline when summary is empty, matching the real page', () => {
+  const card = buildPageCard('projects-regwatch', { postCount: 0, updateCount: 0, buildProjects, projects });
   assert.equal(card.description, 'Google Alerts for the DOU');
 });
 
@@ -102,10 +102,10 @@ test('buildPageCard throws on an unknown key rather than returning a blank card'
   assert.throws(() => buildPageCard('nope', { postCount: 0, updateCount: 0, buildProjects, projects }));
 });
 
-test('buildPageCard throws when a building/<slug> key has no matching registry project', () => {
-  assert.throws(() => buildPageCard('building/ghost', { postCount: 0, updateCount: 0, buildProjects, projects }));
+test('buildPageCard throws when a building-<slug> key has no matching registry project', () => {
+  assert.throws(() => buildPageCard('building-ghost', { postCount: 0, updateCount: 0, buildProjects, projects }));
 });
 
-test('buildPageCard throws when a projects/<id> key has no matching registry project', () => {
-  assert.throws(() => buildPageCard('projects/ghost', { postCount: 0, updateCount: 0, buildProjects, projects }));
+test('buildPageCard throws when a projects-<id> key has no matching registry project', () => {
+  assert.throws(() => buildPageCard('projects-ghost', { postCount: 0, updateCount: 0, buildProjects, projects }));
 });
