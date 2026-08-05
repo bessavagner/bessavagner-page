@@ -40,7 +40,8 @@ export interface OgProps {
   title: string;
   description: string;
   tags: string[];
-  minutes: number;
+  minutes?: number;
+  footerNote?: string;
   kind?: 'blog' | 'building';
 }
 
@@ -53,6 +54,12 @@ const div = (style: Record<string, unknown>, children: unknown): object => ({
   type: 'div',
   props: { style, children },
 });
+
+/** `bessavagner.com` plus an optional suffix: footerNote wins over minutes, then bare. */
+function footerText(props: OgProps): string {
+  const suffix = props.footerNote ?? (props.minutes !== undefined ? `${props.minutes} min` : undefined);
+  return suffix ? `bessavagner.com · ${suffix}` : 'bessavagner.com';
+}
 
 /** Build the Satori element tree for one post's card. Pure given props. */
 export function buildOgMarkup(props: OgProps): object {
@@ -117,12 +124,12 @@ export function buildOgMarkup(props: OgProps): object {
           description,
         ),
       ]),
-      // footer: dot + domain · reading time
+      // footer: dot + domain [· suffix]
       div({ display: 'flex', alignItems: 'center' }, [
         div({ display: 'flex', width: 12, height: 12, borderRadius: 9999, backgroundColor: ACCENT, marginRight: 16 }, ''),
         div(
           { display: 'flex', fontFamily: 'JetBrains Mono', fontWeight: 400, fontSize: 24, color: FOOTER_MUTED },
-          `bessavagner.com · ${props.minutes} min`,
+          footerText(props),
         ),
       ]),
     ],

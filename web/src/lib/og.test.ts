@@ -28,6 +28,22 @@ test('buildOgMarkup leaves blog cards without the building eyebrow', () => {
   assert.ok(!JSON.stringify(markup).includes('BUILDING IN PUBLIC'));
 });
 
+test('buildOgMarkup with a footerNote puts it in the footer', () => {
+  const markup = buildOgMarkup({ title: 't', description: 'd', tags: [], footerNote: '19 posts' });
+  assert.ok(JSON.stringify(markup).includes('bessavagner.com · 19 posts'));
+});
+
+test('buildOgMarkup with minutes and no footerNote still renders reading time', () => {
+  const markup = buildOgMarkup({ title: 't', description: 'd', tags: [], minutes: 7 });
+  assert.ok(JSON.stringify(markup).includes('bessavagner.com · 7 min'));
+});
+
+test('buildOgMarkup with neither minutes nor footerNote renders bare domain', () => {
+  const markup = buildOgMarkup({ title: 't', description: 'd', tags: [] });
+  assert.ok(JSON.stringify(markup).includes('bessavagner.com'));
+  assert.ok(!JSON.stringify(markup).includes('bessavagner.com ·'));
+});
+
 import { renderOgPng } from './og.ts';
 
 test('renderOgPng returns a 1200x630 PNG', async () => {
