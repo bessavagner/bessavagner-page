@@ -39,7 +39,7 @@ const breadcrumb = {
 };
 const isShipped = project.status === 'shipped';
 ---
-<Base title={`${project.title} — Building Publicly — Vagner Bessa`} description={project.blurb} ogType="article" rssHref="/building/rss.xml" rssTitle="Vagner Bessa — Building Publicly" spotlightGrid>
+<Base title={`${project.title} — Building Publicly — Vagner Bessa`} description={project.blurb} ogImage={`/og/building-${project.slug}.png`} ogType="article" rssHref="/building/rss.xml" rssTitle="Vagner Bessa — Building Publicly" spotlightGrid>
   <script is:inline type="application/ld+json" set:html={jsonLd(blogSchema)} />
   <script is:inline type="application/ld+json" set:html={jsonLd(breadcrumb)} />
   <section class="w-11/12 max-w-3xl mx-auto pt-28 pb-20">

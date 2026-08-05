@@ -27,7 +27,7 @@ const img = resolveScreenshot(p.image);
 
 const title = `${p.name} — Vagner Bessa`;
 const description = p.summary || p.tagline;
-const ogImage = p.ogImage ? asset(p.ogImage) : undefined;
+const ogImage = p.ogImage ? asset(p.ogImage) : `/og/projects-${p.id}.png`;
 
 const repos = [
   { href: p.links.repo, label: 'Repository' },
