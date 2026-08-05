@@ -1,0 +1,132 @@
+---
+title: "A code knowledge graph in my editor: how I actually use codegraph over MCP"
+description: "Before I edit a repo I don't grep it, I ask it. codegraph keeps a live SQLite graph of every symbol and edge, served over MCP, and one query returns the verbatim source a dozen greps would have chased. Here's how it changed the way I explore code."
+pubDate: 2026-08-05T05:00:00-03:00
+tags: ["mcp", "developer-tools", "code-intelligence", "ai-engineering", "workflow"]
+status: draft
+cta: follow-build
+---
+
+I had a question about this website last week: when does a blog post actually become visible in production? There is a `status` field, a `pubDate`, and something called a `reviewHash` that gets stamped by an approval script, and I could not remember how the three combine.
+
+The old way to answer that is a grep, then a read, then another grep because the first file imported something interesting, then four more reads. Fifteen minutes and eleven files later you have the answer and no memory of how you got there.
+
+I asked an index instead, and got the answer in one call. This post is about what that index is, what the call actually returned, and the honest limits of the thing, because "one call" is a claim worth checking rather than a slogan.
+
+## The tool, described plainly
+
+codegraph is a local daemon that keeps a SQLite database of every symbol, edge, and file in a workspace, and exposes it to my coding agent over the [Model Context Protocol](https://modelcontextprotocol.io/specification/2026-07-28). MCP is the wire format that lets an assistant call tools that live outside it: a server advertises some tools, the client calls them, results come back as structured text.
+
+I did not build codegraph. I run it, the same way I run a language server, and the `.codegraph/` directory it writes is machine-local and gitignored.
+
+Here is what it holds for this repository, from its own status call:
+
+```
+Files indexed:  135
+Total nodes:    1790
+Total edges:    2861
+Database size:  6.23 MB
+Backend:        node:sqlite — full WAL + FTS5
+
+Languages: python 69, typescript 57, javascript 4, yaml 5
+```
+
+Two things I like about that readout. It is small: six megabytes to describe a whole codebase, which is why reads come back in under a millisecond. And it is quietly informative on its own. This is an Astro site, so I would have told you it was a TypeScript project, and the index says there are more Python files in it than TypeScript ones. They are the matplotlib scripts that generate the figures for these posts. The index knows the shape of the repo better than my mental model did.
+
+## What one call returned
+
+The query was a bag of names, not a sentence: `isVisible isUpdateVisible reviewHash post approval visibility`. It came back with 55 symbols across 16 files, and then did the part that matters, which is deciding what I should actually read. It printed the verbatim source of four files, ranked, and the first one answered the question completely:
+
+```typescript
+// web/src/lib/publication.ts
+export type PublicationState =
+  'draft' | 'review' | 'stale-approval' | 'scheduled' | 'published';
+
+export function publicationState(f: PublicationFacts, ctx: Clock): PublicationState {
+  if (f.status === 'draft') return 'draft';
+  if (f.status === 'review') return 'review';
+  if (!f.hashMatches) return 'stale-approval';
+  return f.pubDate.getTime() <= ctx.now ? 'published' : 'scheduled';
+}
+
+/** In dev everything is visible, so drafts and future posts stay previewable. */
+export function isVisible(f: PublicationFacts, ctx: Clock): boolean {
+  if (!ctx.prod) return true;
+  return publicationState(f, ctx) === 'published';
+}
+```
+
+Nine lines of logic, and the state I had forgotten is right there in the middle: `stale-approval`, the case where a post was approved and then edited, so the approval no longer describes what would ship. It gets hidden and reported rather than silently published.
+
+The file's own header comment is the part I would never have found by grepping for `isVisible`:
+
+```
+// Pure by construction: no fs, no network, no astro:content, no Date.now().
+// Four previous copies of this rule — in blog.ts, buildlog-core.ts,
+// content-core.ts and check-publish.ts — drifted apart and caused every
+// publishing incident to date. There is one now.
+```
+
+That is the actual answer to my question, and it is a different answer than the one I asked for. I wanted the rule. What I needed to know was that the rule used to live in four places, that the copies drifted, and that consolidating them was a response to real incidents. A grep for a function name returns call sites. It does not return why the function exists.
+
+## What the grep loop would have cost
+
+I went back and ran the search I would have run, to keep myself honest about the comparison.
+
+Two greps, one for `isVisible` and one for `reviewHash`, across `src` and `scripts`. Between them they match **14 distinct files totalling 1,486 lines**. That is the candidate set: what I would have had to open, or skim, or guess my way through. Four of those files are tests, which are useful eventually and noise when you are still trying to locate the rule.
+
+So the comparison is not "one call versus one grep". It is one call versus two searches plus a judgement call about which of fourteen files to open, made before I knew what any of them contained. codegraph returned four files and put the right one first. It is doing ranking, which is the expensive part of exploring an unfamiliar area, and it can rank because it parsed the code into symbols and edges instead of matching strings.
+
+The mechanism is not mysterious. This is tool-augmented retrieval over a pre-built index, the same trade as any search engine: pay to parse and store once, then answer cheaply and repeatedly. It is the same bet I made when I [gave an agent a vector store for long-term memory](/blog/giving-an-llm-agent-memory/), except the corpus is my own code and the retrieval is exact rather than fuzzy.
+
+## The part I didn't ask for
+
+Above the source, the response carried a section I had not requested:
+
+```
+Blast radius — what depends on these (update/verify before editing)
+
+- isVisible (web/src/lib/publication.ts:41) — 2 callers in blog.ts, buildlog.ts;
+  ⚠️ no covering tests found
+- reviewHashOf (web/src/lib/review-verify.ts:57) — 3 callers in read-posts.ts,
+  review-map.ts, post.ts; ⚠️ no covering tests found
+- ReviewPayload (web/src/lib/review-hash.ts:188) — tests: review-hash.test.ts
+```
+
+The graph knows callers because it stores edges, and it knows which symbols have tests because test files are nodes with edges too. So "what breaks if I change this" is a traversal rather than a search.
+
+The warnings are the useful bit. `isVisible` is the single rule governing whether anything on this site is published, it has two callers, and the index says it has no covering test. There is a `publication.test.ts` in the repo, so the honest reading is "no test edge that codegraph could resolve", not "nobody ever tested this". Either way it is worth my attention, and I got it for free while asking about something else.
+
+That is the shift, and it is smaller and more useful than "AI reads my code". A grep answers the question you typed. An index that models relationships can volunteer the question you should have typed.
+
+## It is an index, not magic
+
+Three limits, because a tool post that only lists wins is an advertisement.
+
+**It indexes code, not content.** The `.ts`, `.astro`, and `.py` files are in the graph. The MDX that makes up this blog is not. So for the actual writing, the thing this repository mostly is, codegraph is no help at all and I use ordinary file tools. Knowing which half of a repo a tool covers is most of using it well.
+
+**It trails the filesystem.** A watcher re-indexes about a second behind a write. That is invisible in practice and it is not zero, so immediately after a large refactor the graph is briefly describing the previous version of the code.
+
+**The ecosystem is uneven.** MCP's official registry listed 9,652 servers as of May 2026, and GitHub had close to 16,000 repositories tagged `mcp-server`. Reported installation failure rates on community servers run [30 to 50 percent](https://techrt.com/mcp-server-statistics/). Plenty of what is out there is a thin wrapper around an API call that would have been a shell command. The servers worth running are the ones that maintain state your assistant cannot cheaply rebuild, which is exactly what a parsed index of a codebase is.
+
+The protocol side is stabilising fast, for what it is worth. The [2026-07-28 specification](https://blog.modelcontextprotocol.io/posts/2026-07-28/) moved MCP to a stateless core, added response caching and an extensions framework, and introduced a formal deprecation policy. Anthropic donated the protocol to the Agentic AI Foundation, a Linux Foundation fund it co-founded with Block and OpenAI, so it is no longer one vendor's format.
+
+## What it changed
+
+Not speed, or not mainly. The honest description is that it changed the order of operations.
+
+I used to explore code by narrowing: guess a name, grep it, read what came back, guess a better name. Every step of that is me deciding what to look at next, based on what I have seen so far, which means the exploration inherits my initial guess. Start with the wrong symbol and you spend a while in the wrong neighbourhood.
+
+Asking an index inverts it. I describe the area, and the ranking is done against the graph rather than against my hunch. When it is right I save the grep loop. When it is wrong, and it is sometimes wrong, I have lost one call and I still have grep.
+
+That is a smaller claim than the tooling around this space usually makes, and it is the one I can defend. It is the same reason I decompose code generation into [parse, customise, validate](/blog/spec-driven-scaffolding/) rather than handing a model one big prompt: put the deterministic machinery where determinism is cheap, and spend the model's attention on the part that genuinely needs judgement. A parsed index of my own repository is about as deterministic as retrieval gets.
+
+It also has the failure mode every cache has. The index is a claim about the code, and claims go stale. I spent an afternoon recently chasing [what a provider-model refresh silently repointed](/blog/model-churn-is-a-maintenance-tax/) in a library that codegraph had no index for, and the tedious part was exactly the part this tool removes: finding every call site that referenced a thing positionally. The tool would not have made that bug impossible. It would have made the blast radius one query instead of an afternoon.
+
+## References
+
+- [MCP specification 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28): the current protocol version.
+- [The 2026-07-28 Specification (MCP blog)](https://blog.modelcontextprotocol.io/posts/2026-07-28/): stateless core, response caching, extensions, MCP Apps, and the deprecation policy.
+- [MCP gets an enterprise makeover (The Register)](https://www.theregister.com/ai-and-ml/2026/07/29/mcp-gets-an-enterprise-makeover/5280027): outside reporting on the same release.
+- [MCP server statistics 2026](https://techrt.com/mcp-server-statistics/): registry counts, SDK downloads, and community-server install failure rates.
+- [SQLite FTS5](https://www.sqlite.org/fts5.html): the full-text index behind the symbol search.
