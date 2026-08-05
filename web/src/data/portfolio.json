@@ -286,7 +286,7 @@
       "id": "replaygate",
       "name": "ReplayGate",
       "tagline": "Cross-turn regression testing for multi-turn AI agents",
-      "summary": "A harness that records a real agent conversation — its LLM and tool calls — into a deterministic fixture, then replays it to assert cross-turn invariants like \"never books before the user confirms\": the whole-conversation bugs that per-turn tests miss, on the channel the agent actually runs on.",
+      "summary": "Records a real agent conversation, its LLM and tool calls, into a deterministic fixture, then replays it to catch the cross-turn bugs per-turn tests miss.",
       "body": "ReplayGate is a regression-testing harness for multi-turn AI agents that run on real channels like WhatsApp. It records a live conversation — every LLM call and tool call — into a deterministic fixture, then replays that fixture offline to assert cross-turn invariants: properties that span the whole conversation, such as \"never book an appointment before the user has confirmed\". These are the bugs per-turn unit tests miss, because they only emerge from the sequence of turns. It is built in Python with Pydantic v2 for typed fixtures, DuckDB for storage, a Typer CLI and a pytest integration — and it is being built in public.",
       "kind": "dev-tooling",
       "role": "Creator & maintainer",
