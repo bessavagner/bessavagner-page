@@ -1,0 +1,175 @@
+---
+title: "Typed domain exceptions with stable error codes: the kernel raises a code, the adapter writes the prose"
+description: "An accounting kernel that must never say a word to a user. Every domain failure gets a typed exception and a stable machine code; one adapter table turns that code into localized prose. Here's the hierarchy, the import cycle it caused, the contract check that reported green through a hole, and the bug I found writing this."
+pubDate: 2026-08-11T05:00:00-03:00
+tags: ["python", "django", "domain-driven-design", "api-design", "i18n"]
+status: draft
+cta: cv
+---
+
+I have a Django app whose accounting core is not allowed to speak Portuguese. Or English. It is not allowed to produce a sentence at all.
+
+The app is a cash-flow kernel: double-entry bookkeeping for a small company's books, where every expense becomes a journal entry with balanced debit and credit lines. The core of it is a handful of pure service functions (`post_entry`, `reverse_entry`, `account_balance`) that take plain arguments and return plain objects. They touch no HTTP, no templates, no serializers. A test asserts that, by walking the module's AST and failing if it imports `django.http`, `django.template`, `django.shortcuts` or `rest_framework`.
+
+That constraint is easy to state and immediately raises a question: when `post_entry` refuses a lopsided entry, what does the user see?
+
+Not a string from the kernel. The kernel raises a **typed domain exception** carrying a **stable machine code**, and something further out decides what a human reads. This post is that decision, the two things that went wrong implementing it, and a bug I only found because I sat down to write this.
+
+## A base class, eight codes, no prose
+
+Here is the whole exception module, minus five sibling classes that follow the identical shape:
+
+```python
+class LedgerError(Exception):
+    """Base for every ledger domain error. Carries a stable machine code."""
+
+    code = "ledger_error"
+
+
+class UnbalancedEntry(LedgerError):
+    code = "unbalanced_entry"
+
+
+class AccountNotPostable(LedgerError):
+    code = "account_not_postable"
+
+
+class CrossOrganizationAccess(LedgerError):
+    code = "cross_organization_access"
+```
+
+That is the entire mechanism. A base class so any caller can write `except LedgerError` and catch every domain failure at once, and a class attribute per subclass holding a lowercase snake_case string that never changes.
+
+The exception message is still free to be useful, it is just useful to *me*:
+
+```
+type      : UnbalancedEntry
+isinstance: LedgerError -> True
+.code     : 'unbalanced_entry'
+str(exc)  : 'debits 100.00 != credits 90.00'
+```
+
+`str(exc)` is developer detail, headed for a log. `.code` is the contract. The split matters because those two strings have opposite requirements: the message should say as much as possible about this particular failure, and the code must say the same thing forever so that everything downstream can rely on it.
+
+The pattern has a name worth saying out loud: this is a small **error taxonomy** behind an **anti-corruption layer**. The kernel's vocabulary of failure is finite, enumerated and owned by the kernel; nothing outside gets to invent a new one, and nothing inside gets to leak presentation concerns back in. It is the same instinct as keeping arithmetic out of a language model and [in a Python function that always reconciles](/blog/dont-let-the-llm-do-the-math/): put the part that must be exact somewhere it cannot drift.
+
+## The adapter owns every sentence
+
+One module maps codes to prose, and it lives in the presentation layer:
+
+```python
+_CODE_MESSAGES = {
+    "unbalanced_entry": _("This entry does not balance."),
+    "account_not_postable": _("That account cannot receive postings."),
+    "entry_already_reversed": _("This entry was already reversed."),
+    "cross_organization_access": _("That record belongs to another organization."),
+    "account_not_found": _("No account matches that category."),
+    "party_not_found": _("No such payer."),
+    "party_has_no_control_account": _("This payer has no control account yet."),
+    "entry_not_found": _("No such entry."),
+}
+
+
+def message_for_code(code: str) -> str:
+    return _CODE_MESSAGES.get(code, _("Something went wrong."))
+```
+
+Every view that touches the kernel does the same three lines: catch `LedgerError`, call `message_for_code(exc.code)`, render. The machine code never reaches the page, which one of the view tests asserts directly by checking that the body contains the localized sentence and *not* the string `account_not_found`.
+
+The reason this is a table and not a message on the exception is the `_()` wrapping each value. The app ships two languages, English as the source and Brazilian Portuguese as the default, so the same `unbalanced_entry` has to come out as either "This entry does not balance." or "Este lançamento não está balanceado." depending on who is asking. There is no sentence you can put on `UnbalancedEntry` that satisfies both. The code is the thing that is language-independent, so the code is the thing that crosses the boundary.
+
+The fallback in `message_for_code` is the other half of the deal. An unknown code renders "Something went wrong." rather than raising, so adding a ninth exception class can degrade a message but cannot 500 a page.
+
+## Making the codes a contract instead of a convention
+
+A stable code is only stable if something notices when it moves. Two tests do that.
+
+The first pins the set. It imports all eight classes and asserts that the collected codes equal a hard-coded set of eight literal strings, then asserts the set has exactly 8 members so no two classes can quietly collide on one code. Renaming `unbalanced_entry` now requires editing the test that says it is called `unbalanced_entry`, which is the point: the rename becomes a decision instead of a side effect.
+
+The second is the AST scan that keeps presentation out. A third, over in the feature module, walks all eight exception classes and asserts each one's `.code` is a *key* in `_CODE_MESSAGES`, deliberately testing membership rather than the lookup, so a class that lost its message fails here instead of quietly surfacing the generic "Something went wrong." in front of a user.
+
+None of that is clever. It is the unglamorous half of "stable error code": the adjective does no work unless a test enforces it.
+
+## The cycle underneath
+
+The exceptions did not start where they are now. They started inside the kernel's public seam, `ledger/public/exceptions.py`, and the services imported them from there. That reads correctly and it was wrong.
+
+Importing `ledger.public.exceptions` initialises its parent package, and `ledger/public/__init__.py` imports back from `ledger.services` to re-export the service functions. So a process that imports `ledger.services` first hits this:
+
+```
+File "src/backend/ledger/services/__init__.py", line 3, in <module>
+    from ledger.services.balances import account_balance, ...
+File "src/backend/ledger/services/balances.py", line 10, in <module>
+    from ledger.public.exceptions import CrossOrganizationAccess, ...
+File "src/backend/ledger/public/__init__.py", line 14, in <module>
+    from ledger.services import (
+ImportError: cannot import name 'EntryView' from partially initialized module
+'ledger.services' (most likely due to a circular import)
+```
+
+I reproduced that traceback for this post by reverting the four service modules to their old import line and running a fresh interpreter. It takes about two seconds to trigger and it never once fired in the test suite, because pytest collects files alphabetically and something earlier in the alphabet always imported `ledger.public` first, warming the package before any service module asked for it. The cycle was real the whole time and the suite's file ordering hid it.
+
+The fix is boring and that is a virtue: the classes moved down to `ledger/exceptions.py`, a plain top-level module below the seam. Services import from there, which pulls in only the empty `ledger` package. The seam kept a shim that re-exports the same nine names from `ledger.public.exceptions`, so not a single external import statement changed. Then a test pinned it, by running `import ledger.services` in a genuinely fresh subprocess rather than trusting the in-process module cache.
+
+I wrote that down as an architecture decision record, because the tempting alternatives are both traps. Reordering imports or moving them inside functions hides the cycle behind a rule nobody will remember, and a future revert reopens it in silence. Merging the exceptions into the seam's `__init__` couples the error surface to service initialisation, which is the coupling that caused the bug.
+
+## The contract that reported green through the hole
+
+Moving the classes below the seam opened something I did not anticipate.
+
+The repo enforces its module boundaries with [import-linter](https://import-linter.readthedocs.io/): a contract in `pyproject.toml` says the `expenses` feature module may not import a list of kernel internals. That list named `ledger.models` and `ledger.services`, which was complete when the typed errors existed only under `ledger/public/`. After the move, `ledger.exceptions` was a new, unlisted, importable path straight past the seam.
+
+I put the bypass in on purpose to see what the tooling would say. One import of `ledger.exceptions` added to a file under `expenses/`, and:
+
+```
+kernel imports no feature module KEPT
+ledger service layer excludes presentation frameworks KEPT
+modules use only the public seams KEPT
+
+Contracts: 3 kept, 0 broken.
+```
+
+Three kept, zero broken, while a feature module reached below the seam in the same run. The check was not lying. It was answering the question it had been asked, and the question no longer covered the codebase. That is the same shape as [a tenant-isolation test that passes because it runs as a superuser](/building/turmarium/01-proving-tenant-isolation-at-the-database/): green, and evidence of nothing.
+
+Adding `ledger.exceptions` to the contract closes it. The interesting part is what happened next. Once the module is forbidden and no file imports it, deleting it from the contract again puts the suite right back to green, because there is no violation left for the rule to catch. The guard was unfalsifiable: I could delete the fix and nothing would tell me.
+
+So the guard got a guard. One test reads `pyproject.toml`, selects the contract *by name* rather than by index, and asserts that `ledger.exceptions` appears in its `forbidden_modules` and in the AST scan's own tuple, and that the two sets are equal. Delete either half now:
+
+```
+E  AssertionError: ADR-0012 moved the typed errors below the seam;
+   expenses must not reach them
+E  assert 'ledger.exceptions' in ['core.models', 'core.views',
+   'ledger.models', 'ledger.services']
+```
+
+Selecting by name matters more than it looks. An index would silently point at a different contract the day someone reorders the file, and the test would keep passing while checking the wrong thing. The same instinct as writing plans against [a schema rather than a position in a document](/blog/machine-readable-plan-format/): name the thing you mean. There is a longer version of this argument in the build log for another project, where [the import boundary broke the first time a module actually used it](/building/turmarium/03-good-fences-import-boundary/).
+
+## What I found writing this post
+
+While assembling the code-to-message examples above, I ran `message_for_code("unbalanced_entry")` under an English locale and got Portuguese back.
+
+The adapter imports `gettext` as `_`, and `_CODE_MESSAGES` is a module-level dict literal. So every value is translated **once**, when the module is first imported, under whatever language happened to be active in that worker process. The dict holds eight plain `str` objects. Switching the active language afterwards changes nothing.
+
+The app has `LocaleMiddleware` installed and lists both languages, so this is reachable. A request with `Accept-Language: en` down the error path returns:
+
+```
+Content-Language header : en
+body contains 'Nenhuma conta corresponde': True
+body contains 'No account matches that category.': False
+```
+
+A response that declares itself English and carries a Portuguese error message. Django's answer is `gettext_lazy`, which returns a proxy that resolves at render time instead of import time; the same eight strings then follow the active language correctly.
+
+It is unfixed as I write this, and it is a good argument for the design rather than against it. The bug lives entirely in the prose layer. Every `.code` was correct in every one of those runs, the taxonomy held, and the fix is one import and eight unchanged dictionary keys. Had the sentences lived on the exception classes, the same mistake would have been a change to the kernel.
+
+## What I would keep
+
+A domain error is two values: a message for me and a code for everything else. Conflating them is how a frontend ends up matching on prose that a translator will change next week. Give the code a test that spells it out in literals, or the word "stable" is decoration.
+
+Where the exception classes physically live is an architecture question rather than a filing one. Putting them in the seam looked tidy and created a cycle that only stayed hidden because of alphabetical luck.
+
+And a boundary check reports on the rule you wrote, not on the boundary you meant. When I closed a bypass, the closing was itself deletable without consequence until a test asserted the rule by name.
+
+The obvious next place for this is a JSON API: the code goes in the response body, the message stays a rendering concern, and the client switches on the code. I have not done it. My other Django project, [the polymorphic vault API](/blog/polymorphic-vaults-in-drf/), answers a bad request with `{"detail": "url is required"}` and nothing else, which is precisely the untyped string I have spent this whole post arguing against. It has one shared endpoint serving many shapes, so its failures ought to be as uniform as its successes. That one is on the list.
+
+If you enforce module boundaries in a Python codebase, here is the question I would ask yours: when you last added a rule to your import contract, did you check that deleting it turns something red? Mine did not, for about a week.
