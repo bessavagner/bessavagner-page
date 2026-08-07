@@ -2,11 +2,13 @@
 title: "Typed domain exceptions with stable error codes: the kernel raises a code, the adapter writes the prose"
 description: "An accounting kernel that must never say a word to a user. Every domain failure gets a typed exception and a stable machine code; one adapter table turns that code into localized prose. Here's the hierarchy, the import cycle it caused, the contract check that reported green through a hole, and the bug I found writing this."
 pubDate: 2026-08-11T05:00:00-03:00
+heroImage: ../../assets/blog/typed-domain-exceptions-stable-error-codes/code-crosses-the-boundary.light.png
+heroImageDark: ../../assets/blog/typed-domain-exceptions-stable-error-codes/code-crosses-the-boundary.dark.png
 tags: ["python", "django", "domain-driven-design", "api-design", "i18n"]
 status: approved
 cta: cv
-reviewedAt: 2026-08-07T14:11:49.021Z
-reviewHash: sha256:3e28841b90e28329bef32bb1ea38c19e4bfb68648826c136384477e0a4069404
+reviewedAt: 2026-08-07T14:19:11.264Z
+reviewHash: sha256:f0e53c3a1ede655166f5ac028539b535cf18ee3045e44618ca14226514bf457d
 ---
 
 I have a Django app whose accounting core is not allowed to speak Portuguese. Or English. It is not allowed to produce a sentence at all.
