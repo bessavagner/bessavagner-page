@@ -4,8 +4,10 @@ description: "I wrote a benchmark to prove my vault API's eager loading worked, 
 pubDate: 2026-08-13T05:00:00-03:00
 heroImage: ../../assets/blog/finding-the-n-plus-one-before-prod/endpoint_query_budget.svg
 tags: ["django", "orm", "performance", "testing", "drf"]
-status: draft
+status: approved
 cta: cv
+reviewedAt: 2026-08-07T14:11:49.288Z
+reviewHash: sha256:45e2cab8c815a1c3319f9e5b3f4877b0b66329a3b8d28017e5aae282215064bd
 ---
 
 import { Image } from 'astro:assets';
@@ -29,7 +31,7 @@ A flat three, measured on a codebase that had no eager loading in it.
 
 ## What the benchmark was actually measuring
 
-The vault is a Django REST Framework API over a single polymorphic `Item` table: bookmarks, recipes, journals, grocery lists, all one endpoint. Each item carries tags and attachments, which is the setup for the classic **N+1 query problem**: one query to fetch a page of rows, then two more per row as the serializer renders each item's related sets. The fix is eager loading, `select_related` for the single-valued relations and `prefetch_related` for the many-valued ones. I wrote that up properly when I built the thing, in [the post about the polymorphic vault API](/blog/polymorphic-vaults-in-drf/), and I am not going to re-explain it here. This post is about the measurement, which turned out to be the harder half.
+The vault is a Django REST Framework API over a single polymorphic `Item` table: bookmarks, recipes, journals, grocery lists, all one endpoint. Each item carries tags and attachments, which is the setup for the classic **N+1 query problem**: one query to fetch a page of rows, then two more per row as the serializer renders each item's related sets. The fix is eager loading, `select_related` for the single-valued relations and `prefetch_related` for the many-valued ones. I wrote that up properly when I built the thing, in [the post about the polymorphic vault API](/blog/polymorphic-vaults-in-drf/). The measurement turned out to be the harder half.
 
 Here is the load-bearing part of the benchmark I wrote to feed that chart:
 
@@ -58,7 +60,7 @@ Read it as an outsider and the flaw is obvious. `_eager_qs` is a queryset the *t
 
 The benchmark was measuring the technique. I had read it as measuring the endpoint. It answered "does `prefetch_related` reduce query counts", which is a question about Django, already settled, and asked nowhere near the question I cared about: does the thing I deploy still do this?
 
-The genre matters here. That file is a **benchmark**, not a **regression test**. A benchmark produces a number for a human to look at. A regression test compares a number against a committed expectation and fails. Mine had two assertions at the bottom, and they were both about the shape of its own output: that the naive series increases, and that the eager series is constant. Both hold perfectly well when the eager series is constant *because the test file made it constant*. Nothing in that file could ever have noticed the deletion I made.
+That file is a **benchmark**, not a **regression test**. A benchmark produces a number for a human to look at. A regression test compares a number against a committed expectation and fails. Mine had two assertions at the bottom, and they were both about the shape of its own output: that the naive series increases, and that the eager series is constant. Both hold perfectly well when the eager series is constant *because the test file made it constant*. Nothing in that file could ever have noticed the deletion I made.
 
 ## The endpoint's number is not three
 
@@ -87,7 +89,7 @@ I re-ran the whole thing with the eager loading removed from `ItemViewSet.get_qu
 
 The unguarded line climbs 22, 52, 102 and then stops. It stops because the page size is fixed at 50 on the server, so past a hundred items page one still returns fifty rows and still costs `1 COUNT + 1 page + 2 lookups × 50 rows`. Pagination caps the N+1's blast radius. The endpoint was never going to degrade without limit as the vault filled up; the worst case was pinned at 102 queries from the moment `PAGE_SIZE` was set.
 
-That is worth knowing precisely because the usual telling of this bug is apocalyptic. "It works with ten rows and melts in production" is true for an unpaginated endpoint and false for this one. What I actually had was a fixed, permanent 102 queries where 4 would do, on a hot read path, which is bad in a boring, steady way rather than a dramatic one.
+That is worth knowing precisely because the usual telling of this bug is apocalyptic. "It works with ten rows and melts in production" is true for an unpaginated endpoint and false for this one. What I actually had was a fixed, permanent 102 queries where 4 would do, on a hot read path, which is bad in a boring, steady way.
 
 There is a related detail I only noticed while setting the sizes up: `?page_size=` does nothing on this API. `PageNumberPagination` ignores the query parameter unless you set `page_size_query_param`, which I never did. So no client can widen that page, which makes the ceiling above a structural fact rather than a default someone can opt out of.
 
@@ -114,7 +116,7 @@ def test_item_list_stays_within_its_query_budget(django_assert_num_queries):
     assert len(response.json()["results"]) == 50
 ```
 
-`django_assert_num_queries` is pytest-django's wrapper around Django's `assertNumQueries`. Two assertions at different data sizes, not one: a single fixed count would also pass if the endpoint were quadratic and I happened to name the quadratic number. Ten rows and fifty rows costing the same is the property I actually want, and asserting it twice is how the flatness gets tested rather than assumed.
+`django_assert_num_queries` is pytest-django's wrapper around Django's `assertNumQueries`. Two assertions at different data sizes: a single fixed count would also pass if the endpoint were quadratic and I happened to name the quadratic number. Ten rows and fifty rows costing the same is the property I actually want, and asserting it twice is how the flatness gets tested rather than assumed.
 
 The comment above the constant is doing real work too. `4` on its own is a magic number that the next person deletes or bumps when it goes red. `4` with its four queries named is a claim someone has to argue with, and if a fifth query appears the diff makes them say what it is.
 
@@ -144,8 +146,8 @@ Test through the entry point the application uses. Every step my benchmark skipp
 
 Prefer a budget over a benchmark for anything you want to stay true. A printed number is a fact about the day it was printed. It becomes a guarantee when something fails without it, and the gap between those two is invisible from inside a green test run.
 
-Before trusting a guard, delete the thing it guards and watch it fail. It costs one commit you throw away. I have been caught by this twice in a month now, in two different repos: the other was an import contract that reported [three kept, zero broken while a module reached straight past the seam it was meant to protect](/blog/typed-domain-exceptions-stable-error-codes/). Both times the tooling was green, correct, and answering a question I had stopped asking.
+Before trusting a guard, delete the thing it guards and watch it fail. It costs one commit you throw away. I have been caught by this twice in a month now, in two different repos: the other was an import contract that reported [three kept, zero broken while a module reached straight past the seam it was meant to protect](/blog/typed-domain-exceptions-stable-error-codes/).
 
 And re-run the finding your work rests on, occasionally. I only found this because I went back to a measurement I had already published, which is the same reason I [re-ran the runtime finding underneath supskill](/building/supskill/01-re-running-the-finding/) before building another update on top of it.
 
-The old benchmark is still in the repo, still printing its four numbers, still naming in its docstring the chart it feeds. What changed is that nothing depends on it anymore. If you have a chart in a README or a blog post that says your API is fast, the useful question is not whether the number was right when you took it. It is what would happen today if you deleted the code that made it true.
+The old benchmark is still in the repo, still printing its four numbers, still naming in its docstring the chart it feeds. What changed is that nothing depends on it anymore. If you have a chart in a README or a blog post that says your API is fast, the question worth asking is what would happen today if you deleted the code that made it true.

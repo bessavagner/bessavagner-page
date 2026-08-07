@@ -3,8 +3,10 @@ title: "Typed domain exceptions with stable error codes: the kernel raises a cod
 description: "An accounting kernel that must never say a word to a user. Every domain failure gets a typed exception and a stable machine code; one adapter table turns that code into localized prose. Here's the hierarchy, the import cycle it caused, the contract check that reported green through a hole, and the bug I found writing this."
 pubDate: 2026-08-11T05:00:00-03:00
 tags: ["python", "django", "domain-driven-design", "api-design", "i18n"]
-status: draft
+status: approved
 cta: cv
+reviewedAt: 2026-08-07T14:11:49.021Z
+reviewHash: sha256:3e28841b90e28329bef32bb1ea38c19e4bfb68648826c136384477e0a4069404
 ---
 
 I have a Django app whose accounting core is not allowed to speak Portuguese. Or English. It is not allowed to produce a sentence at all.
@@ -13,7 +15,7 @@ The app is a cash-flow kernel: double-entry bookkeeping for a small company's bo
 
 That constraint is easy to state and immediately raises a question: when `post_entry` refuses a lopsided entry, what does the user see?
 
-Not a string from the kernel. The kernel raises a **typed domain exception** carrying a **stable machine code**, and something further out decides what a human reads. This post is that decision, the two things that went wrong implementing it, and a bug I only found because I sat down to write this.
+The kernel raises a **typed domain exception** carrying a **stable machine code**, and something further out decides what a human reads. Two things went wrong implementing that, and a third I only found sitting down to write this.
 
 ## A base class, eight codes, no prose
 
@@ -86,9 +88,9 @@ A stable code is only stable if something notices when it moves. Two tests do th
 
 The first pins the set. It imports all eight classes and asserts that the collected codes equal a hard-coded set of eight literal strings, then asserts the set has exactly 8 members so no two classes can quietly collide on one code. Renaming `unbalanced_entry` now requires editing the test that says it is called `unbalanced_entry`, which is the point: the rename becomes a decision instead of a side effect.
 
-The second is the AST scan that keeps presentation out. A third, over in the feature module, walks all eight exception classes and asserts each one's `.code` is a *key* in `_CODE_MESSAGES`, deliberately testing membership rather than the lookup, so a class that lost its message fails here instead of quietly surfacing the generic "Something went wrong." in front of a user.
+The second lives over in the feature module and walks all eight exception classes, asserting each one's `.code` is a *key* in `_CODE_MESSAGES`, deliberately testing membership rather than the lookup, so a class that lost its message fails here instead of quietly surfacing the generic "Something went wrong." in front of a user.
 
-None of that is clever. It is the unglamorous half of "stable error code": the adjective does no work unless a test enforces it.
+That is the unglamorous half of "stable error code": the adjective does no work unless a test enforces it.
 
 ## The cycle underneath
 
@@ -109,7 +111,7 @@ ImportError: cannot import name 'EntryView' from partially initialized module
 
 I reproduced that traceback for this post by reverting the four service modules to their old import line and running a fresh interpreter. It takes about two seconds to trigger and it never once fired in the test suite, because pytest collects files alphabetically and something earlier in the alphabet always imported `ledger.public` first, warming the package before any service module asked for it. The cycle was real the whole time and the suite's file ordering hid it.
 
-The fix is boring and that is a virtue: the classes moved down to `ledger/exceptions.py`, a plain top-level module below the seam. Services import from there, which pulls in only the empty `ledger` package. The seam kept a shim that re-exports the same nine names from `ledger.public.exceptions`, so not a single external import statement changed. Then a test pinned it, by running `import ledger.services` in a genuinely fresh subprocess rather than trusting the in-process module cache.
+The classes moved down to `ledger/exceptions.py`, a plain top-level module below the seam. Services import from there, which pulls in only the empty `ledger` package. The seam kept a shim that re-exports the same nine names (the base class and its eight subclasses) from `ledger.public.exceptions`, so not a single external import statement changed. Then a test pinned it, by running `import ledger.services` in a genuinely fresh subprocess rather than trusting the in-process module cache.
 
 I wrote that down as an architecture decision record, because the tempting alternatives are both traps. Reordering imports or moving them inside functions hides the cycle behind a rule nobody will remember, and a future revert reopens it in silence. Merging the exceptions into the seam's `__init__` couples the error surface to service initialisation, which is the coupling that caused the bug.
 
@@ -164,7 +166,7 @@ It is unfixed as I write this, and it is a good argument for the design rather t
 
 ## What I would keep
 
-A domain error is two values: a message for me and a code for everything else. Conflating them is how a frontend ends up matching on prose that a translator will change next week. Give the code a test that spells it out in literals, or the word "stable" is decoration.
+A domain error is two values: a message for me and a code for everything else. Conflating them is how a frontend ends up matching on prose that a translator will change next week. Give the code a test that spells it out in literals.
 
 Where the exception classes physically live is an architecture question rather than a filing one. Putting them in the seam looked tidy and created a cycle that only stayed hidden because of alphabetical luck.
 
@@ -172,4 +174,4 @@ And a boundary check reports on the rule you wrote, not on the boundary you mean
 
 The obvious next place for this is a JSON API: the code goes in the response body, the message stays a rendering concern, and the client switches on the code. I have not done it. My other Django project, [the polymorphic vault API](/blog/polymorphic-vaults-in-drf/), answers a bad request with `{"detail": "url is required"}` and nothing else, which is precisely the untyped string I have spent this whole post arguing against. It has one shared endpoint serving many shapes, so its failures ought to be as uniform as its successes. That one is on the list.
 
-If you enforce module boundaries in a Python codebase, here is the question I would ask yours: when you last added a rule to your import contract, did you check that deleting it turns something red? Mine did not, for about a week.
+The `gettext` bug is the one I keep thinking about. It is reachable in production and the fix is one import, because the taxonomy had decided months earlier which layer was allowed to hold a sentence. That is the return on the pattern: it settles where a mistake like that can land.
