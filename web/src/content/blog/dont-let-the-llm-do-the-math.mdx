@@ -3,9 +3,11 @@ title: "Don't let the LLM do the math: deterministic discount proration for rece
 description: "A vision model reads the receipt fine, then quietly loses a cent splitting the discount. Here's why I moved the arithmetic out of the model into a small Python function whose shares always sum to the amount paid."
 pubDate: 2026-08-07T05:00:00-03:00
 tags: ["python", "llm", "ocr", "fintech", "domain-driven-design"]
-status: draft
+status: approved
 cta: lets-talk
 heroImage: ../../assets/blog/dont-let-the-llm-do-the-math/reconciliation.svg
+reviewedAt: 2026-08-07T12:07:12.484Z
+reviewHash: sha256:754e13bb02f3824595d39f242d1b59bb613ff68a84548fe360b990f14795413d
 ---
 
 import { Image } from 'astro:assets';
@@ -43,6 +45,7 @@ class ReceiptExtraction(BaseModel):
     amount_paid: Decimal | None = None
     payment_hint: str | None = None  # "VISA CRÉDITO", "PIX", "DINHEIRO"
     confidence: float = 0.0
+    # (trimmed here: CNPJ, receipt type, card digits, a date normalizer)
 
 
 extraction_agent = Agent(
@@ -97,7 +100,8 @@ Eleven days later, a Mercado Livre order screen. One line showed `R$ 97,14  R$ 6
 
 The discounted price shown next to the product on that screen is already the total for the line, all units included. The model saw a quantity of 2 next to it and multiplied. Nothing in the code did that; the arithmetic happened inside the extraction, before any of my Python ran, and arrived as a plausible `line_total`.
 
-There is no clever code fix for this. It is a prompt fix, and the honest way to describe it is that I had to tell the model, in the instruction that governs `line_total`, to stop calculating:
+There is no clever code fix for this. It is a prompt fix, and the honest way to describe it is that I had to tell the model, in the instruction that governs `line_total`, to stop calculating (the prompt is
+written in Portuguese, since the receipts are; this is my translation of it):
 
 > `line_total` is ALWAYS the final displayed amount for that line, for all units. READ it directly from the document, NEVER compute it by multiplying a unit price by the quantity. If you need `unit_price`, derive it as `line_total` divided by quantity, never the reverse.
 
