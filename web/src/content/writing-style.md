@@ -15,7 +15,8 @@ one-off blog post.
 Cover letters and job proposals have their own directive at
 `docs/job_applications/cover-letter-style.md`. This guide is the source of the
 rules that travel across everything I write — never fabricate, avoid the em-dash,
-show-don't-announce, name the pattern, be precise with AI vocabulary — and the
+show-don't-announce, name the pattern, write the thing rather than its ticket
+number, be precise with AI vocabulary — and the
 cover-letter guide inherits them and layers on the proposal-specific parts (lead
 with the single strongest real proof, keep the body plain-text for the Upwork
 box, de-risk the close with a small sample before the full commit). Keep the
@@ -191,6 +192,27 @@ These are habits the early posts already show; lean into them, don't sand them o
   idempotency, test doubles. The recognized term is a keyword that signals
   competence and lets a reader map the idea onto something they already know. Gloss
   it in the same breath, but say the name.
+- **Write the thing, not its ticket number.** The inverse of "name the pattern": a
+  *recognized* term is a keyword the reader can map onto something they know, but a
+  *private* identifier is a keyword only I can resolve. Story ids, epic codes, sprint
+  tags, and in-house acronyms stand in for a description without supplying one, and
+  they ask the reader to hold a backlog they cannot see. supskill update #3 shipped
+  with eight: `parked as SK-090`, `PLS-002 acceptance 11`, `filed as PLS-008`,
+  `cleared SK-070 on 2026-07-19`, `An SDD fix subagent ran git add -A`, plus the
+  in-house verb in "a nine-task drain". The fix is always to state the thing itself:
+  `SK-090` became "sits in supskill's own backlog, deferred with one line: 'a
+  separate product, revisit after v1'"; `An SDD fix subagent` became "A subagent
+  dispatched to apply review fixes"; "a nine-task drain" became "nine tasks of
+  execution". In every case the sentence already had to describe the thing, so the
+  id was adding nothing and costing comprehension.
+  An identifier earns its place only when the post **defines it at first use and
+  reuses it** across sections as a short handle, the way `E1` and `E8` are introduced
+  ("Sprint `s1` committed epic E1: the tool seam and the output store") before being
+  referred back to. A one-shot id never earns it. This is the easiest rule to miss
+  while reviewing from inside the repo, where every id resolves against a file on
+  disk: read the draft once as someone who has only the post. (Observed 2026-08-12,
+  on the published update #3, where a first review pass checked every id for accuracy
+  and never asked whether a reader could decode it.)
 - **Lists for sequences, prose for arguments.** A pipeline or any ordered process
   reads better as a numbered list than as a comma-spliced sentence. Reserve flowing
   prose for the reasoning; break the steps out.
