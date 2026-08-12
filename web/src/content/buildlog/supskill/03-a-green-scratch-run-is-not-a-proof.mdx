@@ -7,8 +7,8 @@ pubDate: 2026-08-12T08:00:00-03:00
 tags: ["claude-code", "subagents", "ai-agents", "orchestration", "validation", "python", "evals", "building-in-public"]
 status: approved
 cta: "follow-build"
-reviewedAt: 2026-08-12T15:16:08.429Z
-reviewHash: sha256:01ee36c80a43657ecc9b9857d161a985f3ea451b3d69fe39e5b39fb1911c9e27
+reviewedAt: 2026-08-12T18:05:10.527Z
+reviewHash: sha256:5078ab693706e0fe93991f864e191caad21a8a1840e7050164b76847d3c2c672
 ---
 
 supskill is a sprint conductor for Claude Code. It takes one sprint from a markdown backlog to a merged branch, drawing a fresh context boundary at every stage (SCOPE, REFINE, PLAN, EXECUTE, REVIEW), holding three human gates, and keeping every authoritative fact [on disk instead of in the model's head](/blog/giving-an-llm-agent-memory/).
@@ -21,7 +21,7 @@ E8 is that epic, and its backlog line is one sentence: validation that "earns it
 
 The project is called `playset`: a local, single-user web app that turns a link to a video or a playlist into MP3 files. Localhost only, no auth, fixed MP3 output, no database, because the output directory is the state. It exists so E8 has something to drive.
 
-supskill cannot produce the backlog it requires. I wrote playset's by hand in conversation before the conductor touched anything. That front-of-chain gap is parked as SK-090 ("a separate product, revisit after v1"), and it is still the honest start of every real run until that changes.
+supskill cannot produce the backlog it requires. I wrote playset's by hand in conversation before the conductor touched anything. That front-of-chain gap sits in supskill's own backlog, deferred with one line: "a separate product, revisit after v1." It is still the honest start of every real run until that changes.
 
 Sprint `s1` committed epic E1: the tool seam and the output store. Three stories, 13 points at commit time. By the end of the run: 14 commits on branch `s1` (off `4e8255e`), 165 tests passing in 0.13s with `ruff` clean and `mypy` clean on five source files, and a Gate 3 generative writeback that inserted 27 lines, removed none, and added a new epic E1b (5 rows, 10 points).
 
@@ -50,7 +50,7 @@ The G1 amendment travelled all the way into a test named `test_constants_match_t
 
 PLAN produced 1,867 lines. Before saving, the planning agent assembled every source and test block into a scratch project outside the repo and ran it: 127 passed, `ruff` clean, `mypy` clean. It even caught three real defects in its own text that way, including seven `E402` import-order violations from blocks it had appended.
 
-Its self-review then mapped acceptance criteria to test names, including this pairing: PLS-002 acceptance 11, "two distinct items never collide," to `test_distinct_items_never_collide`.
+Its self-review then mapped acceptance criteria to test names, including this pairing: "two distinct items never collide," an acceptance criterion on the output-store story, mapped to `test_distinct_items_never_collide`.
 
 The shipped `derive_path` was not injective. Two collisions, both reproduced against the built package:
 
@@ -131,9 +131,9 @@ That is not cosmetic. The SCOPE prompt tells the agent its scope is the first ep
 
 Correcting "Total: 63 pts" to 73 requires deleting a line, which append-only forbids. The safety rule and document consistency cannot both hold, and nothing in the shape resolves the tension. Two invariants of the same design are fighting, and I do not yet know which one should lose.
 
-Branch `s1` did merge, at `3588e5f`. The reconciliation happened by hand at merge time, filed as PLS-008: the branch copy of the backlog still marked PLS-001 and PLS-002 unchecked and "blocked" for the seam-guard alias gap and the `derive_path` injectivity gaps, both of which had been fixed on that same branch and confirmed by review. PAR flagged the contradicting status rows as Important. The S1 sprint document and dev plan were untracked too, while their committed siblings were tracked, so the plan the branch implemented was not in the branch.
+Branch `s1` did merge, at `3588e5f`. The reconciliation happened by hand at merge time, filed as a story of its own: the branch copy of the backlog still marked two stories unchecked and "blocked" for the seam-guard alias gap and the `derive_path` injectivity gaps, both of which had been fixed on that same branch and confirmed by review. PAR flagged the contradicting status rows as Important. The S1 sprint document and dev plan were untracked too, while their committed siblings were tracked, so the plan the branch implemented was not in the branch.
 
-Then it happened again. S2's sprint document and dev plan came up untracked the same way, which playset's backlog records as "the exact recurrence of PLS-008's own finding one sprint later," and it is now carried as a named merge ritual rather than a numbered story: whoever merges the branch commits both files as part of the merge. So the two invariants do get reconciled, by a person, every sprint, from memory.
+Then it happened again. S2's sprint document and dev plan came up untracked the same way, which playset's backlog records as the exact recurrence of that same finding one sprint later, and it is now carried as a named merge ritual rather than a numbered story: whoever merges the branch commits both files as part of the merge. So the two invariants do get reconciled, by a person, every sprint, from memory.
 
 ## The findings in the conductor
 
@@ -141,8 +141,8 @@ The report of record lists eight findings against supskill itself. The seven bel
 
 1. Prompt templates hardcode the `SK-0xx` prefix while the parsers honor the configured one. The REFINE agent noticed and overrode it, which is the only reason the run survived.
 2. `writing-plans` emits pre-executed implementations and presents a green scratch run as proof (the false-proof finding above).
-3. No runtime preflight that the four dispatched skills actually resolve. A missing dependency makes the stage improvise, which is the failure this project exists to prevent. Playset's own PLS-040 is "refuse to start when a required external tool is missing."
-4. An SDD fix subagent ran `git add -A` and swept harness state under `.omc/` into a commit. The controller caught it and reset to the three intended files.
+3. No runtime preflight that the four dispatched skills actually resolve. A missing dependency makes the stage improvise, which is the failure this project exists to prevent. Playset's own backlog carries a story for exactly that: "refuse to start when a required external tool is missing."
+4. A subagent dispatched to apply review fixes ran `git add -A` and swept unrelated harness state into a commit. The controller caught it and reset to the three intended files.
 5. One plan instruction was unconditionally wrong (tick all three backlog stories when two were blocked). The controller overrode it.
 6. There is no inverse of `block`. After both blockers resolved, `show --json` still reported open blockers, and Gate 3 re-presented settled decisions as live.
 7. Append-only writeback versus document consistency (above).
@@ -159,12 +159,12 @@ Both defects here are the same mistake at different scales. "Two distinct items 
 
 ## What's next
 
-E8 is closed, on three reports rather than one. The fixture run cleared SK-070 on 2026-07-19. SK-071 took two attempts: the blinkebot sprint proved every mechanism against a project I actually depend on, but it never reached Gate 3, never merged, and its feature shipped through a non-supskill path, which the backlog records as "a pass with a caveat, not a pass." This run answered that caveat. A greenfield project, three tracked files and no code, driven through all five stages and all three gates to merged code on `main`.
+E8 is closed, on three reports rather than one. A throwaway fixture repo cleared the first of E8's two stories on 2026-07-19. The second took two attempts: the blinkebot sprint proved every mechanism against a project I actually depend on, but it never reached Gate 3, never merged, and its feature shipped through a non-supskill path, which the backlog records as "a pass with a caveat, not a pass." This run answered that caveat. A greenfield project, three tracked files and no code, driven through all five stages and all three gates to merged code on `main`.
 
-What makes it the report I would defend is not that the run went well. It is that PAR caught a Critical in code that had already passed 165 tests, two rounds of task review, and a nine-task drain, and the process then routed that defect into the backlog as scheduled work instead of losing it.
+What makes it the report I would defend is not that the run went well. It is that PAR caught a Critical in code that had already passed 165 tests, two rounds of task review, and nine tasks of execution, and the process then routed that defect into the backlog as scheduled work instead of losing it.
 
 Playset still has not fetched a single track. E1 is pure Python, there was no operator run, and no MP3 has ever been produced.
 
-The holes a new user hits first went into the backlog as E9, the epic that turns E8's own principle on supskill itself, and two have closed since: `SK-106` refuses at run start when a dispatched skill will not resolve, and `SK-103` gave `block` the inverse it was missing, so Gate 3 stops re-presenting settled decisions as live ones. Still ahead is the front of the chain, SK-090 for brainstorm-to-backlog, and an installed-version preflight. The conductor drives a sprint end to end already. What it cannot do yet is keep the evidence it produces in step with the words it uses about that evidence.
+The holes a new user hits first went into the backlog as E9, the epic that turns E8's own principle on supskill itself, and two have closed since: a run now refuses to start when a dispatched skill will not resolve, and `block` finally has an inverse, so Gate 3 stops re-presenting settled decisions as live ones. Still ahead are the front of the chain, the brainstorm-to-backlog step that would take the hand-written backlog out of every run, and an installed-version preflight. The conductor drives a sprint end to end already. What it cannot do yet is keep the evidence it produces in step with the words it uses about that evidence.
 
 So the question I would actually like answered. When your suite claims a property under a named test, what makes you believe it searched for counterexamples rather than checking the inputs someone happened to think of? Property-based testing is the textbook answer and I have not wired it in yet, which is why I am asking rather than recommending. The whole run, defects included, is in the open at [the supskill log](/building/supskill/).
