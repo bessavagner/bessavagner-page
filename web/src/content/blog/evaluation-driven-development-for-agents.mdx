@@ -1,0 +1,154 @@
+---
+title: "Evaluation-driven development for agents: a regress-gate that can't fail your build"
+description: "Agents need tests the way code does, but the assertion is fuzzy. Here's the EDD loop I built into ReplayGate: deterministic offline replay that gates the build with real exit codes, an LLM judge that only ever advises, and the honest cost of pinning replay to a hash."
+pubDate: 2026-08-15T05:00:00-03:00
+heroImage: ../../assets/blog/evaluation-driven-development-for-agents/gate-and-judge.light.png
+heroImageDark: ../../assets/blog/evaluation-driven-development-for-agents/gate-and-judge.dark.png
+tags: ["ai-agents", "testing", "evaluation", "llm", "ci"]
+status: draft
+cta: follow-build
+---
+
+import { Image } from 'astro:assets';
+import gateAndJudge from '../../assets/blog/evaluation-driven-development-for-agents/gate-and-judge.light.png';
+
+The reason agents are hard to test is not that they are non-deterministic. Plenty of things are non-deterministic and we test them fine. It is that the assertion itself is fuzzy.
+
+For ordinary code I write `assert total == Decimal("45.00")` and the test is finished thinking. For an agent the property I care about sounds like "it didn't book the flight before the user confirmed", and that is not a string comparison. It spans turns. It is a claim about a conversation, not about a return value.
+
+So the industry's default answer has been to tweak the prompt until the demo looks right. A 2026 survey of IT and data leaders found [82% now say prompt engineering alone is no longer sufficient for production AI](https://datahub.com/blog/context-engineering-vs-prompt-engineering/), which is a polite way of saying the demo stops looking right eventually. The market agrees: in March 2026 [OpenAI acquired Promptfoo](https://openai.com/index/openai-to-acquire-promptfoo/), an evaluation and red-teaming company, and folded it into its enterprise agent platform. Evaluation stopped being a nice-to-have somewhere around then.
+
+This post is about the loop I built into [ReplayGate](/building/replaygate/) to answer that for my own agents, and specifically about the question it took me a rewrite to answer: what is allowed to fail the build.
+
+## Evaluation-driven development, and why the name matters
+
+**Evaluation-driven development** is the same shape as test-driven development, with the assertion replaced by an evaluation over a recorded run. You capture a real interaction once, you replay it against every change, and you assert properties over the replay. The name is worth saying out loud because it sets the expectation correctly: this is a development discipline, not a benchmark you run before a launch.
+
+The mechanism underneath is **golden testing**, or replay testing. Record the truth once, then diff every future run against it. ReplayGate records at the application seam rather than at the wire: it wraps the agent's `LLMClient` protocol and its tool registry and logs calls there, keyed by a `sha256` over `(model, system, messages, tools)`. That choice matters later, and not in a way I liked.
+
+Replaying is the cheap half. Here is a real run against a fixture I recorded for this post:
+
+```
+$ replaygate record support_happy /tmp/rg-demo/support
+recorded support_happy → /tmp/rg-demo/support
+
+$ replaygate replay /tmp/rg-demo/support
+replay OK — 2 turns reproduced offline, zero network
+```
+
+Zero network. That is the whole point of recording: the fixture is a readable JSON artifact of what the agent actually did, and every subsequent run is free and offline. If you have read [how I keep LLM-generated code from touching anything it shouldn't](/blog/running-llm-generated-code-safely/), this is the same instinct applied to time instead of privilege. Capture once, then stop paying.
+
+## The assertion is a function over the whole conversation
+
+The interesting half is what you assert. ReplayGate calls these **cross-turn invariants**: pure functions with the signature `Conversation -> InvariantResult`, registered against a scenario.
+
+They are pure functions on purpose. An invariant that can hit the network is an invariant that can be flaky, and a flaky gate gets disabled within a month. Here is a real one, lightly trimmed:
+
+```python
+def order_id_never_reasked(conv: Conversation) -> InvariantResult:
+    name = "order_id_never_reasked"
+    given_at: int | None = None
+    for turn in conv.turns:
+        if any(_ORDER_RE.search(m.content) for m in turn.user_messages):
+            given_at = turn.index
+            break
+    if given_at is None:
+        return InvariantResult(name=name, passed=True, detail="no order id was ever given")
+    for turn in conv.turns:
+        if turn.index <= given_at:
+            continue
+        for m in turn.assistant_messages:
+            if _REASK_RE.search(m.content):
+                return InvariantResult(
+                    name=name, passed=False,
+                    detail=f"turn {turn.index}: re-asked for an order id already given on turn {given_at}",
+                )
+    return InvariantResult(name=name, passed=True, detail="order id carried forward, never re-asked")
+```
+
+Nothing clever happens here, and that is the argument. It walks the turns, finds where the user gave an order id, and fails if the assistant asked again afterwards. A per-turn assertion structurally cannot express this, because on turn 1 in isolation "could you give me your order number?" is a perfectly good reply. The bug only exists relative to turn 0.
+
+That is the class of regression I could not catch before, and the one that survives a prompt tweak: the agent that re-asks, that forgets a constraint set four turns back, that acts before the user confirmed. I wrote more about how the gate came together in [the regress-gate update](/building/replaygate/03-the-regress-gate-catching-cross-turn-bugs/).
+
+## Three outcomes, not two
+
+Here is where I had to change my mind. The first version of the gate (`2653f87`, 30 June) had the shape every test runner has: pass or fail. The divergence policy landed the next day in `8bdd3be`, and the third outcome is the one that taught me something.
+
+<Image src={gateAndJudge} alt="Two lanes. The top, solid: replay feeds invariants which produce exit code 0, 1, or 3. The bottom, dashed and amber: replay feeds the judge which produces a score. A divider between them reads 'gates the build | only advises'." />
+
+Running the recorded fixture against three different candidate agents, with their real output and real exit codes:
+
+```
+$ replaygate regress /tmp/rg-demo/support --candidate support_control
+  [PASS] order_id_never_reasked: order id carried forward, never re-asked
+regress OK (support_happy): 1 invariant(s) held
+→ exit 0
+
+$ replaygate regress /tmp/rg-demo/support --candidate support_regressed
+  [FAIL] order_id_never_reasked: turn 1: re-asked for an order id already given on turn 0
+regress FAILED (support_happy): 1 invariant(s) violated
+→ exit 1
+
+$ replaygate regress /tmp/rg-demo/support --candidate support_reworded
+regress DIVERGED (support_happy): candidate left the recorded trajectory
+  - turn 0 [llm]: no recorded LLM response for request_key 2f7872ce4e7e…
+  invariants not evaluated (candidate left recorded trajectory)
+→ exit 3
+```
+
+The middle one is the gate doing its job: a real cross-turn regression, named, with the turn indices that prove it.
+
+The third one is the honest cost, and I want to be plain about it. `support_reworded` is not a broken agent. It is the control agent with its system prompt reworded to mean the same thing. Because the recording is keyed by a hash over `(model, system, messages, tools)`, changing a word in the system prompt changes the key, and there is no recorded response to serve. The candidate walks off the recorded trajectory on turn 0 and the invariants never run at all.
+
+Exit 3 exists to say exactly that, and `RegressReport` refuses to launder it:
+
+```python
+@property
+def passed(self) -> bool:
+    # A divergence is not a pass. Otherwise: vacuously True when no invariants
+    # are registered — the CLI guards that case (exit 2) before consulting this.
+    return not self.divergences and all(r.passed for r in self.results)
+```
+
+"A divergence is not a pass" is the entire lesson compressed. The tempting bug is to treat "no invariant reported a failure" as success. Nothing reported a failure because nothing was evaluated. That is the silent-zero mistake wearing a different hat, and it would have made the gate report green on precisely the changes most worth checking.
+
+So pinned replay buys determinism and charges for it in false divergences. There is a `--policy live` escape hatch that resolves a divergence against the real provider so the invariants can run over the candidate's actual trajectory, at the cost of a network call and a bill. Pinning where you can and paying only where you must is the same trade I made in [spec-driven scaffolding](/blog/spec-driven-scaffolding/): push as much as possible into the part that cannot drift, then be explicit about the part that can.
+
+## The judge advises, and the opt-in shipped with it
+
+Some properties resist a regex. "Did the assistant stay on topic", "was the refusal polite", "did the summary actually summarize". The available tool is another model, used as an **advisory oracle**: an LLM scoring the replayed conversation on registered dimensions.
+
+The obvious next step, once you have a judge, is to let it fail the build. I did not take it, and the commit that added the judge (`d76ac38`) shipped `--judge` and `--judge-gate` together for that reason: advisory is the default, gating is a flag you have to type. An LLM judge wired to fail builds by default is a coin flip with commit access.
+
+So the judge cannot change the exit code unless I explicitly opt in. Everything else about it is advisory, including its own failures. This is a real run, on a fixture with no recorded verdict:
+
+```
+$ replaygate regress /tmp/rg-demo/support --candidate support_control --judge
+  [PASS] order_id_never_reasked: order id carried forward, never re-asked
+  judge: no recorded verdict for this fixture; run `replaygate judge-record` first (advisory)
+regress OK (support_happy): 1 invariant(s) held
+→ exit 0
+```
+
+The judge could not run. The build still passed, correctly, because the deterministic half held. That behavior is one line in `run_regress`, and it is the most load-bearing comment in the project:
+
+```python
+except DivergenceError:
+    report.judge_verdict = None  # advisory: a missing recording never fails the run
+```
+
+When the judge does have a verdict, it produces a score per dimension and `PASS_THRESHOLD` is a flat `0.5`. I am not going to pretend that number is principled. It is a threshold I picked, on a scale a model produces, and the honest description is that it separates "the judge was clearly unhappy" from everything else. Treating it as a measurement would be false precision. The judge is a smoke alarm, not a scale, and the detail of how it gets recorded once and replayed offline is in [the judge update](/building/replaygate/05-the-llm-judge-that-cant-fail-your-build/).
+
+## What I would tell someone starting this
+
+The split is the whole design, and it is transferable to any agent test harness:
+
+**Deterministic properties gate the build.** Cross-turn invariants, tool-call ordering, budget ceilings. Pure functions over a replayed conversation, no network, no model. These earn the right to fail CI because they cannot be flaky.
+
+**Fuzzy properties advise.** Tone, helpfulness, whether the answer was any good. Record them, trend them, look at them when something feels off. Let them fail the build only when you have opted in with your eyes open.
+
+**And a third outcome for "I could not tell."** This is the one people skip, and skipping it is how a green suite stops meaning anything. If the candidate left the recorded path, say so in its own exit code. Do not average it into a pass.
+
+The cost I am still paying is the false divergence. Every meaningful prompt change invalidates the recording, and re-recording is a decision about whether the old fixture was still the truth. I do not have a good answer for that yet, and I am suspicious of anyone who says the problem does not exist.
+
+If you are gating agent changes on evaluations today: what is allowed to fail your build, and would you defend that line to the person whose deploy it just blocked?
