@@ -1,0 +1,146 @@
+---
+title: "An API-first vault my agents can call: designing a DRF backend for MCP-style consumers"
+description: "I built a vault so a skill or an agent could store structured items without me rewriting the domain each time. That meant designing the DRF API for a non-human caller: stable UUIDs, an open metadata field, and a discoverable OpenAPI schema. Then I probed it for idempotency and found I never built any."
+pubDate: 2026-08-18T05:00:00-03:00
+heroImage: ../../assets/blog/an-api-first-vault-my-agents-can-call/one-api-two-callers.light.png
+heroImageDark: ../../assets/blog/an-api-first-vault-my-agents-can-call/one-api-two-callers.dark.png
+tags: ["drf", "api-design", "mcp", "ai-agents", "django"]
+status: draft
+cta: follow-build
+---
+
+import { Image } from 'astro:assets';
+import twoCallers from '../../assets/blog/an-api-first-vault-my-agents-can-call/one-api-two-callers.light.png';
+
+I kept writing the same twenty lines. A skill that saves bookmarks needed a place to put them. A script that tracked recipes needed a place to put those. Each time I reached for a fresh SQLite file and a fresh table, and each time I ended up with another island of data I could not query from anywhere else.
+
+So I built one vault: a Django app with a single `Item` model flexible enough to hold a recipe, a bookmark, a GitHub repo, a trip, or a journal entry, behind a REST API that anything can call. The design constraint that made it interesting is that the caller is usually not a person.
+
+<Image src={twoCallers} alt="Two lanes converging on the same result. Top: browser to HTMX page to Item. Bottom: MCP tool to /api/items/ to Item. A divider between them reads 'one API | two callers'." />
+
+That constraint is less exotic than it was a year ago. The [2026-07-28 MCP specification](https://blog.modelcontextprotocol.io/posts/2026-07-28/) is the largest revision of the protocol since launch, and it moves MCP from a bidirectional stateful protocol to a stateless request/response one. Which is to say: the direction of travel is toward agents behaving like ordinary HTTP clients. If that is where things are heading, the useful question for a backend is not "how do I expose this to an LLM" but the older, duller one. What does a good API look like when the client cannot improvise?
+
+This post is the four decisions that answered that, and the one thing I assumed I had built and had not.
+
+## The model is deliberately loose in exactly one place
+
+The `Item` model carries the usual columns plus two choices aimed at a machine caller:
+
+```python
+class Item(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, ...)
+    kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.OTHER)
+    title = models.CharField(max_length=255)
+    metadata = models.JSONField(default=dict, blank=True)
+    ...
+```
+
+**UUID primary keys, not auto-increment integers.** An agent that creates an item, hands the id to another tool, and comes back an hour later needs an identifier that is stable, globally unique, and not guessable by counting. A sequential integer leaks how many items exist and collides the moment I want to sync anything between two databases. The UUID is generated client-side by the default, so the id exists before the row does.
+
+**One `metadata` JSON field, and only one.** This is the deliberate hole in the schema. A bookmark wants `{"favicon": ...}`, a trip wants `{"start": ..., "end": ...}`, and I refuse to add a column every time a caller learns a new trick. `Kind` is a closed set of ten choices, so the *shape* of an item stays enumerable; `metadata` is where per-kind detail lives without a migration.
+
+The tension is real and worth naming: an open JSON field is an invitation to put everything there and end up with no schema at all. The line I hold is that anything I want to filter or sort by earns a real column, and `metadata` is for what the caller carries and I only ever read back. That is the same instinct behind the [polymorphic vault types](/blog/polymorphic-vaults-in-drf/) this model grew out of, applied one layer down.
+
+## The schema is the documentation, and that is the point
+
+A human integrating with an API reads the docs, guesses, and tries again. That loop is fine for a person and terrible for a script. So the schema is served, not written:
+
+```python
+path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+path("api/docs/swagger/", SpectacularSwaggerView.as_view(url_name="schema"), ...),
+path("api/docs/redoc/", SpectacularRedocView.as_view(url_name="schema"), ...),
+```
+
+`drf-spectacular` generates OpenAPI from the actual serializers and viewsets, which means the description of the API cannot drift from the API. The root URL redirects to Swagger, so hitting the bare host lands on something that explains itself.
+
+This is **API-first** in the only sense I find useful: the machine-readable contract is generated from the implementation rather than maintained beside it. A generated schema that is slightly awkward beats a handwritten one that is subtly wrong, because the wrong one fails at 3am inside somebody's retry loop. The same argument I made for [machine-readable plans](/blog/spec-driven-scaffolding/) applies to APIs: if a program has to consume it, a program should produce it.
+
+Auth is SimpleJWT at `/api/auth/token/` and `/api/auth/refresh/`. Every viewset is `IsAuthenticated`, and every queryset is scoped to the caller:
+
+```python
+def get_queryset(self):
+    return (
+        Item.objects.filter(owner=self.request.user)
+        .select_related("owner")
+        .prefetch_related("tags", "attachments")
+    )
+```
+
+The `filter(owner=...)` is the security boundary and the eager loading is a performance one. I wrote about measuring that second half in [finding the N+1 before it finds prod](/blog/finding-the-n-plus-one-before-prod/), against this same endpoint.
+
+Ownership is assigned server-side and never accepted from the caller. `owner` sits in the serializer's `read_only_fields`, and the viewset sets it explicitly on write:
+
+```python
+def perform_create(self, serializer):
+    serializer.save(owner=self.request.user)
+```
+
+Sending `"owner": 7` in the body does nothing at all. That is worth doing deliberately rather than by habit, because a machine caller composing JSON from a schema will cheerfully include every field it can see, and an API that trusts a client-supplied owner is one malformed tool call away from writing into somebody else's vault.
+
+## Filtering exists so the agent doesn't have to page through everything
+
+```python
+filter_backends = (DjangoFilterBackend, SearchFilter, OrderingFilter)
+filterset_fields = ("kind", "tags__slug", "tags__id")
+search_fields = ("title", "summary", "content", "url")
+```
+
+A human browsing a list will scroll. An agent will fetch all of it, put it in a context window, and either blow the budget or quietly truncate. Server-side filtering is not a convenience feature for a machine caller: it is what lets "find my Django bookmarks" be one request against an indexed column instead of a full paged crawl the caller filters client-side.
+
+## The part I got wrong
+
+Writing this, I wanted to describe how creates are idempotent, because that is what you are supposed to build for a caller that retries. An agent whose network call times out does not know whether the write landed. It retries. If the API is not idempotent, you get two rows.
+
+So I probed it. Real run, against a throwaway test database, posting the identical payload twice (response body trimmed to the fields that matter here):
+
+```
+POST /api/items/ -> 201
+{
+  "id": "3a350d3c-bbb2-4da9-84ba-45cf524fe95f",
+  "kind": "BOOKMARK",
+  "title": "ReplayGate",
+  "url": "https://github.com/bessavagner/replaygate",
+  "metadata": { "source": "agent", "run": "probe" },
+  "tags": [],
+  "attachments": [],
+  "created_at": "2026-08-14T21:16:55.107260Z"
+}
+
+IDENTICAL payload again -> 201
+   same id? False
+   Items with that title: 2
+```
+
+Two items. Two UUIDs. No idempotency at all.
+
+And of course not, because there is nothing in the code that would provide any. `perform_create` is `serializer.save(owner=self.request.user)`, there is no `Idempotency-Key` header, and `Item` carries no unique constraint. `Tag` and `Ingredient` have `unique_together = ("owner", "slug")`; `Item` has two indexes and no uniqueness. I had built the *identifier* story (stable UUIDs) and mistaken it for the *write* story. They are unrelated. A UUID makes an item addressable after it exists. It does nothing about the request that created it arriving twice.
+
+The `ingest` endpoint is worse in the same way, and more obviously:
+
+```python
+@action(detail=False, methods=("post",), url_path="ingest")
+def ingest(self, request):
+    url = request.data.get("url")
+    ...
+    item = Item.objects.create(owner=request.user, title=url, url=url, ...)
+```
+
+An unconditional `create` keyed on nothing. Send the same URL five times, get five items. For an endpoint whose entire job is "here is a link, keep it", that is close to being the wrong behavior on purpose.
+
+The fix is not hard, and I want to be clear that I have not made it yet. The two candidates are a client-supplied `Idempotency-Key` header stored with a unique constraint and replayed on repeat, which is the general answer, or a `get_or_create` on `(owner, url)` for `ingest` specifically, which is narrow but covers the case I actually hit. The general answer is better and the narrow one is one line. I suspect I will do the narrow one first and feel bad about it.
+
+What I would not do is leave it undocumented. An API that is not idempotent is a workable API; an API that is silently not idempotent, consumed by something that retries automatically, is a duplicate-row generator with good manners.
+
+## What designing for a non-human caller actually meant
+
+Stripped of the specifics, three of the four decisions hold up and one was a gap I had papered over:
+
+- **Stable, opaque identifiers** so a caller can hold a reference across sessions. Real, and the UUID default does it.
+- **A generated, served schema** so a caller can discover the contract instead of guessing it. Real, and `drf-spectacular` does it for free.
+- **Server-side filtering** so a caller does not have to fetch everything to find one thing. Real, and it is the difference between one request and forty.
+- **Safe retries**, so a caller that cannot tell whether its write landed can try again. Not real. I believed it was, and a two-line probe said otherwise.
+
+The pattern I would keep is the probe itself. A human caller will notice a duplicate and tell you. An agent will not notice, will not tell you, and will keep the retry loop running. The properties that matter most for a machine consumer are exactly the ones no human tester will ever report, which means the only way you learn about them is by asserting them yourself. I have a [vault whose memory outlives the session](/blog/giving-an-llm-agent-memory/) and an API that will happily record the same thing into it twice.
+
+If you expose an API that agents call: have you actually sent the same request twice and looked at what came back?
