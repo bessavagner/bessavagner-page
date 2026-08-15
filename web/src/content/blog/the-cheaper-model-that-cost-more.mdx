@@ -1,0 +1,151 @@
+---
+title: "The cheaper model that cost 51% more: what my eval harness caught"
+description: "GPT-5.6-terra lists 20% below GPT-5.4 on both input and output. I swapped my expense tracker's default to it on that basis, then measured it against real receipts: it cost 51% more per receipt, and it would have returned HTTP 400 on every single photo."
+pubDate: 2026-08-17T05:00:00-03:00
+heroImage: ../../assets/blog/the-cheaper-model-that-cost-more/price-vs-bill.svg
+tags: ["llm", "evaluation", "ai-engineering", "cost", "python"]
+status: approved
+cta: lets-talk
+reviewedAt: 2026-08-15T13:46:47.620Z
+reviewHash: sha256:d9df32ef31c2ec04e1b22a09505828719c4c4092eeba3a9f10a7996aa2a7f600
+---
+
+import { Image } from 'astro:assets';
+import priceVsBill from '../../assets/blog/the-cheaper-model-that-cost-more/price-vs-bill.svg';
+import scoreSpread from '../../assets/blog/the-cheaper-model-that-cost-more/score-spread.svg';
+
+I changed the default model in my expense tracker because the pricing page said it was cheaper. Newer generation, $2.00 in and $12.00 out per million tokens against the $2.50/$15.00 I was paying. Twenty percent off on both axes for a better model. I wrote the commit, seeded the price rows, updated the runbook, and left it staged for deploy.
+
+Then I ran the evaluation harness I had just finished building, which is the entire reason it exists. Every claim in that paragraph was wrong except the list prices.
+
+## What the harness is for
+
+The tracker's wedge is capture: I photograph a supermarket receipt and it lands in the ledger split by category, dated, attached to the right payment method. I've written before about [moving the arithmetic out of the model](/blog/dont-let-the-llm-do-the-math/) so the discount always reconciles. The model still does the reading.
+
+That makes model choice a product decision rather than a config detail, and until recently I had no way to make it. I've already paid [the maintenance tax model churn charges](/blog/model-churn-is-a-maintenance-tax/) once; this was the other half of the bill. My whole test suite runs against pydantic-ai's `TestModel`, which calls every tool with dummy data. It tests wiring. Swap in a weaker model and all 1,560 tests still pass while the ledger fills with wrong numbers.
+
+So the harness scores real model output against hand-written ground truth for seven real receipts: item recall and precision, per-item amounts, categories, store, date, and a money invariant that gates everything (if the line items don't sum to the amount paid, the run failed no matter how good the rest looks). A second suite drives the actual assistant through seven conversations and scores the ledger rows it wrote.
+
+## Twenty-one calls, twenty-one 400s
+
+First real run, three models, seven receipts each:
+
+```
+extraction · openai:gpt-5.6-terra · 7 case(s)…
+extraction · openai:gpt-5.6-luna · 7 case(s)…
+extraction · openrouter:qwen/qwen3.7-flash · 7 case(s)…
+```
+
+Every score came back 0.00. Not "the model read the receipt badly": the model never saw the receipt. Twenty-one HTTP 400s, from two providers, for two unrelated reasons.
+
+OpenAI:
+
+```
+Function tools with reasoning_effort are not supported for gpt-5.6-terra
+in /v1/chat/completions. To use function tools, use /v1/responses or set
+reasoning_effort to 'none'.
+```
+
+And Alibaba, serving qwen through OpenRouter:
+
+```
+The tool_choice parameter does not support being set to required
+or object in thinking mode
+```
+
+Both are about tool calling, which every agent here does whether I think of it that way or not. Asking pydantic-ai for structured output via `output_type=ReceiptExtraction` compiles down to a function tool, and forces `tool_choice: required`. So the refusal hits every receipt read, every time.
+
+The OpenAI half traces to a single line in pydantic-ai's model profiles:
+
+```python
+thinking_always_enabled = is_o_series or (is_gpt_5 and '-chat' not in model_name)
+```
+
+Every `gpt-5*` model is marked always-thinking, so the library always sends `reasoning_effort`. GPT-5.4 accepts that alongside function tools. The 5.6 family does not. The restriction arrived with the new generation, which is exactly the kind of thing a pricing page won't tell you.
+
+## The part that would have hurt
+
+My staged commit changed code defaults. Cloud Run sets these as environment variables, and an env var beats a code default, so nothing would have reached production until I ran a deploy. I already knew that. What I hadn't worked out was the consequence in the other direction.
+
+Updating those two environment variables is a one-line `gcloud` command. No build, no code deploy, no test run between me and production. Had I run it before the harness (which was the plan I very nearly followed, and the order I proposed), receipt capture would have started returning 400 on the first photo. The feature the product is built around, broken by a config change, with a green test suite behind me.
+
+The same run surfaced a bug already in production. My Essential tier falls back to `openrouter:qwen/qwen3.7-flash` when its free primary model fails, and that fallback throws the same 400 on any forced tool call. The safety net had never worked. Nothing caught it because nothing in CI has ever called that provider.
+
+That's the honest cost of testing against a fake model: the first real call is the one a user makes.
+
+## Two ways out, both measured
+
+The error message helpfully names both fixes, and they are not equivalent.
+
+Set `openai_reasoning_effort: 'none'` and reasoning switches off, which keeps every model string, environment variable and price row exactly as it is. Or move to the Responses API with an `openai-responses:` prefix, which keeps reasoning on and changes the model string, and my price lookup matches on the exact string. That second one carries a trap: prices keyed to `openai:gpt-5.6-terra` don't match `openai-responses:gpt-5.6-terra`, so the cost column silently reports zero. This is the seam [a provider-agnostic abstraction](/blog/provider-agnostic-llm-abstraction/) is supposed to hide, and the provider string leaking into a price lookup is exactly where it leaks. A zero is worse than a blank, because a zero looks like an answer.
+
+I priced both surfaces and ran them head to head. Reasoning off scored 0.83 and lost the money invariant on a receipt the reasoning-on variant got right. Reasoning on scored 0.94.
+
+At which point the swap looked vindicated, because GPT-5.4 scored 0.83 in that same run.
+
+## The number that settled it
+
+Here is the run that made me stop trusting the run:
+
+| Model | Score | money_ok | USD | in tokens |
+|---|---|---|---|---|
+| `openai-responses:gpt-5.6-terra` | 0.94 | 1.00 | 0.280 | 89,339 |
+| `openai:gpt-5.4` | 0.83 | 0.86 | 0.211 | 40,091 |
+
+The new model wins on quality and costs more. On seven identical images it consumed more than twice the input tokens.
+
+That ratio held every time I ran it, which makes it the most solid number in the whole exercise. Averaged across runs, GPT-5.6-terra burned about 89,000 input tokens per sweep against GPT-5.4's 33,700. A 20% per-token discount does not survive being multiplied by 2.6. Per receipt, the cheaper model cost **51% more**: $0.282 a sweep against $0.187.
+
+<Image src={priceVsBill} alt="Two panels. Left, list price: GPT-5.4 at $2.50 per million input tokens against GPT-5.6-terra at $2.00, 20% cheaper. Right, measured cost per sweep of seven receipts, with every run plotted: GPT-5.4 averages $0.187 across five sweeps and terra $0.282 across four, 51% more, and the two ranges do not overlap. Terra read the same seven images with 2.6x the input tokens." />
+
+The entire argument for the swap was the price. The price was real and the conclusion drawn from it was wrong, because a per-token price is not a per-task price and only one of those shows up on the invoice.
+
+## One run is not a measurement
+
+I nearly shipped that comparison as the finding. Before writing it up I re-ran the baseline, and GPT-5.4 came back 0.97 where it had scored 0.83 fifteen minutes earlier. Same model, same seven cases, same code.
+
+Five runs of the same model:
+
+| Run | Score | money_ok |
+|---|---|---|
+| control | 0.97 | 1.00 |
+| head-to-head | 0.83 | 0.86 |
+| repeat 1 | 0.84 | 0.86 |
+| repeat 2 | 0.97 | 1.00 |
+| repeat 3 | 0.83 | 0.86 |
+
+Seven cases means one receipt is 14% of the score, and the money invariant is pass/fail per case, so a single receipt read differently swings the headline further than the gap between two serious candidates. Across three repeat runs the ordering reversed: GPT-5.4 took 0.84 to 0.80, then 0.97 to 0.81, then 0.83 to 0.68.
+
+Final aggregate, three-plus runs each: GPT-5.4 at 0.886 mean with a 0.14 spread, GPT-5.6-terra at 0.807 with a 0.26 spread.
+
+<Image src={scoreSpread} alt="Every extraction sweep plotted on one score axis. GPT-5.4's five runs span 0.83 to 0.97 around a mean of 0.886; GPT-5.6-terra's four runs span 0.68 to 0.94 around 0.807. The two ranges overlap almost entirely, and the 0.079 gap between the means is narrower than either model's own spread." />
+
+The gap is 0.079, and it is narrower than either model's own spread. So the correct claim is that terra is not better, and I can't say GPT-5.4 is better either. What I can say is the cost result, because that one was stable across every single run.
+
+If I had stopped at one run per model I would have had a number that looked exactly like a measurement, pointing whichever way that afternoon's dice landed.
+
+## The row that flattered a broken model
+
+One more thing worth the price of admission. `qwen3.7-flash`, once I got past its 400, failed six of seven cases on output schema validation. Its row:
+
+| Model | Score | amount | category | item_recall | money_ok |
+|---|---|---|---|---|---|
+| `openrouter:qwen/qwen3.7-flash` | 0.14 | 1.00 | 1.00 | 1.00 | 1.00 |
+
+Perfect on every dimension in the table, beside a score of 0.14.
+
+The overall score divided by every case attempted. The dimensions averaged only the runs that came back, so they described the single receipt qwen managed to read. The wider the failure, the better the columns looked, because the surviving sample got smaller and more selective. A model that couldn't return valid output was presenting as the most accurate thing in the comparison, in the very table built to stop me from being fooled.
+
+Both denominators are the same now. A case that errored is a failure on every dimension, which is what it is: the receipt didn't get read.
+
+## Where it landed
+
+Production did not take the swap. I reverted the defaults, kept the price rows for the 5.6 family (they cost nothing and the next evaluation needs them), and wrote the baseline down: extraction 0.886, and roughly $0.19 and $0.43 a sweep for the two suites. Total spend to learn all of this was about $3.40.
+
+What did ship came out of a wider evaluation a day later, run against gates I fixed before any candidate did. Receipts are read first by `gpt-5.6-luna`, and the roughly one in three it cannot reconcile escalate to `gpt-5.4-mini`. The text path stays on GPT-5.4, deliberately: both cheaper candidates failed the one case that reproduces the production bug this product exists to prevent, one run in three, and no saving covers that. On a fifteen-case set the pipeline measured 3.75x cheaper than GPT-5.4 and scored slightly better on both quality axes. Those numbers sit on a different dataset from the ones above, so they don't line up against them directly.
+
+The behaviour suite left me two failures, and neither one was the model. The six-category receipt failed identically on all three runs, `ledger total 0` against an expected R$376.70, and that perfect reproducibility was the tell: my harness never created the pending draft that `commit_receipt` requires, so the tool refused and no model could have passed the case. The second failure was a real bug in production. The assistant called `register_entry` with `payment_method_name: "Crédito C6"`, correct Portuguese, against a row stored as `Credito C6`. My name resolver was case-insensitive and accent-sensitive, so it refused a payment method that its own error message then listed back. A household that stored `Alimentação` could not type `alimentacao` from a phone keyboard. Both were invisible until something scored the ledger rows instead of the wiring.
+
+Three things I'd take to the next project. A per-token price tells you nothing about what a task costs until you count the tokens the task actually uses. A test suite that mocks the provider tells you your code is wired correctly and nothing about whether the provider will answer. And an eval that runs once produces a number with no error bars, which is more dangerous than no number, because you'll act on it.
+
+I'm curious how other people handle that last one. Seven cases is small enough that variance dominates, and the only fix I found was the expensive one: add eight more cases and hand-write their ground truth, which is the part that has to be right. It worked, and the extraction spread halved. If you've found a cheaper way to get a stable signal out of a small eval set, I'd still like to hear it.
