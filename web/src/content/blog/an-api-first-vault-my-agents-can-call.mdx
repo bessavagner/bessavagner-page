@@ -5,8 +5,10 @@ pubDate: 2026-08-18T05:00:00-03:00
 heroImage: ../../assets/blog/an-api-first-vault-my-agents-can-call/one-api-two-callers.light.png
 heroImageDark: ../../assets/blog/an-api-first-vault-my-agents-can-call/one-api-two-callers.dark.png
 tags: ["drf", "api-design", "mcp", "ai-agents", "django"]
-status: draft
+status: approved
 cta: follow-build
+reviewedAt: 2026-08-15T00:21:50.462Z
+reviewHash: sha256:d6a5974787e6752a6012752b1755e4fa589f03eb27afaadb7ac8ec3ebce4df29
 ---
 
 import { Image } from 'astro:assets';
@@ -20,7 +22,7 @@ So I built one vault: a Django app with a single `Item` model flexible enough to
 
 That constraint is less exotic than it was a year ago. The [2026-07-28 MCP specification](https://blog.modelcontextprotocol.io/posts/2026-07-28/) is the largest revision of the protocol since launch, and it moves MCP from a bidirectional stateful protocol to a stateless request/response one. Which is to say: the direction of travel is toward agents behaving like ordinary HTTP clients. If that is where things are heading, the useful question for a backend is not "how do I expose this to an LLM" but the older, duller one. What does a good API look like when the client cannot improvise?
 
-This post is the four decisions that answered that, and the one thing I assumed I had built and had not.
+Four decisions came out of that question. So did one thing I assumed I had built and had not.
 
 ## The model is deliberately loose in exactly one place
 
@@ -40,7 +42,7 @@ class Item(models.Model):
 
 **One `metadata` JSON field, and only one.** This is the deliberate hole in the schema. A bookmark wants `{"favicon": ...}`, a trip wants `{"start": ..., "end": ...}`, and I refuse to add a column every time a caller learns a new trick. `Kind` is a closed set of ten choices, so the *shape* of an item stays enumerable; `metadata` is where per-kind detail lives without a migration.
 
-The tension is real and worth naming: an open JSON field is an invitation to put everything there and end up with no schema at all. The line I hold is that anything I want to filter or sort by earns a real column, and `metadata` is for what the caller carries and I only ever read back. That is the same instinct behind the [polymorphic vault types](/blog/polymorphic-vaults-in-drf/) this model grew out of, applied one layer down.
+An open JSON field is an invitation to put everything there and end up with no schema at all. The line I hold is that anything I want to filter or sort by earns a real column, and `metadata` is for what the caller carries and I only ever read back. That is the same instinct behind the [polymorphic vault types](/blog/polymorphic-vaults-in-drf/) this model grew out of, applied one layer down.
 
 ## The schema is the documentation, and that is the point
 
@@ -54,7 +56,7 @@ path("api/docs/redoc/", SpectacularRedocView.as_view(url_name="schema"), ...),
 
 `drf-spectacular` generates OpenAPI from the actual serializers and viewsets, which means the description of the API cannot drift from the API. The root URL redirects to Swagger, so hitting the bare host lands on something that explains itself.
 
-This is **API-first** in the only sense I find useful: the machine-readable contract is generated from the implementation rather than maintained beside it. A generated schema that is slightly awkward beats a handwritten one that is subtly wrong, because the wrong one fails at 3am inside somebody's retry loop. The same argument I made for [machine-readable plans](/blog/spec-driven-scaffolding/) applies to APIs: if a program has to consume it, a program should produce it.
+This is **API-first** in the only sense I find useful: the machine-readable contract is generated from the implementation rather than maintained beside it. A generated schema that is slightly awkward beats a handwritten one that is subtly wrong, because the wrong one fails at 3am inside somebody's retry loop. The same argument I made for [plans an agent can actually execute](/blog/machine-readable-plan-format/) applies to APIs: if a program has to consume it, a program should produce it.
 
 Auth is SimpleJWT at `/api/auth/token/` and `/api/auth/refresh/`. Every viewset is `IsAuthenticated`, and every queryset is scoped to the caller:
 
@@ -86,7 +88,7 @@ filterset_fields = ("kind", "tags__slug", "tags__id")
 search_fields = ("title", "summary", "content", "url")
 ```
 
-A human browsing a list will scroll. An agent will fetch all of it, put it in a context window, and either blow the budget or quietly truncate. Server-side filtering is not a convenience feature for a machine caller: it is what lets "find my Django bookmarks" be one request against an indexed column instead of a full paged crawl the caller filters client-side.
+A human browsing a list will scroll. An agent will fetch all of it, put it in a context window, and either blow the budget or quietly truncate. Server-side filtering is what lets "find my Django bookmarks" be one request against an indexed column instead of a full paged crawl the caller filters client-side.
 
 ## The part I got wrong
 
@@ -126,7 +128,7 @@ def ingest(self, request):
     item = Item.objects.create(owner=request.user, title=url, url=url, ...)
 ```
 
-An unconditional `create` keyed on nothing. Send the same URL five times, get five items. For an endpoint whose entire job is "here is a link, keep it", that is close to being the wrong behavior on purpose.
+An unconditional `create` keyed on nothing. Send the same URL five times, get five items. For an endpoint whose entire job is "here is a link, keep it", that is the wrong behavior.
 
 The fix is not hard, and I want to be clear that I have not made it yet. The two candidates are a client-supplied `Idempotency-Key` header stored with a unique constraint and replayed on repeat, which is the general answer, or a `get_or_create` on `(owner, url)` for `ingest` specifically, which is narrow but covers the case I actually hit. The general answer is better and the narrow one is one line. I suspect I will do the narrow one first and feel bad about it.
 
@@ -143,4 +145,4 @@ Stripped of the specifics, three of the four decisions hold up and one was a gap
 
 The pattern I would keep is the probe itself. A human caller will notice a duplicate and tell you. An agent will not notice, will not tell you, and will keep the retry loop running. The properties that matter most for a machine consumer are exactly the ones no human tester will ever report, which means the only way you learn about them is by asserting them yourself. I have a [vault whose memory outlives the session](/blog/giving-an-llm-agent-memory/) and an API that will happily record the same thing into it twice.
 
-If you expose an API that agents call: have you actually sent the same request twice and looked at what came back?
+Send the same request to your own API twice. I would like to hear what came back.
