@@ -5,8 +5,10 @@ pubDate: 2026-08-15T05:00:00-03:00
 heroImage: ../../assets/blog/evaluation-driven-development-for-agents/gate-and-judge.light.png
 heroImageDark: ../../assets/blog/evaluation-driven-development-for-agents/gate-and-judge.dark.png
 tags: ["ai-agents", "testing", "evaluation", "llm", "ci"]
-status: draft
+status: approved
 cta: follow-build
+reviewedAt: 2026-08-15T00:21:50.206Z
+reviewHash: sha256:eabd5b3fabb6770a6eff100cece7f13a3b9eed488bbf278866c2e59e52bffead
 ---
 
 import { Image } from 'astro:assets';
@@ -14,15 +16,15 @@ import gateAndJudge from '../../assets/blog/evaluation-driven-development-for-ag
 
 The reason agents are hard to test is not that they are non-deterministic. Plenty of things are non-deterministic and we test them fine. It is that the assertion itself is fuzzy.
 
-For ordinary code I write `assert total == Decimal("45.00")` and the test is finished thinking. For an agent the property I care about sounds like "it didn't book the flight before the user confirmed", and that is not a string comparison. It spans turns. It is a claim about a conversation, not about a return value.
+For ordinary code I write `assert total == Decimal("45.00")` and the test is finished thinking. For an agent the property I care about sounds like "it didn't book the flight before the user confirmed", and that is not a string comparison. It spans turns. It is a claim about a conversation.
 
-So the industry's default answer has been to tweak the prompt until the demo looks right. A 2026 survey of IT and data leaders found [82% now say prompt engineering alone is no longer sufficient for production AI](https://datahub.com/blog/context-engineering-vs-prompt-engineering/), which is a polite way of saying the demo stops looking right eventually. The market agrees: in March 2026 [OpenAI acquired Promptfoo](https://openai.com/index/openai-to-acquire-promptfoo/), an evaluation and red-teaming company, and folded it into its enterprise agent platform. Evaluation stopped being a nice-to-have somewhere around then.
+So the industry's default answer has been to tweak the prompt until the demo looks right. DataHub's 2026 State of Context Management Report found [82% of IT and data leaders saying prompt engineering alone is no longer sufficient to power AI at scale](https://datahub.com/blog/context-engineering-vs-prompt-engineering/), which is a polite way of saying the demo stops looking right eventually. The market agrees: in March 2026 [OpenAI acquired Promptfoo](https://openai.com/index/openai-to-acquire-promptfoo/), an evaluation and red-teaming company, and folded it into its enterprise agent platform. Evaluation stopped being a nice-to-have somewhere around then.
 
-This post is about the loop I built into [ReplayGate](/building/replaygate/) to answer that for my own agents, and specifically about the question it took me a rewrite to answer: what is allowed to fail the build.
+I built a loop into [ReplayGate](/building/replaygate/) to answer that for my own agents. The part it took me a rewrite to get right was narrower: what is allowed to fail the build.
 
 ## Evaluation-driven development, and why the name matters
 
-**Evaluation-driven development** is the same shape as test-driven development, with the assertion replaced by an evaluation over a recorded run. You capture a real interaction once, you replay it against every change, and you assert properties over the replay. The name is worth saying out loud because it sets the expectation correctly: this is a development discipline, not a benchmark you run before a launch.
+**Evaluation-driven development** is the same shape as test-driven development, with the assertion replaced by an evaluation over a recorded run. You capture a real interaction once, you replay it against every change, and you assert properties over the replay. It is a development discipline, not a benchmark you run the week before a launch.
 
 The mechanism underneath is **golden testing**, or replay testing. Record the truth once, then diff every future run against it. ReplayGate records at the application seam rather than at the wire: it wraps the agent's `LLMClient` protocol and its tool registry and logs calls there, keyed by a `sha256` over `(model, system, messages, tools)`. That choice matters later, and not in a way I liked.
 
@@ -72,7 +74,7 @@ That is the class of regression I could not catch before, and the one that survi
 
 ## Three outcomes, not two
 
-Here is where I had to change my mind. The first version of the gate (`2653f87`, 30 June) had the shape every test runner has: pass or fail. The divergence policy landed the next day in `8bdd3be`, and the third outcome is the one that taught me something.
+Here is where I had to change my mind. The first version of the gate (`2653f87`, 30 June) had the shape every test runner has: pass or fail. The divergence policy landed the next day in `8bdd3be`, and the third outcome is the one that taught me something. I walked through what it does across model versions in [pass, fail, or diverged](/building/replaygate/04-cross-version-regress-pass-fail-or-diverged/).
 
 <Image src={gateAndJudge} alt="Two lanes. The top, solid: replay feeds invariants which produce exit code 0, 1, or 3. The bottom, dashed and amber: replay feeds the judge which produces a score. A divider between them reads 'gates the build | only advises'." />
 
@@ -110,7 +112,7 @@ def passed(self) -> bool:
     return not self.divergences and all(r.passed for r in self.results)
 ```
 
-"A divergence is not a pass" is the entire lesson compressed. The tempting bug is to treat "no invariant reported a failure" as success. Nothing reported a failure because nothing was evaluated. That is the silent-zero mistake wearing a different hat, and it would have made the gate report green on precisely the changes most worth checking.
+The tempting bug is to treat "no invariant reported a failure" as success. Nothing reported a failure because nothing was evaluated. That is a silent zero, and reading it as success turns the gate green on precisely the changes most worth checking.
 
 So pinned replay buys determinism and charges for it in false divergences. There is a `--policy live` escape hatch that resolves a divergence against the real provider so the invariants can run over the candidate's actual trajectory, at the cost of a network call and a bill. Pinning where you can and paying only where you must is the same trade I made in [spec-driven scaffolding](/blog/spec-driven-scaffolding/): push as much as possible into the part that cannot drift, then be explicit about the part that can.
 
@@ -137,11 +139,11 @@ except DivergenceError:
     report.judge_verdict = None  # advisory: a missing recording never fails the run
 ```
 
-When the judge does have a verdict, it produces a score per dimension and `PASS_THRESHOLD` is a flat `0.5`. I am not going to pretend that number is principled. It is a threshold I picked, on a scale a model produces, and the honest description is that it separates "the judge was clearly unhappy" from everything else. Treating it as a measurement would be false precision. The judge is a smoke alarm, not a scale, and the detail of how it gets recorded once and replayed offline is in [the judge update](/building/replaygate/05-the-llm-judge-that-cant-fail-your-build/).
+When the judge does have a verdict, it produces a score per dimension and `PASS_THRESHOLD` is a flat `0.5`. I am not going to pretend that number is principled. It is a threshold I picked, on a scale a model produces, and the honest description is that it separates "the judge was clearly unhappy" from everything else. Treating it as a measurement would be false precision. How the verdict gets recorded once and replayed offline is in [the judge update](/building/replaygate/05-the-llm-judge-that-cant-fail-your-build/).
 
 ## What I would tell someone starting this
 
-The split is the whole design, and it is transferable to any agent test harness:
+The split transfers to any agent test harness:
 
 **Deterministic properties gate the build.** Cross-turn invariants, tool-call ordering, budget ceilings. Pure functions over a replayed conversation, no network, no model. These earn the right to fail CI because they cannot be flaky.
 
