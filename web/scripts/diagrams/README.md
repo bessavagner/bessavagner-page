@@ -1,5 +1,10 @@
 # Diagram sources (`.mmd` → committed PNG)
 
+> Schematic, brand-themed figures (TikZ via LuaLaTeX) live in
+> [`bessaviz/render-blog-figures.py`](bessaviz/render-blog-figures.py) instead, and
+> ship as the same light/dark PNG pair through `ThemedFigure`. Data charts are
+> matplotlib, under [`../plots/`](../plots/).
+
 Mermaid diagram sources for blog / build-log posts. The site can't render Mermaid
 at request time (no `rehype-mermaid`, and a raw ` ```mermaid ` fence would show as
 source text), so — exactly like the matplotlib figures under `../plots/` — the
