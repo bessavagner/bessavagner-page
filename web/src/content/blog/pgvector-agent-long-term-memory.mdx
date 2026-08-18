@@ -1,0 +1,171 @@
+---
+title: "pgvector as an agent's long-term memory: user rules that survive the session"
+description: "My bookkeeping assistant kept re-learning that I file cigarettes under Álcool. The fix wasn't a bigger prompt: it was storing each learned rule as a pgvector embedding and retrieving it by similarity at registration time."
+pubDate: 2026-08-20T05:00:00-03:00
+tags: ["llm", "pgvector", "postgres", "ai-agents", "django"]
+status: draft
+cta: lets-talk
+heroImage: ../../assets/blog/pgvector-agent-long-term-memory/two-lanes.light.png
+heroImageDark: ../../assets/blog/pgvector-agent-long-term-memory/two-lanes.dark.png
+---
+
+import ThemedFigure from '../../components/ThemedFigure.astro';
+import twoLanes from '../../assets/blog/pgvector-agent-long-term-memory/two-lanes.light.png';
+import twoLanesDark from '../../assets/blog/pgvector-agent-long-term-memory/two-lanes.dark.png';
+
+There is a line in my expense assistant's system prompt that I am slightly embarrassed by:
+
+```
+Regras fixas do usuário: cigarro é sempre Álcool (ele só fuma bebendo);
+refrigerante é sempre Lanche.
+```
+
+Translated: cigarettes always go under *Álcool* (the Alcohol budget category), because I only smoke when I'm drinking; soft drinks always go under *Lanche* (Snacks). Two facts about exactly one person, hardcoded into a prompt that ships to everybody.
+
+Those two lines sit in a block the prompt itself labels *Regras de registro herdadas do sistema legado (planilha + Claude)*: bookkeeping rules inherited from the legacy system, which was a spreadsheet and an LLM chat. They are there because no amount of general knowledge gets a model to file a cigarette under Alcohol. That is not a fact about cigarettes, it is a fact about me. But a fact the user taught the assistant belongs in the database, next to that user's other rows, not in a string constant I have to redeploy to change. So the app grew a `MemoryRule` table, and then a pgvector index on top of it.
+
+This post is about that second layer: why a learned rule gets an embedding at all when a `LIKE` query already finds it, and what happened when I finally measured whether the embedding lane fires.
+
+## Three places a preference can live
+
+The assistant is a Django app: Postgres, [pydantic-ai](https://ai.pydantic.dev/) for the model calls, receipts and voice notes flowing into a household ledger my family actually uses. I have written about agent memory here before, in a different app and a different stack, where the split was [semantic recall over past messages plus a working-memory profile](/blog/giving-an-llm-agent-memory/). This one stores something narrower: not what was said, but what the user decided.
+
+There are three candidate homes for "cigarettes are Álcool":
+
+1. **The system prompt.** Works immediately, applies to every user, changes only with a deploy, and spends context budget on every single call. Ten users' worth of preferences in there is the exact pressure that makes you [prune a conversation by summarizing it](/blog/pruning-chat-context-by-summarization/) later.
+2. **A rules table.** A row per fact, scoped to the household that taught it. Cheap, exact, and only found when the user's words contain the trigger.
+3. **A vector index.** The same rule, embedded, found by meaning rather than by spelling.
+
+The prompt is where those two lines still are. Everything the assistant *learns* goes to the second, and gets copied into the third. The row is deliberately small:
+
+```python
+class MemoryRule(AuthoredHouseholdModel):
+    trigger = models.CharField(max_length=255)
+    field = models.CharField(max_length=50)      # category | payment_method | description
+    value = models.CharField(max_length=255)
+    confidence = models.FloatField(default=1.0)
+    source = models.CharField(max_length=20, choices=MemorySource.choices)
+    last_used_at = models.DateTimeField(default=timezone.now)
+```
+
+`trigger → field=value` is the whole grammar. `cosmos → category=Alimentação` says that anything mentioning the corner market goes under Groceries. The `confidence` float is graded rather than boolean, with two thresholds the tool layer reads: at 0.9 or above the rule applies silently, between 0.7 and 0.9 it applies with a confirmation hint, below that the assistant asks first. A rule the user typed at me starts at 1.0. A rule the app inferred from behaviour starts lower, and `source` records which is which.
+
+`AuthoredHouseholdModel` is the base class every domain row in this app inherits: it carries a non-nullable `household` foreign key and a nullable `created_by`. Tenancy is a property of the base class, so a memory rule cannot exist without an owner, and one household's preferences cannot surface in another's. That matters more here than almost anywhere else in the app, because the whole point of the feature is that it changes what the model does.
+
+## Why embed a rule you can already find with LIKE
+
+The exact matcher is about a dozen lines and it is not clever:
+
+```python
+def find_matching_rules(scope, message: str) -> list[MemoryRule]:
+    """Rules whose trigger appears in the message (case-insensitive substring)."""
+```
+
+It loads the household's rules, lowercases the message, and keeps the ones whose trigger is a substring. Type "comprei no cosmos hoje" and the `cosmos` rule fires. It's exact, it's instant, and it fails the moment the user's wording drifts. "Onde eu compro comida" (where I buy food) contains no trigger, so the substring lane returns nothing, even though the household has a rule that answers it.
+
+That gap is what **retrieval-augmented memory** is for: instead of matching characters, you match meaning. An embedding turns text into a 1536-number vector positioned so that things which *mean* similar things land near each other, and **vector similarity** search is then just "find the nearest stored vectors to this one." The survey [Memory in the Age of AI Agents](https://arxiv.org/abs/2512.13564) makes the framing explicit: agent memory is the stuff that persists and evolves *outside* any single context window, and a taxonomy of long-term versus short-term is less useful than asking what form each piece takes and what job it does. Here the form is a row, and the job is to survive both the session and the user's phrasing.
+
+So every rule gets a vector, written by a background task:
+
+```python
+text = f"{rule.trigger} → {rule.field}={rule.value}"
+vector = async_to_sync(embedding_service.get_embedding)(text)
+if vector is None:
+    raise RuntimeError(f"Embedding provider returned nothing for memory rule {rule.pk}.")
+
+MemoryEmbedding.objects.update_or_create(
+    id=embedding_id_for(rule.pk),
+    defaults={"household": rule.household, "text": text, "embedding": vector,
+              "metadata": {"rule_id": str(rule.pk), "field": rule.field, "value": rule.value}},
+)
+```
+
+Two decisions in there are load-bearing.
+
+The indexed text is `trigger → field=value`, not the trigger alone. Embedding just `cosmos` would index a word the substring matcher already covers perfectly; embedding the whole conclusion is what lets "onde eu compro comida" reach a rule triggered by a store name, because *Alimentação* is in the vector too.
+
+And `id=embedding_id_for(rule.pk)` is **idempotency** bought with an identifier. The embedding's primary key is a UUID5 derived from the rule's id under a fixed namespace, so exactly-one-row-per-rule is a property of the key rather than a convention someone has to maintain with a nullable foreign key and a uniqueness rule. The queue delivers at least once; a redelivered task overwrites the same row instead of creating a second one. It's the same instinct as the deterministic arithmetic in [moving the receipt math out of the model](/blog/dont-let-the-llm-do-the-math/): make the invariant structural, so no code path has to remember it.
+
+The embedding happens off the request, and the rule is saved before the enqueue, inside a `try` that swallows a queue outage and reports it to Sentry. That ordering is deliberate. A rule the user just taught me has to survive an unavailable queue, and while the vector is missing the substring matcher still finds the rule. The feature degrades to "exact trigger only" instead of breaking. That degradation path has its own test, which is how I know it still works.
+
+## The query shape is the whole performance story
+
+`MemoryEmbedding.embedding` is a `VectorField(dimensions=1536)` with an HNSW index using `vector_cosine_ops`. HNSW is an **approximate nearest-neighbour** index: it answers "the k things closest to this vector" quickly by not looking at everything, and the price is that it can reorder near-ties.
+
+That "k nearest" phrasing is not decoration. It is the only question the index can answer, and it dictates how the query has to be written:
+
+```python
+max_distance = 1 - threshold
+nearest = (
+    MemoryEmbedding.objects.for_household(scope.household)
+    .annotate(distance=CosineDistance("embedding", query_vector))
+    .order_by("distance")[:limit]
+)
+return [match for match in nearest if match.distance < max_distance]
+```
+
+The threshold is applied in Python, on purpose. The natural way to write this is `WHERE distance < 0.2`, and that predicate forces Postgres to compute a distance for every candidate row, which means a sequential scan no matter what index exists. Ordering and limiting in SQL, then filtering the handful of rows that come back, is what lets the index do its job.
+
+I ran both shapes against a local Postgres holding 3,001 embeddings:
+
+```
+ORDER BY embedding <=> $1 LIMIT 5
+  Limit  (cost=41.49..61.78 rows=5) (actual time=0.924..0.943 rows=5)
+    ->  Index Scan using memory_embed_hnsw_cosine_idx on assistant_memoryembedding
+  Execution Time: 0.969 ms
+
+WHERE embedding <=> $1 < 0.2
+  Seq Scan on assistant_memoryembedding  (actual time=0.009..6.811 rows=1)
+    Filter: ((embedding <=> $1) < '0.2'::double precision)
+    Rows Removed by Filter: 3000
+  Execution Time: 6.818 ms
+```
+
+Seven times slower at three thousand rows is nothing. The word `Seq Scan` is the finding: that cost grows with the table, while the index scan barely moves. This is the same reflex as [counting queries in a test before the N+1 reaches production](/blog/finding-the-n-plus-one-before-prod/): read the plan, not just the wall clock, because the plan is what tells you which way the number goes when the data grows. There's a test asserting the plan mentions the HNSW index, written against raw SQL so it fails loudly if someone reintroduces the `WHERE`.
+
+## Then I measured whether the fallback fires
+
+Here is where the post stopped being a design write-up.
+
+Everything above is tested with synthetic vectors: `[1.0] + [0.0] * 1535` and friends, chosen so the assertions are about the mechanism rather than about a model's opinions. Thirty-four tests across the four memory modules, forty-five seconds, all green. What none of them check is whether real embeddings of real sentences ever land inside the default cutoff, because that would mean paying OpenAI in CI, and the suite has an autouse fixture that refuses live embedding calls precisely so it can't.
+
+So I made the calls by hand. Same model the app uses, `text-embedding-3-small`, embedding one rule and a handful of things I might actually type:
+
+| query | cosine distance to `cosmos → category=Alimentação` |
+|---|---:|
+| `cosmos → category=Alimentação` (itself) | 0.0000 |
+| `supermercado cosmos é da categoria Alimentação` | 0.2919 |
+| `comprei no cosmos hoje` | 0.5283 |
+| `onde eu compro comida` | 0.5691 |
+| `gastei 50 no mercado da esquina` | 0.8126 |
+| `abasteci o carro` | 0.8230 |
+| `the quick brown fox jumps over the lazy dog` | 0.8731 |
+
+The ranking is exactly right. The three sentences that should reach this rule all come in below 0.57; the three that shouldn't all sit above 0.81; English nonsense is furthest away. Cross-checking with a second rule gave the same picture: `posto → category=Combustível` sits at 0.6183 from "abasteci o carro" (I filled up the car) and 0.7355 from the cosmos sentence, so it prefers its own sentence by a clear margin.
+
+Now the default: `find_semantic_matches(..., threshold=0.8)` sets `max_distance = 1 - 0.8 = 0.2`. Every number in that table is above 0.2. Even the near-paraphrase, a sentence that restates the rule in words, comes in at 0.29.
+
+The semantic lane never fires. Not rarely: never, at the shipped threshold, for this embedding model.
+
+<ThemedFigure light={twoLanes} dark={twoLanesDark} alt="Two lanes for the same note. The substring lane runs cosmos to trigger to rule hit with solid arrows. Below a divider labelled 'cutoff 0.2: only one lane answers', the embedding lane runs embed to d = 0.53 to no match with dashed arrows." />
+
+The bug is the number. Cosine distance from a modern embedding model is not a calibrated probability, so 0.8 similarity is a threshold that reads sensible and means nothing until you check it against the model you are actually calling. I picked it the way everyone picks it: it looked like a reasonable confidence. The mechanism around it is sound, well-tested, correctly indexed, and gated behind a constant that closes the door.
+
+The fix is calibration rather than architecture. Take real rules, real phrasings, and set the cutoff from the gap between the sentences that should match and the ones that shouldn't. For this rule the useful line is somewhere near 0.6, and it belongs in a test that runs against recorded vectors so it can't drift back. That is [evaluation-driven development](/blog/evaluation-driven-development-for-agents/) applied to a constant instead of a prompt, and it's the next thing I'll do to this feature.
+
+## What the split is actually for
+
+The layer that has earned its keep, unglamorously, is the boring one. Every rule the assistant has learned from a correction is found by substring, instantly, with no API call and no vector at all. Teaching it happens in one sentence to the chat, and the row survives every session after that.
+
+The vector index is the reach: the case where the user's words and the stored rule share a meaning but not a spelling. That case is real, I have the distances to prove the model separates it correctly, and I shipped it behind a threshold that made it unreachable.
+
+Deriving the embedding's primary key from the rule's id made duplicate-proofing structural, and that decision has needed no attention since. Choosing 0.8 because it sounded like a confidence made a working retrieval path dead on arrival, and only an afternoon of actually calling the embeddings API surfaced it.
+
+If you have a similarity threshold in production that you have not measured against your own data, I'd bet a small amount of money it is doing something other than what you intended. I'd genuinely like to hear how you set yours.
+
+## References and further reading
+
+- [Memory in the Age of AI Agents](https://arxiv.org/abs/2512.13564): Hu et al., survey of agent memory forms, functions and dynamics beyond the context window
+- [pgvector](https://github.com/pgvector/pgvector): the Postgres extension, including the HNSW index and the `<=>` cosine-distance operator
+- [pgvector-python](https://github.com/pgvector/pgvector-python): the Django integration providing `VectorField`, `HnswIndex` and `CosineDistance`
+- [OpenAI embeddings guide](https://platform.openai.com/docs/guides/embeddings): `text-embedding-3-small`, dimensions, and why cosine is the recommended metric
