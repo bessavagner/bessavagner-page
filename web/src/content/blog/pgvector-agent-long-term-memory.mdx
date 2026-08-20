@@ -3,10 +3,12 @@ title: "pgvector as an agent's long-term memory: user rules that survive the ses
 description: "My bookkeeping assistant kept re-learning that I file cigarettes under Álcool. The fix wasn't a bigger prompt: it was storing each learned rule as a pgvector embedding and retrieving it by similarity at registration time."
 pubDate: 2026-08-20T05:00:00-03:00
 tags: ["llm", "pgvector", "postgres", "ai-agents", "django"]
-status: draft
+status: approved
 cta: lets-talk
 heroImage: ../../assets/blog/pgvector-agent-long-term-memory/two-lanes.light.png
 heroImageDark: ../../assets/blog/pgvector-agent-long-term-memory/two-lanes.dark.png
+reviewedAt: 2026-08-20T14:28:25.992Z
+reviewHash: sha256:4d3139ff42658a2ef6dfb5364f4d7e2cec7ed88d34d37efacc43fb41d8bef463
 ---
 
 import ThemedFigure from '../../components/ThemedFigure.astro';
@@ -50,7 +52,7 @@ class MemoryRule(AuthoredHouseholdModel):
 
 `trigger → field=value` is the whole grammar. `cosmos → category=Alimentação` says that anything mentioning the corner market goes under Groceries. The `confidence` float is graded rather than boolean, with two thresholds the tool layer reads: at 0.9 or above the rule applies silently, between 0.7 and 0.9 it applies with a confirmation hint, below that the assistant asks first. A rule the user typed at me starts at 1.0. A rule the app inferred from behaviour starts lower, and `source` records which is which.
 
-`AuthoredHouseholdModel` is the base class every domain row in this app inherits: it carries a non-nullable `household` foreign key and a nullable `created_by`. Tenancy is a property of the base class, so a memory rule cannot exist without an owner, and one household's preferences cannot surface in another's. That matters more here than almost anywhere else in the app, because the whole point of the feature is that it changes what the model does.
+`AuthoredHouseholdModel` sits on top of `HouseholdOwnedModel`, the abstract base every domain row in this app inherits: the base carries a non-nullable `household` foreign key, and the subclass adds a nullable `created_by`. Tenancy is a property of the base class, so a memory rule cannot exist without an owner, and one household's preferences cannot surface in another's. That matters more here than almost anywhere else in the app, because the whole point of the feature is that it changes what the model does.
 
 ## Why embed a rule you can already find with LIKE
 
@@ -58,7 +60,7 @@ The exact matcher is about a dozen lines and it is not clever:
 
 ```python
 def find_matching_rules(scope, message: str) -> list[MemoryRule]:
-    """Rules whose trigger appears in the message (case-insensitive substring)."""
+    """Find memory rules whose trigger appears in the message (case-insensitive substring)."""
 ```
 
 It loads the household's rules, lowercases the message, and keeps the ones whose trigger is a substring. Type "comprei no cosmos hoje" and the `cosmos` rule fires. It's exact, it's instant, and it fails the moment the user's wording drifts. "Onde eu compro comida" (where I buy food) contains no trigger, so the substring lane returns nothing, even though the household has a rule that answers it.
