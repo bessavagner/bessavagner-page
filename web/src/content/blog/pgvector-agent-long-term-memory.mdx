@@ -1,14 +1,14 @@
 ---
 title: "pgvector as an agent's long-term memory: user rules that survive the session"
-description: "My bookkeeping assistant kept re-learning that I file cigarettes under Álcool. The fix wasn't a bigger prompt: it was storing each learned rule as a pgvector embedding and retrieving it by similarity at registration time."
+description: "My bookkeeping assistant had my personal filing quirks hardcoded into its system prompt. The fix wasn't a bigger prompt: it was storing each learned rule as a pgvector embedding and retrieving it by similarity at registration time."
 pubDate: 2026-08-20T05:00:00-03:00
 tags: ["llm", "pgvector", "postgres", "ai-agents", "django"]
 status: approved
 cta: lets-talk
 heroImage: ../../assets/blog/pgvector-agent-long-term-memory/two-lanes.light.png
 heroImageDark: ../../assets/blog/pgvector-agent-long-term-memory/two-lanes.dark.png
-reviewedAt: 2026-08-20T14:28:25.992Z
-reviewHash: sha256:4d3139ff42658a2ef6dfb5364f4d7e2cec7ed88d34d37efacc43fb41d8bef463
+reviewedAt: 2026-08-20T17:04:23.203Z
+reviewHash: sha256:c540a19b81212f9b822a316efee197e87988494f907ae39acee752c7b8cacc17
 ---
 
 import ThemedFigure from '../../components/ThemedFigure.astro';
@@ -18,13 +18,12 @@ import twoLanesDark from '../../assets/blog/pgvector-agent-long-term-memory/two-
 There is a line in my expense assistant's system prompt that I am slightly embarrassed by:
 
 ```
-Regras fixas do usuário: cigarro é sempre Álcool (ele só fuma bebendo);
-refrigerante é sempre Lanche.
+Regras fixas do usuário: [...]; refrigerante é sempre Lanche.
 ```
 
-Translated: cigarettes always go under *Álcool* (the Alcohol budget category), because I only smoke when I'm drinking; soft drinks always go under *Lanche* (Snacks). Two facts about exactly one person, hardcoded into a prompt that ships to everybody.
+Translated: soft drinks always go under *Lanche*, the Snacks budget category. The elided half is one more rule of the same kind, about a different habit of mine. Facts about exactly one person, hardcoded into a prompt that ships to everybody.
 
-Those two lines sit in a block the prompt itself labels *Regras de registro herdadas do sistema legado (planilha + Claude)*: bookkeeping rules inherited from the legacy system, which was a spreadsheet and an LLM chat. They are there because no amount of general knowledge gets a model to file a cigarette under Alcohol. That is not a fact about cigarettes, it is a fact about me. But a fact the user taught the assistant belongs in the database, next to that user's other rows, not in a string constant I have to redeploy to change. So the app grew a `MemoryRule` table, and then a pgvector index on top of it.
+Those lines sit in a block the prompt itself labels *Regras de registro herdadas do sistema legado (planilha + Claude)*: bookkeeping rules inherited from the legacy system, which was a spreadsheet and an LLM chat. They are there because no amount of general knowledge gets a model to file a soft drink under Snacks. Left to itself it reaches for a drinks category, or for Groceries, and it is being perfectly reasonable. That is not a fact about soft drinks, it is a fact about how I keep my books. But a fact the user taught the assistant belongs in the database, next to that user's other rows, not in a string constant I have to redeploy to change. So the app grew a `MemoryRule` table, and then a pgvector index on top of it.
 
 This post is about that second layer: why a learned rule gets an embedding at all when a `LIKE` query already finds it, and what happened when I finally measured whether the embedding lane fires.
 
@@ -32,7 +31,7 @@ This post is about that second layer: why a learned rule gets an embedding at al
 
 The assistant is a Django app: Postgres, [pydantic-ai](https://ai.pydantic.dev/) for the model calls, receipts and voice notes flowing into a household ledger my family actually uses. I have written about agent memory here before, in a different app and a different stack, where the split was [semantic recall over past messages plus a working-memory profile](/blog/giving-an-llm-agent-memory/). This one stores something narrower: not what was said, but what the user decided.
 
-There are three candidate homes for "cigarettes are Álcool":
+There are three candidate homes for "soft drinks are Lanche":
 
 1. **The system prompt.** Works immediately, applies to every user, changes only with a deploy, and spends context budget on every single call. Ten users' worth of preferences in there is the exact pressure that makes you [prune a conversation by summarizing it](/blog/pruning-chat-context-by-summarization/) later.
 2. **A rules table.** A row per fact, scoped to the household that taught it. Cheap, exact, and only found when the user's words contain the trigger.
